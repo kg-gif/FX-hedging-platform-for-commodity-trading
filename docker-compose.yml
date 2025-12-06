@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # Backend API
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./birk.db
+    volumes:
+      - ./birk.db:/app/birk.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Frontend (for production)
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.frontend
+  #   ports:
+  #     - "3000:80"
+  #   depends_on:
+  #     - api
+  #   restart: unless-stopped
+
+# For production with PostgreSQL
+# services:
+#   db:
+#     image: postgres:15
+#     environment:
+#       POSTGRES_DB: birk
+#       POSTGRES_USER: birk
+#       POSTGRES_PASSWORD: ${DB_PASSWORD}
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data
+#     restart: unless-stopped
+#
+#   api:
+#     build: .
+#     ports:
+#       - "8000:8000"
+#     environment:
+#       - DATABASE_URL=postgresql://birk:${DB_PASSWORD}@db:5432/birk
+#     depends_on:
+#       - db
+#     restart: unless-stopped
+#
+# volumes:
+#   postgres_data:
