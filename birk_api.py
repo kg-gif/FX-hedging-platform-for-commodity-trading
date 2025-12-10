@@ -17,6 +17,35 @@ import numpy as np
 from scipy import stats
 import json
 
+# ============================================
+# DIAGNOSTIC: Check installed packages
+# ============================================
+import subprocess
+import sys
+
+print("=" * 60)
+print("DIAGNOSTIC INFO - Checking Python environment")
+print("=" * 60)
+print(f"Python version: {sys.version}")
+print(f"Python executable: {sys.executable}")
+print("\nSearching for psycopg2 packages:")
+try:
+    result = subprocess.run(["pip", "list"], capture_output=True, text=True)
+    for line in result.stdout.split('\n'):
+        if 'psycopg' in line.lower():
+            print(f"  ✅ Found: {line}")
+    
+    # Try to import psycopg2
+    print("\nAttempting to import psycopg2...")
+    import psycopg2
+    print(f"  ✅ SUCCESS! psycopg2 version: {psycopg2.__version__}")
+except ImportError as e:
+    print(f"  ❌ FAILED to import psycopg2: {e}")
+except Exception as e:
+    print(f"  ⚠️ Error running diagnostic: {e}")
+
+print("=" * 60)
+print()
 # =============================================================================
 # DATABASE SETUP
 # =============================================================================
