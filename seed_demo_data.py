@@ -8,7 +8,7 @@ import requests
 from datetime import datetime, timedelta
 import random
 
-API_BASE = "http://localhost:8000"
+API_BASE = "https://birk-fx-api.onrender.com"
 
 def create_demo_company():
     """Create GlobalTrade Commodities demo company"""

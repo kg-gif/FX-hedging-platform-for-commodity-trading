@@ -21,7 +21,7 @@ import json
 # DATABASE SETUP
 # =============================================================================
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./birk.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./birk.db").replace("postgresql://", "postgresql+psycopg2://")
 
 engine = create_engine(
     DATABASE_URL, 
