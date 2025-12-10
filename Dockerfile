@@ -1,4 +1,5 @@
 FROM python:3.11-slim
+# Build timestamp: 2025-12-10T14:30
 
 WORKDIR /app
 
