@@ -1,15 +1,18 @@
 FROM python:3.11-slim
+# Force rebuild: 2025-12-10-15:00
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for PostgreSQL
 RUN apt-get update && apt-get install -y \
     gcc \
+    libpq-dev \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-backend.txt .
+RUN pip install --no-cache-dir -r requirements-backend.txt
 
 # Copy application code
 COPY birk_api.py .
