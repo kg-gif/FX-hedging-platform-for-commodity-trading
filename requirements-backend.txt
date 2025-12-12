@@ -8,3 +8,4 @@ python-dateutil==2.8.2
 numpy==1.26.3
 scipy==1.12.0
 psycopg2==2.9.9
+requests==2.31.0
