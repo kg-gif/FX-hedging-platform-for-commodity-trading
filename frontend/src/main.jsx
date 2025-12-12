@@ -33,8 +33,8 @@ function App() {
         setSelectedCompany(data[0]);
       }
     } catch (err) {
-      console.error('Error fetching companies:', err);
       setError('Failed to load companies');
+      console.error(err);
     }
   };
 
@@ -47,8 +47,8 @@ function App() {
       setExposures(data);
       setLastUpdated(new Date());
     } catch (err) {
-      console.error('Error fetching exposures:', err);
       setError('Failed to load exposures');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -62,46 +62,39 @@ function App() {
     try {
       const response = await fetch(`${API_BASE}/companies/${selectedCompany.id}/refresh-rates`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
       });
       
       if (response.ok) {
         const data = await response.json();
         console.log('Rates refreshed:', data);
-        // Refresh the exposures list to show updated rates
+        // Re-fetch exposures to get updated data
         await fetchExposures(selectedCompany.id);
       } else {
         throw new Error('Failed to refresh rates');
       }
     } catch (err) {
-      console.error('Error refreshing rates:', err);
-      setError('Failed to refresh rates. Please try again.');
+      setError('Failed to refresh rates');
+      console.error(err);
     } finally {
       setRefreshing(false);
     }
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+  const formatCurrency = (value) => {
+    if (value >= 1000000) {
+      return `$${(value / 1000000).toFixed(1)}M`;
+    }
+    return `$${value.toLocaleString()}`;
   };
 
   const formatRate = (rate) => {
-    if (!rate) return '-';
-    return rate.toFixed(4);
+    return rate ? rate.toFixed(4) : 'N/A';
   };
 
-  const formatRateChange = (exposure) => {
-    if (!exposure.current_rate || !exposure.initial_rate) return null;
-    
+  const calculateRateChange = (exposure) => {
+    if (!exposure.initial_rate || !exposure.current_rate) return null;
     const change = ((exposure.current_rate - exposure.initial_rate) / exposure.initial_rate) * 100;
-    return change.toFixed(2);
+    return change;
   };
 
   const getRateChangeColor = (change) => {
@@ -116,40 +109,52 @@ function App() {
     return '→';
   };
 
-  const totalExposure = exposures.reduce((sum, exp) => sum + (exp.current_value_usd || 0), 0);
-
-  const formatLastUpdated = () => {
-    if (!lastUpdated) return 'Never';
-    const now = new Date();
-    const diff = Math.floor((now - lastUpdated) / 1000); // seconds
+  const getTimeAgo = (date) => {
+    if (!date) return 'Never';
+    const seconds = Math.floor((new Date() - date) / 1000);
     
-    if (diff < 60) return 'Just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
-    return lastUpdated.toLocaleString();
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+    return `${Math.floor(seconds / 86400)} days ago`;
   };
+
+  const getRiskBadgeColor = (risk) => {
+    switch (risk?.toLowerCase()) {
+      case 'high': return 'bg-red-100 text-red-800';
+      case 'medium': return 'bg-yellow-100 text-yellow-800';
+      case 'low': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const totalExposure = exposures.reduce((sum, exp) => sum + (exp.current_value_usd || 0), 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-lg">
-        <div className="container mx-auto px-6 py-6">
-          <div className="flex items-center space-x-3">
-            <div className="text-4xl">🌾</div>
+      <header className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold">Birk</h1>
-              <p className="text-slate-300 text-sm">FX Risk Management Platform</p>
+              <h1 className="text-2xl font-bold text-gray-900">🌍 BIRK FX Risk Management</h1>
+              <p className="text-sm text-gray-600 mt-1">Real-time Currency Exposure Dashboard</p>
             </div>
+            {selectedCompany && (
+              <div className="text-right">
+                <p className="text-sm text-gray-600">Total Exposure</p>
+                <p className="text-2xl font-bold text-blue-600">{formatCurrency(totalExposure)}</p>
+              </div>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="container mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Company Selector */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
-            Select Company:
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Select Company
           </label>
           <select
             value={selectedCompany?.id || ''}
@@ -157,7 +162,7 @@ function App() {
               const company = companies.find(c => c.id === parseInt(e.target.value));
               setSelectedCompany(company);
             }}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {companies.map((company) => (
               <option key={company.id} value={company.id}>
@@ -167,172 +172,173 @@ function App() {
           </select>
         </div>
 
+        {/* Exposures Section */}
         {selectedCompany && (
-          <>
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="text-sm text-gray-600 mb-1">Total Exposure</div>
-                <div className="text-3xl font-bold text-slate-800">
-                  {formatCurrency(totalExposure)}
-                </div>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            {/* Section Header with Refresh Button */}
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  FX Exposures ({exposures.length})
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Last updated: {getTimeAgo(lastUpdated)}
+                </p>
               </div>
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="text-sm text-gray-600 mb-1">Number of Positions</div>
-                <div className="text-3xl font-bold text-slate-800">{exposures.length}</div>
-              </div>
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="text-sm text-gray-600 mb-1">Base Currency</div>
-                <div className="text-3xl font-bold text-slate-800">
-                  {selectedCompany.base_currency}
-                </div>
-              </div>
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="text-sm text-gray-600 mb-1">Company Type</div>
-                <div className="text-xl font-bold text-slate-800">
-                  {selectedCompany.company_type.replace(/_/g, ' ').toUpperCase()}
-                </div>
-              </div>
+              <button
+                onClick={refreshRates}
+                disabled={refreshing || loading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              >
+                {refreshing ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Refreshing...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Refresh Rates</span>
+                  </>
+                )}
+              </button>
             </div>
 
-            {/* Exposures Table */}
-            <div className="bg-white rounded-lg shadow-md overflow-hidden">
-              <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-800">FX Exposures</h2>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Last updated: {formatLastUpdated()}
-                  </p>
-                </div>
-                <button
-                  onClick={refreshRates}
-                  disabled={refreshing}
-                  className={`px-6 py-3 rounded-lg font-semibold transition-all ${
-                    refreshing
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg'
-                  }`}
-                >
-                  {refreshing ? (
-                    <span className="flex items-center">
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Refreshing...
-                    </span>
-                  ) : (
-                    '🔄 Refresh Rates'
-                  )}
-                </button>
+            {/* Error Message */}
+            {error && (
+              <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-800">{error}</p>
               </div>
+            )}
 
-              {error && (
-                <div className="mx-6 my-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                  {error}
-                </div>
-              )}
-
-              {loading ? (
-                <div className="p-12 text-center text-gray-500">
-                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mb-4"></div>
-                  <p>Loading exposures...</p>
-                </div>
-              ) : exposures.length === 0 ? (
-                <div className="p-12 text-center text-gray-500">
-                  <p className="text-lg">No exposures found for this company.</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-gray-50 border-b border-gray-200">
-                      <tr>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Currency Pair
-                        </th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Amount
-                        </th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Current Rate
-                        </th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Rate Change
-                        </th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Settlement
-                        </th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Risk Level
-                        </th>
-                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                          Description
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {exposures.map((exposure) => {
-                        const rateChange = formatRateChange(exposure);
-                        const changeNum = parseFloat(rateChange);
-                        
-                        return (
-                          <tr key={exposure.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-6 py-4">
-                              <div className="font-semibold text-gray-900">
-                                {exposure.from_currency}/{exposure.to_currency}
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 text-gray-700">
-                              {formatCurrency(exposure.amount)}
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="font-mono text-gray-900">
-                                {formatRate(exposure.current_rate)}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                Initial: {formatRate(exposure.initial_rate)}
-                              </div>
-                            </td>
-                            <td className="px-6 py-4">
-                              {rateChange ? (
-                                <div className={`flex items-center font-semibold ${getRateChangeColor(changeNum)}`}>
-                                  <span className="text-lg mr-1">{getRateChangeIcon(changeNum)}</span>
-                                  <span>{Math.abs(changeNum).toFixed(2)}%</span>
+            {/* Loading State */}
+            {loading ? (
+              <div className="px-6 py-12 text-center">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <p className="mt-4 text-gray-600">Loading exposures...</p>
+              </div>
+            ) : exposures.length === 0 ? (
+              <div className="px-6 py-12 text-center">
+                <p className="text-gray-600">No exposures found for this company.</p>
+              </div>
+            ) : (
+              /* Exposures Table */
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Currency Pair
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Amount
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Current Rate
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Rate Change
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        USD Value
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Settlement
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Risk Level
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {exposures.map((exposure) => {
+                      const rateChange = calculateRateChange(exposure);
+                      return (
+                        <tr key={exposure.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <span className="text-lg mr-2">💱</span>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {exposure.from_currency}/{exposure.to_currency}
                                 </div>
-                              ) : (
-                                <span className="text-gray-400">-</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 text-gray-700">
-                              {exposure.settlement_period.replace(/_/g, ' ')}
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-                                Low
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-gray-600 text-sm">
-                              {exposure.description || '-'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+                                <div className="text-xs text-gray-500">
+                                  {exposure.description}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {formatCurrency(exposure.amount)}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {exposure.from_currency}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {formatRate(exposure.current_rate)}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              Initial: {formatRate(exposure.initial_rate)}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            {rateChange !== null ? (
+                              <div className={`flex items-center gap-1 text-sm font-medium ${getRateChangeColor(rateChange)}`}>
+                                <span className="text-lg">{getRateChangeIcon(rateChange)}</span>
+                                <span>{Math.abs(rateChange).toFixed(2)}%</span>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-gray-400">N/A</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {formatCurrency(exposure.current_value_usd)}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              {exposure.settlement_period}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getRiskBadgeColor(exposure.risk_level)}`}>
+                              {exposure.risk_level || 'Unknown'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
-            {/* Footer Info */}
-            <div className="mt-6 text-center text-sm text-gray-500">
-              <p className="flex items-center justify-center space-x-2">
-                <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
-                <span>Connected to {API_BASE}</span>
-              </p>
-            </div>
-          </>
+            {/* Summary Footer */}
+            {exposures.length > 0 && (
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm text-gray-600">
+                    <span className="font-medium">{exposures.length}</span> active exposure{exposures.length !== 1 ? 's' : ''}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Total Portfolio Value</p>
+                    <p className="text-lg font-bold text-blue-600">{formatCurrency(totalExposure)}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }
