@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom/client';
 import './index.css';
 
 const API_BASE = 'https://birk-fx-api.onrender.com';
@@ -343,4 +344,9 @@ function App() {
   );
 }
 
-export default App;
+// Initialize React
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
