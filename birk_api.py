@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from enum import Enum
 import os
+import requests
 import numpy as np
 from scipy import stats
 import json
@@ -58,6 +59,14 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# =============================================================================
+# FX RATE CACHING SYSTEM
+# =============================================================================
+
+# Simple in-memory cache for FX rates (avoids hitting API limits)
+fx_rate_cache: Dict[str, tuple] = {}
+CACHE_DURATION_MINUTES = 60  # Cache rates for 1 hour
 
 # =============================================================================
 # ENUMS
@@ -613,6 +622,47 @@ def get_company(company_id: int, db: Session = Depends(get_db)):
 
 # --- EXPOSURE ENDPOINTS ---
 
+@app.post("/companies/{company_id}/refresh-rates")
+def refresh_company_rates(company_id: int, db: Session = Depends(get_db)):
+    """Refresh FX rates for all company exposures - returns updated exposures"""
+    exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
+    
+    if not exposures:
+        raise HTTPException(status_code=404, detail="No exposures found")
+    
+    updated_exposures = []
+    for exposure in exposures:
+        # Get fresh rate
+        old_rate = exposure.current_rate
+        new_rate = get_live_fx_rate(exposure.from_currency, exposure.to_currency)
+        
+        # Calculate change
+        rate_change = ((new_rate - old_rate) / old_rate * 100) if old_rate else 0
+        
+        # Update exposure
+        exposure.current_rate = new_rate
+        exposure.current_value_usd = exposure.amount * new_rate
+        exposure.updated_at = datetime.utcnow()
+        
+        updated_exposures.append({
+            "id": exposure.id,
+            "from_currency": exposure.from_currency,
+            "to_currency": exposure.to_currency,
+            "old_rate": old_rate,
+            "new_rate": new_rate,
+            "rate_change_pct": round(rate_change, 2),
+            "updated_at": exposure.updated_at.isoformat()
+        })
+    
+    db.commit()
+    
+    return {
+        "company_id": company_id,
+        "exposures_updated": len(updated_exposures),
+        "rates": updated_exposures,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
 @app.post("/companies/{company_id}/exposures", response_model=ExposureResponse)
 def create_exposure(
     company_id: int,
@@ -625,7 +675,7 @@ def create_exposure(
         raise HTTPException(status_code=404, detail="Company not found")
     
     # Get mock current rate (in production, call FX API)
-    current_rate = get_mock_fx_rate(exposure.from_currency, exposure.to_currency)
+    current_rate = get_live_fx_rate(exposure.from_currency, exposure.to_currency)
     
     # Get historical rates for volatility calculation
     historical_rates = get_mock_historical_rates(
@@ -916,6 +966,57 @@ def list_currencies():
 # MOCK DATA FUNCTIONS (Replace with real API in production)
 # =============================================================================
 
+def get_live_fx_rate(from_curr: str, to_curr: str) -> float:
+    """Get live FX rate from exchangerate-api.com with caching"""
+    
+    # Check cache first
+    cache_key = f"{from_curr}_{to_curr}"
+    if cache_key in fx_rate_cache:
+        cached_rate, cached_time = fx_rate_cache[cache_key]
+        if datetime.utcnow() - cached_time < timedelta(minutes=CACHE_DURATION_MINUTES):
+            print(f"📊 Using cached rate for {from_curr}/{to_curr}: {cached_rate}")
+            return cached_rate
+    
+    # Get API key from environment
+    api_key = os.getenv("FX_API_KEY", "")
+    if not api_key:
+        print("⚠️ No FX_API_KEY found, using mock rates")
+        return get_mock_fx_rate(from_curr, to_curr)
+    
+    try:
+        # Call exchangerate-api.com
+        url = f"https://v6.exchangerate-api.com/v6/{api_key}/latest/{from_curr}"
+        print(f"🌐 Fetching live rate: {from_curr} -> {to_curr}")
+        
+        response = requests.get(url, timeout=5)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get("result") == "success":
+                rates = data.get("conversion_rates", {})
+                
+                if to_curr in rates:
+                    rate = rates[to_curr]
+                    # Cache the rate
+                    fx_rate_cache[cache_key] = (rate, datetime.utcnow())
+                    print(f"✅ Live rate: {from_curr}/{to_curr} = {rate}")
+                    return rate
+                else:
+                    print(f"⚠️ Currency {to_curr} not found in rates")
+            else:
+                print(f"⚠️ API returned: {data.get('result')}")
+        else:
+            print(f"⚠️ API status code: {response.status_code}")
+        
+        # Fallback to mock on error
+        print(f"⚠️ Falling back to mock rate for {from_curr}/{to_curr}")
+        return get_mock_fx_rate(from_curr, to_curr)
+        
+    except Exception as e:
+        print(f"❌ FX API Error: {e}")
+        return get_mock_fx_rate(from_curr, to_curr)
+
 def get_mock_fx_rate(from_curr: str, to_curr: str) -> float:
     """Mock FX rates - replace with real API"""
     rates = {
@@ -958,6 +1059,103 @@ def get_mock_historical_rates(from_curr: str, to_curr: str, days: int = 30) -> L
     
     return rates
 
+# =============================================================================
+# FX RATE MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.post("/exposures/{exposure_id}/refresh-rate")
+def refresh_exposure_rate(exposure_id: int, db: Session = Depends(get_db)):
+    """Refresh FX rate for a specific exposure"""
+    exposure = db.query(Exposure).filter(Exposure.id == exposure_id).first()
+    if not exposure:
+        raise HTTPException(status_code=404, detail="Exposure not found")
+    
+    # Get fresh rate (bypasses cache by clearing it first)
+    cache_key = f"{exposure.from_currency}_{exposure.to_currency}"
+    if cache_key in fx_rate_cache:
+        del fx_rate_cache[cache_key]
+    
+    new_rate = get_live_fx_rate(exposure.from_currency, exposure.to_currency)
+    old_rate = exposure.current_rate
+    
+    # Update exposure
+    exposure.current_rate = new_rate
+    exposure.current_value_usd = exposure.amount * new_rate
+    exposure.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(exposure)
+    
+    return {
+        "exposure_id": exposure_id,
+        "currency_pair": f"{exposure.from_currency}/{exposure.to_currency}",
+        "old_rate": old_rate,
+        "new_rate": new_rate,
+        "change_pct": ((new_rate - old_rate) / old_rate * 100) if old_rate else 0,
+        "updated_at": exposure.updated_at
+    }
+
+
+@app.post("/companies/{company_id}/refresh-all-rates")
+def refresh_all_rates(company_id: int, db: Session = Depends(get_db)):
+    """Refresh all FX rates for a company's exposures"""
+    exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
+    
+    if not exposures:
+        return {
+            "company_id": company_id,
+            "exposures_updated": 0,
+            "message": "No exposures found"
+        }
+    
+    # Clear cache to force fresh rates
+    fx_rate_cache.clear()
+    
+    updated_exposures = []
+    for exposure in exposures:
+        old_rate = exposure.current_rate
+        new_rate = get_live_fx_rate(exposure.from_currency, exposure.to_currency)
+        
+        exposure.current_rate = new_rate
+        exposure.current_value_usd = exposure.amount * new_rate
+        exposure.updated_at = datetime.utcnow()
+        
+        updated_exposures.append({
+            "currency_pair": f"{exposure.from_currency}/{exposure.to_currency}",
+            "old_rate": old_rate,
+            "new_rate": new_rate,
+            "change_pct": ((new_rate - old_rate) / old_rate * 100) if old_rate else 0
+        })
+    
+    db.commit()
+    
+    return {
+        "company_id": company_id,
+        "exposures_updated": len(updated_exposures),
+        "rates": updated_exposures,
+        "updated_at": datetime.utcnow()
+    }
+
+
+@app.get("/fx-rates/cache-status")
+def get_cache_status():
+    """Check FX rate cache status"""
+    cache_info = []
+    for key, (rate, cached_time) in fx_rate_cache.items():
+        age_minutes = (datetime.utcnow() - cached_time).total_seconds() / 60
+        cache_info.append({
+            "currency_pair": key,
+            "rate": rate,
+            "cached_minutes_ago": round(age_minutes, 2),
+            "expires_in_minutes": round(CACHE_DURATION_MINUTES - age_minutes, 2)
+        })
+    
+    return {
+        "cache_size": len(fx_rate_cache),
+        "cache_duration_minutes": CACHE_DURATION_MINUTES,
+        "cached_rates": cache_info,
+        "api_key_configured": bool(os.getenv("FX_API_KEY"))
+    }
 
 # =============================================================================
 # STARTUP
@@ -982,3 +1180,4 @@ def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+# Force commit - added refresh endpoint

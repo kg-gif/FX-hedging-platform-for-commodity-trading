@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { createRoot } from 'react-dom/client';
+import './index.css';
 
-// Main Birk Dashboard Component
-function BirkDashboard() {
+const API_BASE = 'https://birk-fx-api.onrender.com';
+
+function App() {
   const [companies, setCompanies] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [exposures, setExposures] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [error, setError] = useState(null);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-  // Fetch companies on load
+  // Fetch companies on mount
   useEffect(() => {
     fetchCompanies();
   }, []);
@@ -25,29 +26,60 @@ function BirkDashboard() {
 
   const fetchCompanies = async () => {
     try {
-      setLoading(true);
-      const response = await fetch(`${API_URL}/companies`);
-      if (!response.ok) throw new Error('Failed to fetch companies');
+      const response = await fetch(`${API_BASE}/companies`);
       const data = await response.json();
       setCompanies(data);
-      if (data.length > 0) setSelectedCompany(data[0]);
-      setError(null);
+      if (data.length > 0) {
+        setSelectedCompany(data[0]);
+      }
     } catch (err) {
-      setError(err.message);
+      console.error('Error fetching companies:', err);
+      setError('Failed to load companies');
+    }
+  };
+
+  const fetchExposures = async (companyId) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/companies/${companyId}/exposures`);
+      const data = await response.json();
+      setExposures(data);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error('Error fetching exposures:', err);
+      setError('Failed to load exposures');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchExposures = async (companyId) => {
+  const refreshRates = async () => {
+    if (!selectedCompany) return;
+    
+    setRefreshing(true);
+    setError(null);
     try {
-      const response = await fetch(`${API_URL}/companies/${companyId}/exposures`);
-      if (!response.ok) throw new Error('Failed to fetch exposures');
-      const data = await response.json();
-      setExposures(data);
+      const response = await fetch(`${API_BASE}/companies/${selectedCompany.id}/refresh-rates`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Rates refreshed:', data);
+        // Refresh the exposures list to show updated rates
+        await fetchExposures(selectedCompany.id);
+      } else {
+        throw new Error('Failed to refresh rates');
+      }
     } catch (err) {
-      console.error('Error fetching exposures:', err);
-      setExposures([]);
+      console.error('Error refreshing rates:', err);
+      setError('Failed to refresh rates. Please try again.');
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -60,63 +92,74 @@ function BirkDashboard() {
     }).format(amount);
   };
 
-  const calculateTotalExposure = () => {
-    return exposures.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+  const formatRate = (rate) => {
+    if (!rate) return '-';
+    return rate.toFixed(4);
   };
 
-  const getRiskLevel = (exposure) => {
-    const volatility = exposure.volatility || 0;
-    if (volatility > 15) return { level: 'High', color: '#ef4444' };
-    if (volatility > 8) return { level: 'Medium', color: '#f59e0b' };
-    return { level: 'Low', color: '#10b981' };
+  const formatRateChange = (exposure) => {
+    if (!exposure.current_rate || !exposure.initial_rate) return null;
+    
+    const change = ((exposure.current_rate - exposure.initial_rate) / exposure.initial_rate) * 100;
+    return change.toFixed(2);
   };
 
-  if (loading) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.loading}>Loading Birk Dashboard...</div>
-      </div>
-    );
-  }
+  const getRateChangeColor = (change) => {
+    if (change > 0) return 'text-green-600';
+    if (change < 0) return 'text-red-600';
+    return 'text-gray-600';
+  };
 
-  if (error) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.error}>
-          <h2>Error</h2>
-          <p>{error}</p>
-          <p style={{ fontSize: '14px', marginTop: '10px' }}>
-            Make sure the API is running at: {API_URL}
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const getRateChangeIcon = (change) => {
+    if (change > 0) return '↑';
+    if (change < 0) return '↓';
+    return '→';
+  };
+
+  const totalExposure = exposures.reduce((sum, exp) => sum + (exp.current_value_usd || 0), 0);
+
+  const formatLastUpdated = () => {
+    if (!lastUpdated) return 'Never';
+    const now = new Date();
+    const diff = Math.floor((now - lastUpdated) / 1000); // seconds
+    
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+    return lastUpdated.toLocaleString();
+  };
 
   return (
-    <div style={styles.container}>
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header style={styles.header}>
-        <div style={styles.headerContent}>
-          <h1 style={styles.title}>🌾 Birk</h1>
-          <p style={styles.subtitle}>FX Risk Management Platform</p>
+      <header className="bg-gradient-to-r from-slate-800 to-slate-900 text-white shadow-lg">
+        <div className="container mx-auto px-6 py-6">
+          <div className="flex items-center space-x-3">
+            <div className="text-4xl">🌾</div>
+            <div>
+              <h1 className="text-3xl font-bold">Birk</h1>
+              <p className="text-slate-300 text-sm">FX Risk Management Platform</p>
+            </div>
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main style={styles.main}>
+      <main className="container mx-auto px-6 py-8">
         {/* Company Selector */}
-        <div style={styles.card}>
-          <label style={styles.label}>Select Company:</label>
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Select Company:
+          </label>
           <select
-            style={styles.select}
             value={selectedCompany?.id || ''}
             onChange={(e) => {
               const company = companies.find(c => c.id === parseInt(e.target.value));
               setSelectedCompany(company);
             }}
+            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
-            {companies.map(company => (
+            {companies.map((company) => (
               <option key={company.id} value={company.id}>
                 {company.name}
               </option>
@@ -126,310 +169,172 @@ function BirkDashboard() {
 
         {selectedCompany && (
           <>
-            {/* Summary Cards */}
-            <div style={styles.summaryGrid}>
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryLabel}>Total Exposure</div>
-                <div style={styles.summaryValue}>
-                  {formatCurrency(calculateTotalExposure())}
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="text-sm text-gray-600 mb-1">Total Exposure</div>
+                <div className="text-3xl font-bold text-slate-800">
+                  {formatCurrency(totalExposure)}
                 </div>
               </div>
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryLabel}>Number of Positions</div>
-                <div style={styles.summaryValue}>{exposures.length}</div>
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="text-sm text-gray-600 mb-1">Number of Positions</div>
+                <div className="text-3xl font-bold text-slate-800">{exposures.length}</div>
               </div>
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryLabel}>Base Currency</div>
-                <div style={styles.summaryValue}>{selectedCompany.base_currency}</div>
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="text-sm text-gray-600 mb-1">Base Currency</div>
+                <div className="text-3xl font-bold text-slate-800">
+                  {selectedCompany.base_currency}
+                </div>
               </div>
-              <div style={styles.summaryCard}>
-                <div style={styles.summaryLabel}>Company Type</div>
-                <div style={styles.summaryValue}>
-                  {selectedCompany.company_type?.replace('_', ' ').toUpperCase() || 'N/A'}
+              <div className="bg-white rounded-lg shadow-md p-6">
+                <div className="text-sm text-gray-600 mb-1">Company Type</div>
+                <div className="text-xl font-bold text-slate-800">
+                  {selectedCompany.company_type.replace(/_/g, ' ').toUpperCase()}
                 </div>
               </div>
             </div>
 
-            {/* Exposures List */}
-            <div style={styles.card}>
-              <h2 style={styles.cardTitle}>FX Exposures</h2>
-              {exposures.length === 0 ? (
-                <p style={styles.emptyState}>No exposures found for this company.</p>
+            {/* Exposures Table */}
+            <div className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800">FX Exposures</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Last updated: {formatLastUpdated()}
+                  </p>
+                </div>
+                <button
+                  onClick={refreshRates}
+                  disabled={refreshing}
+                  className={`px-6 py-3 rounded-lg font-semibold transition-all ${
+                    refreshing
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg'
+                  }`}
+                >
+                  {refreshing ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Refreshing...
+                    </span>
+                  ) : (
+                    '🔄 Refresh Rates'
+                  )}
+                </button>
+              </div>
+
+              {error && (
+                <div className="mx-6 my-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                  {error}
+                </div>
+              )}
+
+              {loading ? (
+                <div className="p-12 text-center text-gray-500">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mb-4"></div>
+                  <p>Loading exposures...</p>
+                </div>
+              ) : exposures.length === 0 ? (
+                <div className="p-12 text-center text-gray-500">
+                  <p className="text-lg">No exposures found for this company.</p>
+                </div>
               ) : (
-                <div style={styles.table}>
-                  <div style={styles.tableHeader}>
-                    <div style={styles.tableCell}>Currency Pair</div>
-                    <div style={styles.tableCell}>Amount</div>
-                    <div style={styles.tableCell}>Settlement</div>
-                    <div style={styles.tableCell}>Risk Level</div>
-                    <div style={styles.tableCell}>Description</div>
-                  </div>
-                  {exposures.map(exposure => {
-                    const risk = getRiskLevel(exposure);
-                    return (
-                      <div key={exposure.id} style={styles.tableRow}>
-                        <div style={styles.tableCell}>
-                          <strong>{exposure.from_currency}/{exposure.to_currency}</strong>
-                        </div>
-                        <div style={styles.tableCell}>
-                          {formatCurrency(exposure.amount)}
-                        </div>
-                        <div style={styles.tableCell}>
-                          {exposure.settlement_period?.replace('_', ' ') || 'N/A'}
-                        </div>
-                        <div style={styles.tableCell}>
-                          <span style={{
-                            ...styles.badge,
-                            backgroundColor: risk.color,
-                          }}>
-                            {risk.level}
-                          </span>
-                        </div>
-                        <div style={styles.tableCell}>
-                          {exposure.description || 'No description'}
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          Currency Pair
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          Amount
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          Current Rate
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          Rate Change
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          Settlement
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          Risk Level
+                        </th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                          Description
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {exposures.map((exposure) => {
+                        const rateChange = formatRateChange(exposure);
+                        const changeNum = parseFloat(rateChange);
+                        
+                        return (
+                          <tr key={exposure.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="font-semibold text-gray-900">
+                                {exposure.from_currency}/{exposure.to_currency}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-gray-700">
+                              {formatCurrency(exposure.amount)}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="font-mono text-gray-900">
+                                {formatRate(exposure.current_rate)}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                Initial: {formatRate(exposure.initial_rate)}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              {rateChange ? (
+                                <div className={`flex items-center font-semibold ${getRateChangeColor(changeNum)}`}>
+                                  <span className="text-lg mr-1">{getRateChangeIcon(changeNum)}</span>
+                                  <span>{Math.abs(changeNum).toFixed(2)}%</span>
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-gray-700">
+                              {exposure.settlement_period.replace(/_/g, ' ')}
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                                Low
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-gray-600 text-sm">
+                              {exposure.description || '-'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
 
-            {/* Risk Analysis */}
-            <div style={styles.card}>
-              <h2 style={styles.cardTitle}>Risk Analysis</h2>
-              <div style={styles.riskGrid}>
-                {exposures.slice(0, 4).map(exposure => {
-                  const risk = getRiskLevel(exposure);
-                  return (
-                    <div key={exposure.id} style={styles.riskCard}>
-                      <div style={styles.riskPair}>
-                        {exposure.from_currency}/{exposure.to_currency}
-                      </div>
-                      <div style={styles.riskAmount}>
-                        {formatCurrency(exposure.amount)}
-                      </div>
-                      <div style={styles.riskMetric}>
-                        <span style={{ color: '#6b7280' }}>Volatility:</span>
-                        <span style={{ color: risk.color, fontWeight: 'bold' }}>
-                          {(exposure.volatility || 0).toFixed(2)}%
-                        </span>
-                      </div>
-                      {exposure.var_95 && (
-                        <div style={styles.riskMetric}>
-                          <span style={{ color: '#6b7280' }}>VaR (95%):</span>
-                          <span>{formatCurrency(exposure.var_95)}</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+            {/* Footer Info */}
+            <div className="mt-6 text-center text-sm text-gray-500">
+              <p className="flex items-center justify-center space-x-2">
+                <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+                <span>Connected to {API_BASE}</span>
+              </p>
             </div>
           </>
         )}
-
-        {/* API Status */}
-        <div style={styles.footer}>
-          <div style={styles.statusDot}></div>
-          <span style={styles.statusText}>Connected to {API_URL}</span>
-        </div>
       </main>
     </div>
   );
 }
 
-// Styles
-const styles = {
-  container: {
-    minHeight: '100vh',
-    backgroundColor: '#f3f4f6',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-  },
-  header: {
-    backgroundColor: '#1f2937',
-    color: 'white',
-    padding: '2rem',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-  },
-  headerContent: {
-    maxWidth: '1200px',
-    margin: '0 auto',
-  },
-  title: {
-    fontSize: '2rem',
-    margin: 0,
-    fontWeight: 'bold',
-  },
-  subtitle: {
-    fontSize: '1rem',
-    margin: '0.5rem 0 0 0',
-    color: '#9ca3af',
-  },
-  main: {
-    maxWidth: '1200px',
-    margin: '0 auto',
-    padding: '2rem',
-  },
-  card: {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '1.5rem',
-    marginBottom: '1.5rem',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-  },
-  cardTitle: {
-    fontSize: '1.25rem',
-    fontWeight: 'bold',
-    marginBottom: '1rem',
-    color: '#1f2937',
-  },
-  label: {
-    display: 'block',
-    fontSize: '0.875rem',
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: '0.5rem',
-  },
-  select: {
-    width: '100%',
-    padding: '0.5rem',
-    fontSize: '1rem',
-    border: '1px solid #d1d5db',
-    borderRadius: '6px',
-    backgroundColor: 'white',
-    cursor: 'pointer',
-  },
-  summaryGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-    gap: '1rem',
-    marginBottom: '1.5rem',
-  },
-  summaryCard: {
-    backgroundColor: 'white',
-    borderRadius: '8px',
-    padding: '1.5rem',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-  },
-  summaryLabel: {
-    fontSize: '0.875rem',
-    color: '#6b7280',
-    marginBottom: '0.5rem',
-  },
-  summaryValue: {
-    fontSize: '1.5rem',
-    fontWeight: 'bold',
-    color: '#1f2937',
-  },
-  table: {
-    width: '100%',
-    overflowX: 'auto',
-  },
-  tableHeader: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr 1fr 2fr',
-    gap: '1rem',
-    padding: '0.75rem',
-    backgroundColor: '#f9fafb',
-    borderRadius: '6px',
-    fontWeight: '600',
-    fontSize: '0.875rem',
-    color: '#374151',
-    marginBottom: '0.5rem',
-  },
-  tableRow: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr 1fr 2fr',
-    gap: '1rem',
-    padding: '0.75rem',
-    borderBottom: '1px solid #e5e7eb',
-    alignItems: 'center',
-  },
-  tableCell: {
-    fontSize: '0.875rem',
-    color: '#1f2937',
-  },
-  badge: {
-    display: 'inline-block',
-    padding: '0.25rem 0.75rem',
-    borderRadius: '9999px',
-    fontSize: '0.75rem',
-    fontWeight: '600',
-    color: 'white',
-  },
-  riskGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '1rem',
-  },
-  riskCard: {
-    padding: '1rem',
-    backgroundColor: '#f9fafb',
-    borderRadius: '6px',
-    border: '1px solid #e5e7eb',
-  },
-  riskPair: {
-    fontSize: '1rem',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '0.5rem',
-  },
-  riskAmount: {
-    fontSize: '1.25rem',
-    fontWeight: 'bold',
-    color: '#059669',
-    marginBottom: '0.5rem',
-  },
-  riskMetric: {
-    fontSize: '0.875rem',
-    marginTop: '0.25rem',
-    display: 'flex',
-    justifyContent: 'space-between',
-  },
-  loading: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: '100vh',
-    fontSize: '1.5rem',
-    color: '#6b7280',
-  },
-  error: {
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: '100vh',
-    padding: '2rem',
-    color: '#ef4444',
-  },
-  emptyState: {
-    textAlign: 'center',
-    color: '#6b7280',
-    padding: '2rem',
-    fontSize: '1rem',
-  },
-  footer: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '1rem',
-    fontSize: '0.875rem',
-    color: '#6b7280',
-  },
-  statusDot: {
-    width: '8px',
-    height: '8px',
-    borderRadius: '50%',
-    backgroundColor: '#10b981',
-    marginRight: '0.5rem',
-  },
-  statusText: {
-    fontSize: '0.875rem',
-  },
-};
-
-// Initialize app
-const root = createRoot(document.getElementById('root'));
-root.render(<BirkDashboard />);
+export default App;
