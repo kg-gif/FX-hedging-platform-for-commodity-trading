@@ -5,10 +5,15 @@ import './index.css'
 const API_BASE = 'https://birk-fx-api.onrender.com'
 
 const CURRENCY_FLAGS = {
-  'EUR': '🇪🇺', 'CNY': '🇨🇳', 'MXN': '🇲🇽', 'CAD': '🇨🇦',
-  'BRL': '🇧🇷', 'AUD': '🇦🇺', 'ZAR': '🇿🇦', 'INR': '🇮🇳'
+  'EUR': '🇪🇺', 'USD': '🇺🇸', 'GBP': '🇬🇧', 'JPY': '🇯🇵', 'CHF': '🇨🇭',
+  'CNY': '🇨🇳', 'INR': '🇮🇳', 'KRW': '🇰🇷', 'SGD': '🇸🇬', 'HKD': '🇭🇰',
+  'MXN': '🇲🇽', 'CAD': '🇨🇦', 'BRL': '🇧🇷', 'AUD': '🇦🇺', 'NZD': '🇳🇿',
+  'ZAR': '🇿🇦', 'THB': '🇹🇭', 'MYR': '🇲🇾', 'IDR': '🇮🇩', 'PHP': '🇵🇭',
+  'VND': '🇻🇳', 'RUB': '🇷🇺', 'TRY': '🇹🇷', 'PLN': '🇵🇱', 'SEK': '🇸🇪',
+  'NOK': '🇳🇴', 'DKK': '🇩🇰', 'CZK': '🇨🇿', 'HUF': '🇭🇺', 'ILS': '🇮🇱',
+  'CLP': '🇨🇱', 'ARS': '🇦🇷', 'COP': '🇨🇴', 'PEN': '🇵🇪', 'EGP': '🇪🇬',
+  'SAR': '🇸🇦', 'AED': '🇦🇪', 'KWD': '🇰🇼', 'QAR': '🇶🇦', 'NGN': '🇳🇬'
 }
-
 function App() {
   const [companies, setCompanies] = useState([])
   const [selectedCompany, setSelectedCompany] = useState(null)
@@ -76,6 +81,18 @@ function App() {
 
   const totalValue = exposures.reduce((sum, exp) => sum + (exp.current_value_usd || 0), 0)
 
+// Calculate summary statistics
+  const stats = {
+    totalExposures: exposures.length,
+    highRiskCount: exposures.filter(e => e.risk_level === 'High').length,
+    avgRate: exposures.length > 0 
+      ? exposures.reduce((sum, e) => sum + (e.rate_change_pct || 0), 0) / exposures.length 
+      : 0,
+    largestExposure: exposures.length > 0
+      ? Math.max(...exposures.map(e => e.current_value_usd))
+      : 0
+  }
+
   const getRiskBadgeColor = (risk) => {
     if (risk === 'High') return 'bg-red-100 text-red-800'
     if (risk === 'Medium') return 'bg-yellow-100 text-yellow-800'
@@ -89,6 +106,32 @@ function App() {
     if (dir === 'neutral') return <span className="text-gray-500">→ {pct.toFixed(2)}%</span>
     if (dir === 'up') return <span className="text-green-600">↑ +{pct.toFixed(2)}%</span>
     return <span className="text-red-600">↓ {pct.toFixed(2)}%</span>
+  }
+
+const exportToCSV = () => {
+    const headers = ['Currency Pair', 'Amount', 'Rate', 'Change %', 'USD Value', 'Period', 'Risk', 'Description']
+    const rows = exposures.map(exp => [
+      `${exp.from_currency}/${exp.to_currency}`,
+      `${exp.amount} ${exp.from_currency}`,
+      exp.current_rate.toFixed(4),
+      (exp.rate_change_pct || 0).toFixed(2) + '%',
+      exp.current_value_usd.toFixed(2),
+      `${exp.settlement_period} days`,
+      exp.risk_level,
+      exp.description
+    ])
+    
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n')
+    
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedCompany?.name || 'exposures'}_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
   }
 
   return (
@@ -108,6 +151,41 @@ function App() {
             )}
           </div>
         </div>
+{/* Summary Cards */}
+        {!loading && exposures.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600 mb-1">Total Portfolio</div>
+              <div className="text-2xl font-bold text-blue-600">
+                ${totalValue.toLocaleString()}
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600 mb-1">Exposures</div>
+              <div className="text-2xl font-bold text-gray-800">
+                {stats.totalExposures}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {stats.highRiskCount} High Risk
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600 mb-1">Avg Rate Change</div>
+              <div className={`text-2xl font-bold ${stats.avgRate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {stats.avgRate >= 0 ? '↑' : '↓'} {Math.abs(stats.avgRate).toFixed(2)}%
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600 mb-1">Largest Exposure</div>
+              <div className="text-2xl font-bold text-purple-600">
+                ${stats.largestExposure.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Company Selector & Actions */}
         <div className="bg-white rounded-lg shadow p-4 mb-6 flex items-center justify-between">
@@ -123,14 +201,23 @@ function App() {
               ))}
             </select>
           </div>
-          <button
-            onClick={refreshRates}
-            disabled={refreshing}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {refreshing ? 'Refreshing...' : '🔄 Refresh Rates'}
-          </button>
-        </div>
+  
+
+<div className="flex gap-3">
+            <button
+              onClick={exportToCSV}
+              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              📥 Export CSV
+            </button>
+            <button
+              onClick={refreshRates}
+              disabled={refreshing}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {refreshing ? 'Refreshing...' : '🔄 Refresh Rates'}
+            </button>
+          </div>
 
         {/* Error Message */}
         {error && (
