@@ -295,7 +295,6 @@ const exportToCSV = () => {
               </table>
             </div>
           </div>
-        )}
       </div>
     </div>
   )
