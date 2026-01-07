@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import './index.css'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
@@ -115,8 +116,43 @@ function App() {
     largestExposure: exposures.length > 0
       ? Math.max(...exposures.map(e => e.current_value_usd))
       : 0
-  }
+  }f
 
+// Prepare chart data
+  const currencyDistribution = exposures.reduce((acc, exp) => {
+    const existing = acc.find(item => item.currency === exp.from_currency)
+    if (existing) {
+      existing.value += exp.current_value_usd
+    } else {
+      acc.push({
+        currency: exp.from_currency,
+        value: exp.current_value_usd,
+        flag: CURRENCY_FLAGS[exp.from_currency] || '🏳️'
+      })
+    }
+    return acc
+  }, [])
+
+  const riskDistribution = [
+    { risk: 'High', count: exposures.filter(e => e.risk_level === 'High').length, color: '#ef4444' },
+    { risk: 'Medium', count: exposures.filter(e => e.risk_level === 'Medium').length, color: '#eab308' },
+    { risk: 'Low', count: exposures.filter(e => e.risk_level === 'Low').length, color: '#22c55e' }
+  ].filter(item => item.count > 0)
+
+  const rateChanges = exposures.map(exp => ({
+    currency: exp.from_currency,
+    change: exp.rate_change_pct || 0,
+    flag: CURRENCY_FLAGS[exp.from_currency] || '🏳️'
+  })).sort((a, b) => b.change - a.change)
+
+  const settlementTimeline = exposures.map(exp => ({
+    currency: `${CURRENCY_FLAGS[exp.from_currency] || '🏳️'} ${exp.from_currency}`,
+    days: exp.settlement_period,
+    value: exp.current_value_usd,
+    risk: exp.risk_level
+  })).sort((a, b) => a.days - b.days)
+
+  const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']
   const getRiskBadgeColor = (risk) => {
     if (risk === 'High') return 'bg-red-100 text-red-800'
     if (risk === 'Medium') return 'bg-yellow-100 text-yellow-800'
@@ -157,6 +193,92 @@ function App() {
                 ${totalValue.toLocaleString()}
               </div>
             </div>
+
+{/* Analytics Charts */}
+        {!loading && exposures.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* Pie Chart - Currency Distribution */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Exposure by Currency</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={currencyDistribution}
+                    dataKey="value"
+                    nameKey="currency"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={100}
+                    label={(entry) => `${entry.flag} ${entry.currency}: $${(entry.value / 1000000).toFixed(1)}M`}
+                  >
+                    {currencyDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => `$${value.toLocaleString()}`} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Bar Chart - Risk Distribution */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Risk Level Distribution</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={riskDistribution}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="risk" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="#3b82f6">
+                    {riskDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="mt-4 text-sm text-gray-600 text-center">
+                Total Exposures: {exposures.length}
+              </div>
+            </div>
+
+            {/* Line Chart - Rate Changes */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Rate Change Trends</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={rateChanges}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="currency" />
+                  <YAxis label={{ value: '%', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip formatter={(value) => `${value.toFixed(2)}%`} />
+                  <Legend />
+                  <Line type="monotone" dataKey="change" stroke="#3b82f6" strokeWidth={2} dot={{ r: 5 }} name="Rate Change %" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Bar Chart - Settlement Timeline */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Settlement Timeline</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={settlementTimeline} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" label={{ value: 'Days', position: 'bottom' }} />
+                  <YAxis dataKey="currency" type="category" width={80} />
+                  <Tooltip formatter={(value) => `${value} days`} />
+                  <Bar dataKey="days" fill="#8b5cf6">
+                    {settlementTimeline.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={entry.risk === 'High' ? '#ef4444' : entry.risk === 'Medium' ? '#eab308' : '#22c55e'} 
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
             
             <div className="bg-white rounded-lg shadow p-6">
               <div className="text-sm text-gray-600 mb-1">Exposures</div>
