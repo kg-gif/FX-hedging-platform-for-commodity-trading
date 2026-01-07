@@ -14,6 +14,7 @@ const CURRENCY_FLAGS = {
   'CLP': '🇨🇱', 'ARS': '🇦🇷', 'COP': '🇨🇴', 'PEN': '🇵🇪', 'EGP': '🇪🇬',
   'SAR': '🇸🇦', 'AED': '🇦🇪', 'KWD': '🇰🇼', 'QAR': '🇶🇦', 'NGN': '🇳🇬'
 }
+
 function App() {
   const [companies, setCompanies] = useState([])
   const [selectedCompany, setSelectedCompany] = useState(null)
@@ -23,12 +24,10 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState(null)
   const [error, setError] = useState(null)
 
-  // Fetch companies on mount
   useEffect(() => {
     fetchCompanies()
   }, [])
 
-  // Fetch exposures when company changes
   useEffect(() => {
     if (selectedCompany) {
       fetchExposures(selectedCompany.id)
@@ -79,9 +78,34 @@ function App() {
     }
   }
 
+  const exportToCSV = () => {
+    const headers = ['Currency Pair', 'Amount', 'Rate', 'Change %', 'USD Value', 'Period', 'Risk', 'Description']
+    const rows = exposures.map(exp => [
+      `${exp.from_currency}/${exp.to_currency}`,
+      `${exp.amount} ${exp.from_currency}`,
+      exp.current_rate.toFixed(4),
+      (exp.rate_change_pct || 0).toFixed(2) + '%',
+      exp.current_value_usd.toFixed(2),
+      `${exp.settlement_period} days`,
+      exp.risk_level,
+      exp.description
+    ])
+    
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n')
+    
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedCompany?.name || 'exposures'}_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+  }
+
   const totalValue = exposures.reduce((sum, exp) => sum + (exp.current_value_usd || 0), 0)
 
-// Calculate summary statistics
   const stats = {
     totalExposures: exposures.length,
     highRiskCount: exposures.filter(e => e.risk_level === 'High').length,
@@ -108,36 +132,9 @@ function App() {
     return <span className="text-red-600">↓ {pct.toFixed(2)}%</span>
   }
 
-const exportToCSV = () => {
-    const headers = ['Currency Pair', 'Amount', 'Rate', 'Change %', 'USD Value', 'Period', 'Risk', 'Description']
-    const rows = exposures.map(exp => [
-      `${exp.from_currency}/${exp.to_currency}`,
-      `${exp.amount} ${exp.from_currency}`,
-      exp.current_rate.toFixed(4),
-      (exp.rate_change_pct || 0).toFixed(2) + '%',
-      exp.current_value_usd.toFixed(2),
-      `${exp.settlement_period} days`,
-      exp.risk_level,
-      exp.description
-    ])
-    
-    const csv = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n')
-    
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${selectedCompany?.name || 'exposures'}_${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-8">
-        {/* Header */}
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div>
@@ -151,7 +148,7 @@ const exportToCSV = () => {
             )}
           </div>
         </div>
-{/* Summary Cards */}
+
         {!loading && exposures.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <div className="bg-white rounded-lg shadow p-6">
@@ -187,7 +184,6 @@ const exportToCSV = () => {
           </div>
         )}
 
-        {/* Company Selector & Actions */}
         <div className="bg-white rounded-lg shadow p-4 mb-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <label className="text-sm font-medium text-gray-700">Company:</label>
@@ -201,9 +197,7 @@ const exportToCSV = () => {
               ))}
             </select>
           </div>
-  
-
-<div className="flex gap-3">
+          <div className="flex gap-3">
             <button
               onClick={exportToCSV}
               className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
@@ -218,15 +212,14 @@ const exportToCSV = () => {
               {refreshing ? 'Refreshing...' : '🔄 Refresh Rates'}
             </button>
           </div>
+        </div>
 
-        {/* Error Message */}
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
             {error}
           </div>
         )}
 
-        {/* Exposures Table */}
         {loading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
@@ -295,6 +288,7 @@ const exportToCSV = () => {
               </table>
             </div>
           </div>
+        )}
       </div>
     </div>
   )
