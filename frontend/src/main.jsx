@@ -116,7 +116,7 @@ function App() {
     largestExposure: exposures.length > 0
       ? Math.max(...exposures.map(e => e.current_value_usd))
       : 0
-  }f
+  }
 
 // Prepare chart data
   const currencyDistribution = exposures.reduce((acc, exp) => {
