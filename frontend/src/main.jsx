@@ -16,6 +16,8 @@ const CURRENCY_FLAGS = {
   'SAR': '🇸🇦', 'AED': '🇦🇪', 'KWD': '🇰🇼', 'QAR': '🇶🇦', 'NGN': '🇳🇬'
 }
 
+const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']
+
 function App() {
   const [companies, setCompanies] = useState([])
   const [selectedCompany, setSelectedCompany] = useState(null)
@@ -118,7 +120,6 @@ function App() {
       : 0
   }
 
-// Prepare chart data
   const currencyDistribution = exposures.reduce((acc, exp) => {
     const existing = acc.find(item => item.currency === exp.from_currency)
     if (existing) {
@@ -152,7 +153,6 @@ function App() {
     risk: exp.risk_level
   })).sort((a, b) => a.days - b.days)
 
-  const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']
   const getRiskBadgeColor = (risk) => {
     if (risk === 'High') return 'bg-red-100 text-red-800'
     if (risk === 'Medium') return 'bg-yellow-100 text-yellow-800'
@@ -193,11 +193,35 @@ function App() {
                 ${totalValue.toLocaleString()}
               </div>
             </div>
+            
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600 mb-1">Exposures</div>
+              <div className="text-2xl font-bold text-gray-800">
+                {stats.totalExposures}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {stats.highRiskCount} High Risk
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600 mb-1">Avg Rate Change</div>
+              <div className={`text-2xl font-bold ${stats.avgRate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {stats.avgRate >= 0 ? '↑' : '↓'} {Math.abs(stats.avgRate).toFixed(2)}%
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600 mb-1">Largest Exposure</div>
+              <div className="text-2xl font-bold text-purple-600">
+                ${stats.largestExposure.toLocaleString()}
+              </div>
+            </div>
+          </div>
+        )}
 
-{/* Analytics Charts */}
         {!loading && exposures.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
-            {/* Pie Chart - Currency Distribution */}
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
                 <span className="text-xl mr-2">📊</span>
@@ -219,10 +243,7 @@ function App() {
                       <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip 
-                    formatter={(value) => `$${(value / 1000000).toFixed(1)}M`}
-                    contentStyle={{ fontSize: '12px' }}
-                  />
+                  <Tooltip formatter={(value) => `$${(value / 1000000).toFixed(1)}M`} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="text-xs text-gray-600 text-center mt-2">
@@ -230,7 +251,6 @@ function App() {
               </div>
             </div>
 
-            {/* Bar Chart - Risk Distribution */}
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
                 <span className="text-xl mr-2">⚠️</span>
@@ -241,7 +261,7 @@ function App() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="risk" style={{ fontSize: '12px' }} />
                   <YAxis allowDecimals={false} style={{ fontSize: '12px' }} />
-                  <Tooltip contentStyle={{ fontSize: '12px' }} />
+                  <Tooltip />
                   <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                     {riskDistribution.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
@@ -254,7 +274,6 @@ function App() {
               </div>
             </div>
 
-            {/* Line Chart - Rate Changes */}
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
                 <span className="text-xl mr-2">📈</span>
@@ -265,10 +284,7 @@ function App() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="currency" style={{ fontSize: '10px' }} />
                   <YAxis style={{ fontSize: '10px' }} />
-                  <Tooltip 
-                    formatter={(value) => `${value.toFixed(2)}%`}
-                    contentStyle={{ fontSize: '12px' }}
-                  />
+                  <Tooltip formatter={(value) => `${value.toFixed(2)}%`} />
                   <Line 
                     type="monotone" 
                     dataKey="change" 
@@ -284,7 +300,6 @@ function App() {
               </div>
             </div>
 
-            {/* Bar Chart - Settlement Timeline */}
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
                 <span className="text-xl mr-2">📅</span>
@@ -295,10 +310,7 @@ function App() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="currency" style={{ fontSize: '10px' }} angle={-45} textAnchor="end" height={80} />
                   <YAxis style={{ fontSize: '10px' }} />
-                  <Tooltip 
-                    formatter={(value) => `${value} days`}
-                    contentStyle={{ fontSize: '12px' }}
-                  />
+                  <Tooltip formatter={(value) => `${value} days`} />
                   <Bar dataKey="days" radius={[6, 6, 0, 0]}>
                     {settlementTimeline.slice(0, 6).map((entry, index) => (
                       <Cell 
@@ -312,11 +324,10 @@ function App() {
               <div className="text-xs text-gray-600 text-center mt-2">
                 {Math.min(...settlementTimeline.map(s => s.days))}-{Math.max(...settlementTimeline.map(s => s.days))} day range
               </div>
+            </div>
           </div>
-        </div>
         )}
 
-        {/* Company Selector & Actions */}
         <div className="bg-white rounded-lg shadow p-4 mb-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <label className="text-sm font-medium text-gray-700">Company:</label>
@@ -419,11 +430,11 @@ function App() {
                   </tr>
                 </tfoot>
               </table>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
-  </div>
   )
 }
 
