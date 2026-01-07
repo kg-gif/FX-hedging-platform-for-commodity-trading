@@ -196,154 +196,121 @@ function App() {
 
 {/* Analytics Charts */}
         {!loading && exposures.length > 0 && (
-          <div className="space-y-6 mb-6">
-            {/* Top Row - Main Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Pie Chart - Currency Distribution */}
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                  <span className="text-2xl mr-2">📊</span>
-                  Exposure by Currency
-                </h3>
-                <ResponsiveContainer width="100%" height={350}>
-                  <PieChart>
-                    <Pie
-                      data={currencyDistribution}
-                      dataKey="value"
-                      nameKey="currency"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={110}
-                      label={(entry) => `${entry.flag} ${entry.currency}: $${(entry.value / 1000000).toFixed(1)}M`}
-                      labelLine={true}
-                    >
-                      {currencyDistribution.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => `$${value.toLocaleString()}`} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="mt-2 text-sm text-gray-600 text-center">
-                  Total: ${totalValue.toLocaleString()}
-                </div>
-              </div>
-
-              {/* Bar Chart - Risk Distribution */}
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                  <span className="text-2xl mr-2">⚠️</span>
-                  Risk Level Distribution
-                </h3>
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={riskDistribution}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="risk" />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="count" name="Number of Exposures" radius={[8, 8, 0, 0]}>
-                      {riskDistribution.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="mt-2 text-sm text-gray-600 text-center">
-                  Total Exposures: {exposures.length}
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
+            {/* Pie Chart - Currency Distribution */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
+                <span className="text-xl mr-2">📊</span>
+                Currency Mix
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={currencyDistribution}
+                    dataKey="value"
+                    nameKey="currency"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    label={(entry) => `${entry.flag} ${entry.currency}`}
+                    labelLine={false}
+                  >
+                    {currencyDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    formatter={(value) => `$${(value / 1000000).toFixed(1)}M`}
+                    contentStyle={{ fontSize: '12px' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="text-xs text-gray-600 text-center mt-2">
+                ${(totalValue / 1000000).toFixed(1)}M Total
               </div>
             </div>
 
-            {/* Bottom Row - Trend Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Line Chart - Rate Changes */}
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                  <span className="text-2xl mr-2">📈</span>
-                  Rate Change Trends
-                </h3>
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={rateChanges}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="currency" />
-                    <YAxis label={{ value: 'Change %', angle: -90, position: 'insideLeft' }} />
-                    <Tooltip 
-                      formatter={(value) => `${value.toFixed(2)}%`}
-                      labelFormatter={(label) => `${rateChanges.find(r => r.currency === label)?.flag} ${label}`}
-                    />
-                    <Legend />
-                    <Line 
-                      type="monotone" 
-                      dataKey="change" 
-                      stroke="#3b82f6" 
-                      strokeWidth={3} 
-                      dot={{ r: 6, fill: '#3b82f6' }} 
-                      name="Rate Change %" 
-                      activeDot={{ r: 8 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-                <div className="mt-2 text-sm text-gray-600 text-center">
-                  Avg Change: {stats.avgRate >= 0 ? '↑' : '↓'} {Math.abs(stats.avgRate).toFixed(2)}%
-                </div>
+            {/* Bar Chart - Risk Distribution */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
+                <span className="text-xl mr-2">⚠️</span>
+                Risk Levels
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={riskDistribution}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="risk" style={{ fontSize: '12px' }} />
+                  <YAxis allowDecimals={false} style={{ fontSize: '12px' }} />
+                  <Tooltip contentStyle={{ fontSize: '12px' }} />
+                  <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                    {riskDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="text-xs text-gray-600 text-center mt-2">
+                {exposures.length} Total Exposures
               </div>
+            </div>
 
-              {/* Bar Chart - Settlement Timeline */}
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                  <span className="text-2xl mr-2">📅</span>
-                  Settlement Timeline
-                </h3>
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={settlementTimeline} layout="vertical" margin={{ left: 60 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" label={{ value: 'Days to Settlement', position: 'bottom' }} />
-                    <YAxis dataKey="currency" type="category" width={100} style={{ fontSize: '12px' }} />
-                    <Tooltip 
-                      formatter={(value, name) => [`${value} days`, 'Settlement Period']}
-                      labelStyle={{ fontWeight: 'bold' }}
-                    />
-                    <Bar dataKey="days" radius={[0, 4, 4, 0]}>
-                      {settlementTimeline.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={entry.risk === 'High' ? '#ef4444' : entry.risk === 'Medium' ? '#eab308' : '#22c55e'} 
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                <div className="mt-2 text-sm text-gray-600 text-center">
-                  Shortest: {Math.min(...settlementTimeline.map(s => s.days))} days • 
-                  Longest: {Math.max(...settlementTimeline.map(s => s.days))} days
-                </div>
+            {/* Line Chart - Rate Changes */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
+                <span className="text-xl mr-2">📈</span>
+                Rate Changes
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={rateChanges}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="currency" style={{ fontSize: '10px' }} />
+                  <YAxis style={{ fontSize: '10px' }} />
+                  <Tooltip 
+                    formatter={(value) => `${value.toFixed(2)}%`}
+                    contentStyle={{ fontSize: '12px' }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="change" 
+                    stroke="#3b82f6" 
+                    strokeWidth={2} 
+                    dot={{ r: 4, fill: '#3b82f6' }} 
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+              <div className="text-xs text-gray-600 text-center mt-2">
+                Avg: {stats.avgRate >= 0 ? '↑' : '↓'} {Math.abs(stats.avgRate).toFixed(2)}%
               </div>
             </div>
-          </div>
-        )}
-            
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-600 mb-1">Exposures</div>
-              <div className="text-2xl font-bold text-gray-800">
-                {stats.totalExposures}
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                {stats.highRiskCount} High Risk
-              </div>
-            </div>
-            
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-600 mb-1">Avg Rate Change</div>
-              <div className={`text-2xl font-bold ${stats.avgRate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {stats.avgRate >= 0 ? '↑' : '↓'} {Math.abs(stats.avgRate).toFixed(2)}%
-              </div>
-            </div>
-            
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-600 mb-1">Largest Exposure</div>
-              <div className="text-2xl font-bold text-purple-600">
-                ${stats.largestExposure.toLocaleString()}
+
+            {/* Bar Chart - Settlement Timeline */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
+                <span className="text-xl mr-2">📅</span>
+                Settlement Days
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={settlementTimeline.slice(0, 6)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="currency" style={{ fontSize: '10px' }} angle={-45} textAnchor="end" height={80} />
+                  <YAxis style={{ fontSize: '10px' }} />
+                  <Tooltip 
+                    formatter={(value) => `${value} days`}
+                    contentStyle={{ fontSize: '12px' }}
+                  />
+                  <Bar dataKey="days" radius={[6, 6, 0, 0]}>
+                    {settlementTimeline.slice(0, 6).map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={entry.risk === 'High' ? '#ef4444' : entry.risk === 'Medium' ? '#eab308' : '#22c55e'} 
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div className="text-xs text-gray-600 text-center mt-2">
+                {Math.min(...settlementTimeline.map(s => s.days))}-{Math.max(...settlementTimeline.map(s => s.days))} day range
               </div>
             </div>
           </div>
