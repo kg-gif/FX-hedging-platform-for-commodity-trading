@@ -312,10 +312,11 @@ function App() {
               <div className="text-xs text-gray-600 text-center mt-2">
                 {Math.min(...settlementTimeline.map(s => s.days))}-{Math.max(...settlementTimeline.map(s => s.days))} day range
               </div>
-            </div>
           </div>
+        </div>
         )}
 
+        {/* Company Selector & Actions */}
         <div className="bg-white rounded-lg shadow p-4 mb-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <label className="text-sm font-medium text-gray-700">Company:</label>
