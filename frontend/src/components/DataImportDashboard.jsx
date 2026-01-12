@@ -76,35 +76,6 @@ const DataImportDashboard = ({ companyId }) => {
 };
 
 // Simple ExposureList component (basic implementation)
-const ExposureList = ({ companyId, refreshTrigger }) => {
-  const [exposures, setExposures] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  React.useEffect(() => {
-    fetchExposures();
-  }, [companyId, refreshTrigger]);
-
-  const fetchExposures = async () => {
-    setLoading(true);
-    try {
-      // Set date range for the query (e.g., current year)
-      const startDate = '2025-01-01';
-      const endDate = '2025-12-31';
-      
-      const response = await fetch(
-        `/api/exposure-data/exposures/${companyId}?start_date=${startDate}&end_date=${endDate}`
-      );
-      const data = await response.json();
-      
-      if (data.success) {
-        setExposures(data.exposures || []);
-      }
-    } catch (error) {
-      console.error('Error fetching exposures:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', {
