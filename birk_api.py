@@ -21,6 +21,10 @@ import enum
 import requests
 from functools import lru_cache
 
+# Import Phase 2B FastAPI routers
+from routes.hedging_routes_fastapi import router as hedging_router
+from routes.data_import_routes_fastapi import router as data_import_router
+
 # Database setup
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:pass@localhost/birk_db')
 engine = create_engine(DATABASE_URL)
@@ -90,6 +94,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include Phase 2B routers
+app.include_router(hedging_router)
+app.include_router(data_import_router)
 
 # Pydantic Models
 class CompanyResponse(BaseModel):
