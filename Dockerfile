@@ -17,6 +17,8 @@ RUN pip install --no-cache-dir -r requirements-backend.txt
 # Copy application code
 COPY birk_api.py .
 COPY seed_demo_data.py .
+COPY routes/ ./routes/
+COPY services/ ./services/
 
 # Expose port
 EXPOSE 8000
