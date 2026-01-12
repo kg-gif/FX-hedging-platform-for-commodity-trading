@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import Dashboard from './components/Dashboard'
+import Dashboard from './components/Dashboard.jsx'
 import HedgingRecommendations from './components/HedgingRecommendations'
 import ScenarioAnalysis from './components/ScenarioAnalysis'
 import HedgeTracker from './components/HedgeTracker'
