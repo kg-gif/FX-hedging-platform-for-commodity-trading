@@ -76,7 +76,7 @@ class Exposure(Base):
     current_rate = Column(Float)
     current_value_usd = Column(Float)
     settlement_period = Column(Integer)  # days
-    risk_level = Column(SQLEnum(RiskLevel))
+    risk_level = Column(Enum(RiskLevel))
     description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
