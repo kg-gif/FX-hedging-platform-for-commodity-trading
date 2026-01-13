@@ -99,7 +99,6 @@ app.add_middleware(
 # Include Phase 2B routers
 app.include_router(hedging_router)
 app.include_router(data_import_router)
-app.include_router(setup_router, prefix="/api/setup", tags=["setup"])
 
 # Pydantic Models
 class CompanyResponse(BaseModel):
