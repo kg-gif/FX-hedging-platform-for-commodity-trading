@@ -393,24 +393,31 @@ async def setup_database(include_demo_data: bool = False):
     try:
         with engine.connect() as conn:
             # Create tables
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS exposures (
+         conn.execute(text("""
+                -- Drop existing tables first
+                DROP TABLE IF EXISTS scenario_results CASCADE;
+                DROP TABLE IF EXISTS active_hedges CASCADE;
+                DROP TABLE IF EXISTS hedging_recommendations CASCADE;
+                DROP TABLE IF EXISTS exposures CASCADE;
+                
+                -- Create exposures table matching the Exposure model
+                CREATE TABLE exposures (
                     id SERIAL PRIMARY KEY,
                     company_id INTEGER NOT NULL,
-                    reference_number VARCHAR(50) NOT NULL,
-                    currency_pair VARCHAR(10) NOT NULL,
-                    amount DECIMAL(15,2) NOT NULL,
-                    start_date DATE NOT NULL,
-                    end_date DATE NOT NULL,
-                    period_days INTEGER,
-                    start_rate DECIMAL(10,6),
+                    from_currency VARCHAR(10) NOT NULL,
+                    to_currency VARCHAR(10) NOT NULL,
+                    amount FLOAT NOT NULL,
+                    initial_rate FLOAT,
+                    current_rate FLOAT,
+                    current_value_usd FLOAT,
+                    settlement_period INTEGER,
+                    risk_level VARCHAR(20),
                     description TEXT,
-                    status VARCHAR(20) DEFAULT 'active',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 
-                CREATE TABLE IF NOT EXISTS hedging_recommendations (
+                CREATE TABLE hedging_recommendations (
                     id SERIAL PRIMARY KEY,
                     company_id INTEGER NOT NULL,
                     exposure_id INTEGER REFERENCES exposures(id) ON DELETE CASCADE,
@@ -421,7 +428,7 @@ async def setup_database(include_demo_data: bool = False):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 
-                CREATE TABLE IF NOT EXISTS active_hedges (
+                CREATE TABLE active_hedges (
                     id SERIAL PRIMARY KEY,
                     company_id INTEGER NOT NULL,
                     exposure_id INTEGER REFERENCES exposures(id) ON DELETE SET NULL,
@@ -437,7 +444,7 @@ async def setup_database(include_demo_data: bool = False):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 
-                CREATE TABLE IF NOT EXISTS scenario_results (
+                CREATE TABLE scenario_results (
                     id SERIAL PRIMARY KEY,
                     company_id INTEGER NOT NULL,
                     scenario_type VARCHAR(50),
@@ -453,11 +460,11 @@ async def setup_database(include_demo_data: bool = False):
             # Optionally add demo data
             if include_demo_data:
                 conn.execute(text("""
-                    INSERT INTO exposures (company_id, reference_number, currency_pair, amount, start_date, end_date, period_days, start_rate, description) 
+                    INSERT INTO exposures (company_id, from_currency, to_currency, amount, initial_rate, settlement_period, description) 
                     VALUES
-                    (1, 'EXP-2026-001', 'EURUSD', 500000.00, '2026-01-01', '2026-06-30', 180, 1.0850, 'European supplier payment'),
-                    (1, 'EXP-2026-002', 'GBPUSD', 250000.00, '2026-01-15', '2026-03-15', 60, 1.2650, 'UK equipment purchase'),
-                    (1, 'EXP-2026-003', 'EURNOK', 1000000.00, '2026-02-01', '2026-12-31', 334, 11.4500, 'Norwegian operations')
+                    (1, 'EUR', 'USD', 500000.00, 1.0850, 180, 'European supplier payment'),
+                    (1, 'GBP', 'USD', 250000.00, 1.2650, 60, 'UK equipment purchase'),
+                    (1, 'EUR', 'NOK', 1000000.00, 11.4500, 334, 'Norwegian operations')
                     ON CONFLICT DO NOTHING;
                 """))
                 conn.commit()
