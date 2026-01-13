@@ -59,7 +59,7 @@ class Company(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     base_currency = Column(String, default="USD")
-    company_type = Column(SQLEnum(CompanyType))
+    company_type = Column(Enum(CompanyType))
     trading_volume_monthly = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
