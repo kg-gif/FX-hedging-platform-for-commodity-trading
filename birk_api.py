@@ -387,6 +387,99 @@ async def startup_event():
     finally:
         db.close()
 
+# Database setup endpoint - ONE TIME USE - DELETE AFTER RUNNING
+@app.post("/api/setup/setup-database")
+async def setup_database(include_demo_data: bool = False):
+    """Create all required database tables"""
+    try:
+        with engine.connect() as conn:
+            # Create tables
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS exposures (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL,
+                    reference_number VARCHAR(50) NOT NULL,
+                    currency_pair VARCHAR(10) NOT NULL,
+                    amount DECIMAL(15,2) NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    period_days INTEGER,
+                    start_rate DECIMAL(10,6),
+                    description TEXT,
+                    status VARCHAR(20) DEFAULT 'active',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                
+                CREATE TABLE IF NOT EXISTS hedging_recommendations (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL,
+                    exposure_id INTEGER REFERENCES exposures(id) ON DELETE CASCADE,
+                    recommended_ratio DECIMAL(5,2),
+                    var_95 DECIMAL(15,2),
+                    var_99 DECIMAL(15,2),
+                    strategy_type VARCHAR(50),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                
+                CREATE TABLE IF NOT EXISTS active_hedges (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL,
+                    exposure_id INTEGER REFERENCES exposures(id) ON DELETE SET NULL,
+                    currency_pair VARCHAR(10) NOT NULL,
+                    hedge_type VARCHAR(20) NOT NULL,
+                    notional_amount DECIMAL(15,2) NOT NULL,
+                    hedge_ratio DECIMAL(5,2),
+                    contract_rate DECIMAL(10,6),
+                    start_date DATE,
+                    maturity_date DATE NOT NULL,
+                    status VARCHAR(20) DEFAULT 'active',
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                
+                CREATE TABLE IF NOT EXISTS scenario_results (
+                    id SERIAL PRIMARY KEY,
+                    company_id INTEGER NOT NULL,
+                    scenario_type VARCHAR(50),
+                    hedge_ratio DECIMAL(5,2),
+                    rate_change_pct DECIMAL(5,2),
+                    unhedged_pnl DECIMAL(15,2),
+                    hedged_pnl DECIMAL(15,2),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            conn.commit()
+            
+            # Optionally add demo data
+            if include_demo_data:
+                conn.execute(text("""
+                    INSERT INTO exposures (company_id, reference_number, currency_pair, amount, start_date, end_date, period_days, start_rate, description) 
+                    VALUES
+                    (1, 'EXP-2026-001', 'EURUSD', 500000.00, '2026-01-01', '2026-06-30', 180, 1.0850, 'European supplier payment'),
+                    (1, 'EXP-2026-002', 'GBPUSD', 250000.00, '2026-01-15', '2026-03-15', 60, 1.2650, 'UK equipment purchase'),
+                    (1, 'EXP-2026-003', 'EURNOK', 1000000.00, '2026-02-01', '2026-12-31', 334, 11.4500, 'Norwegian operations')
+                    ON CONFLICT DO NOTHING;
+                """))
+                conn.commit()
+            
+            # Count exposures
+            result = conn.execute(text("SELECT COUNT(*) FROM exposures"))
+            count = result.scalar()
+            
+            return {
+                "success": True,
+                "message": "Database tables created successfully",
+                "exposure_count": count,
+                "demo_data_loaded": include_demo_data
+            }
+            
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
