@@ -24,7 +24,7 @@ from functools import lru_cache
 # Import Phase 2B FastAPI routers
 from routes.hedging_routes_fastapi import router as hedging_router
 from routes.data_import_routes_fastapi import router as data_import_router
-from routes.setup_routes import router as setup_router
+
 
 # Database setup
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:pass@localhost/birk_db')
