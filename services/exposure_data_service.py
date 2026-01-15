@@ -234,7 +234,8 @@ class ExposureDataService:
                 exposure = {
                     'company_id': company_id,
                     'reference_number': str(row['reference']).strip(),
-                    'currency_pair': str(row['currency']).strip().upper(),
+                    'from_currency': currency_pair.strip().upper()[:3],
+                    'to_currency': currency_pair.strip().upper()[3:6],
                     'amount': float(row['amount']),
                     'start_date': pd.to_datetime(row['start_date']).strftime('%Y-%m-%d'),
                     'end_date': pd.to_datetime(row['end_date']).strftime('%Y-%m-%d'),
