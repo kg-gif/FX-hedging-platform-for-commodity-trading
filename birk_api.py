@@ -1,3 +1,4 @@
+@ -1,399 +1,11 @@
 """
 BIRK FX Risk Management Platform - Enhanced Backend API
 
@@ -379,45 +380,9 @@ async def startup_event():
             print("✅ Database seeded successfully!")
         else:
             print(f"ℹ️  Database already contains {company_count} companies")
-    
-    except Exception as e:
-        print(f"❌ Error during startup: {e}")
-        db.rollback()
-    finally:
-        db.close()
 
-# Database setup endpoint - ONE TIME USE - DELETE AFTER RUNNING
-         
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-@app.post("/api/setup/reset-database")
-async def reset_database():
-    """Drop and recreate all tables - USE WITH CAUTION"""
-    try:
-        with engine.connect() as conn:
-            # Drop tables in correct order (respecting foreign keys)
-            conn.execute(text("""
-                DROP TABLE IF EXISTS scenario_results CASCADE;
-                DROP TABLE IF EXISTS active_hedges CASCADE;
-                DROP TABLE IF EXISTS hedging_recommendations CASCADE;
-                DROP TABLE IF EXISTS exposures CASCADE;
-            """))
-            conn.commit()
-        
-        return {
-            "success": True, 
-            "message": "All tables dropped successfully. Now run /api/setup/setup-database to recreate them."
-        }
-    except Exception as e:
-        return {
-            "success": False, 
-            "error": str(e)
-        }
