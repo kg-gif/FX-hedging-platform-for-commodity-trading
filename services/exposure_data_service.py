@@ -382,19 +382,31 @@ class ExposureDataService:
         # Calculate period
         period_days = (end - start).days
         
-        # Create exposure record
-        exposure = {
-            'company_id': company_id,
-            'reference_number': reference_number.strip(),
-            'currency_pair': currency_pair.strip().upper(),
-            'amount': float(amount),
-            'start_date': start_date,
-            'end_date': end_date,
-            'period_days': period_days,
-            'status': 'active',
-            'created_at': datetime.now().isoformat(),
-            'source': 'manual_entry'
-        }
+      # Create exposure record
+# Split currency pair into from_currency and to_currency
+currency_pair_upper = currency_pair.strip().upper()
+if len(currency_pair_upper) == 6:
+    from_currency = currency_pair_upper[:3]
+    to_currency = currency_pair_upper[3:]
+else:
+    # Handle cases like "EUR/USD" or "EUR-USD"
+    currency_pair_upper = currency_pair_upper.replace('/', '').replace('-', '')
+    from_currency = currency_pair_upper[:3]
+    to_currency = currency_pair_upper[3:]
+
+exposure = {
+    'company_id': company_id,
+    'reference_number': reference_number.strip(),
+    'from_currency': from_currency,
+    'to_currency': to_currency,
+    'amount': float(amount),
+    'start_date': start_date,
+    'end_date': end_date,
+    'period_days': period_days,
+    'status': 'active',
+    'created_at': datetime.now().isoformat(),
+    'source': 'manual_entry'
+}
         
         if description:
             exposure['description'] = description.strip()
