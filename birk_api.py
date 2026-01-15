@@ -1,4 +1,3 @@
-@ -1,399 +1,11 @@
 """
 BIRK FX Risk Management Platform - Enhanced Backend API
 
