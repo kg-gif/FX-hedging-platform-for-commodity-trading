@@ -78,59 +78,69 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaveResult(null);
+  e.preventDefault();
+  setSaveResult(null);
 
-    if (!validateForm()) {
-      return;
-    }
+  if (!validateForm()) {
+    return;
+  }
 
-    setSaving(true);
+  setSaving(true);
 
-    try {
-      const response = await fetch('/api/exposure-data/manual', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          company_id: companyId,
-          reference_number: formData.reference_number,
-          currency_pair: formData.currency_pair,
-          amount: parseFloat(formData.amount),
-          start_date: formData.start_date,
-          end_date: formData.end_date,
-          description: formData.description || '',
-          rate: formData.rate ? parseFloat(formData.rate) : null
-        })
+  try {
+    const payload = {
+      company_id: companyId,
+      reference_number: formData.reference_number,
+      currency_pair: formData.currency_pair,
+      amount: parseFloat(formData.amount),
+      start_date: formData.start_date,
+      end_date: formData.end_date,
+      description: formData.description || '',
+      rate: formData.rate ? parseFloat(formData.rate) : null
+    };
+    
+    console.log('Sending payload:', payload);  // Debug log
+    
+    const response = await fetch('/api/exposure-data/manual', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+    console.log('API response:', result);  // Debug log
+
+    if (result.success) {
+      setSaveResult(result);
+      setFormData({
+        reference_number: '',
+        currency_pair: '',
+        amount: '',
+        start_date: '',
+        end_date: '',
+        description: '',
+        rate: ''
       });
-
-      const result = await response.json();
-
-      if (result.success) {
-        setSaveResult(result);
-        // Reset form
-        setFormData({
-          reference_number: '',
-          currency_pair: '',
-          amount: '',
-          start_date: '',
-          end_date: '',
-          description: '',
-          rate: ''
-        });
-        if (onSaveSuccess) {
-          onSaveSuccess(result.exposure);
-        }
-      } else {
-        setErrors({ submit: result.errors?.join(', ') || result.error });
+      if (onSaveSuccess) {
+        onSaveSuccess(result.exposure);
       }
-    } catch (err) {
-      setErrors({ submit: `Save failed: ${err.message}` });
-    } finally {
-      setSaving(false);
+    } else {
+      // Handle both error formats
+      const errorMsg = result.errors?.join(', ') || 
+                      result.error || 
+                      (Array.isArray(result.detail) ? result.detail.join(', ') : result.detail) ||
+                      'Unknown error';
+      setErrors({ submit: errorMsg });
     }
-  };
+  } catch (err) {
+    console.error('Submit error:', err);  // Debug log
+    setErrors({ submit: `Save failed: ${err.message}` });
+  } finally {
+    setSaving(false);
+  }
+};
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
