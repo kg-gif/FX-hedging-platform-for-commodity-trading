@@ -409,23 +409,23 @@ exposure = {
     'source': 'manual_entry'
 }
         
-        if description:
-            exposure['description'] = description.strip()
+if description:
+    exposure['description'] = description.strip()
         
-        if rate:
-            try:
-                exposure['rate'] = float(rate)
-            except (ValueError, TypeError):
-                pass
+if rate:
+    try:
+       exposure['rate'] = float(rate)
+    except (ValueError, TypeError):
+        pass
         
-        # In production, save to database
-        # exposure_id = self.db.insert('exposures', exposure)
-        # exposure['id'] = exposure_id
+# In production, save to database
+# exposure_id = self.db.insert('exposures', exposure)
+# exposure['id'] = exposure_id
         
-        # Mock ID for testing
-        exposure['id'] = np.random.randint(1000, 9999)
+# Mock ID for testing
+exposure['id'] = np.random.randint(1000, 9999)
         
-        return {
+return {
             'success': True,
             'exposure': exposure,
             'message': f'Exposure {reference_number} created successfully'
