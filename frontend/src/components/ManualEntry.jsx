@@ -11,6 +11,9 @@ import {
   Hash
 } from 'lucide-react';
 
+// API Configuration
+const API_BASE_URL = 'https://birk-fx-api.onrender.com';
+
 const ManualEntry = ({ companyId, onSaveSuccess }) => {
   const [formData, setFormData] = useState({
     reference_number: '',
@@ -101,7 +104,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     
     console.log('Sending payload:', payload);  // Debug log
     
-    const response = await fetch('/api/exposure-data/manual', {
+    const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -203,7 +206,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     setSaving(true);
 
     try {
-      const response = await fetch('/api/exposure-data/batch-manual', {
+      const response = await fetch(`${API_BASE_URL}/api/exposure-data/batch-manual`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
