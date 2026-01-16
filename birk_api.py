@@ -331,7 +331,6 @@ async def startup_event():
         company_count = db.query(Company).count()
         
         if company_count == 0:
-            print("🌱 Seeding database with demo data...")
             
             # Create demo company
             demo_company = Company(
@@ -374,10 +373,12 @@ async def startup_event():
                     description=exp_data["desc"]
                 )
                 db.add(exposure)
-            
+
+            if company_count == 0:
+            # seeding code
             db.commit()
             print("✅ Database seeded successfully!")
-        else:
+            else:
             print(f"ℹ️  Database already contains {company_count} companies")
 except Exception as e:
         print(f"✗ Error during startup: {e}")
