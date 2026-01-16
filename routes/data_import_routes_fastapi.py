@@ -15,9 +15,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# Import models from birk_api
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from birk_api import Exposure, Company, SessionLocal, get_live_fx_rate, calculate_risk_level
+# Import models from separate models file to avoid circular imports
+from models import Exposure, Company
+from birk_api import SessionLocal, get_live_fx_rate, calculate_risk_level
 
 # Add services directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

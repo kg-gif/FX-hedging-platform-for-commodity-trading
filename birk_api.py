@@ -21,6 +21,9 @@ import enum
 import requests
 from functools import lru_cache
 
+# Import models from separate file
+from models import Base, Company, Exposure, CompanyType, RiskLevel
+
 # Import Phase 2B FastAPI routers
 from routes.hedging_routes_fastapi import router as hedging_router
 from routes.data_import_routes_fastapi import router as data_import_router
@@ -30,7 +33,7 @@ from routes.data_import_routes_fastapi import router as data_import_router
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:pass@localhost/birk_db')
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
 
 # API Configuration
 FX_API_KEY = os.getenv('FX_API_KEY', '8e0eb70d6c0fb96657f30109')
@@ -40,46 +43,6 @@ FX_API_BASE = f"https://v6.exchangerate-api.com/v6/{FX_API_KEY}"
 fx_rate_cache = {}
 CACHE_DURATION = timedelta(hours=1)
 
-# Enums
-class CompanyType(str, enum.Enum):
-    COMMODITY_TRADER = "commodity_trader"
-    MANUFACTURER = "manufacturer"
-    IMPORTER = "importer"
-    EXPORTER = "exporter"
-
-class RiskLevel(str, enum.Enum):
-    HIGH = "High"
-    MEDIUM = "Medium"
-    LOW = "Low"
-
-# Database Models
-class Company(Base):
-    __tablename__ = "companies"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
-    base_currency = Column(String, default="USD")
-    company_type = Column(Enum(CompanyType))
-    trading_volume_monthly = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-class Exposure(Base):
-    __tablename__ = "exposures"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, index=True)
-    from_currency = Column(String)
-    to_currency = Column(String)
-    amount = Column(Float)
-    initial_rate = Column(Float)  # Baseline rate for comparison
-    current_rate = Column(Float)
-    current_value_usd = Column(Float)
-    settlement_period = Column(Integer)  # days
-    risk_level = Column(Enum(RiskLevel))
-    description = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 # Create tables
 Base.metadata.create_all(bind=engine)
