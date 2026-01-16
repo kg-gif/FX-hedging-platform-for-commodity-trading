@@ -231,11 +231,24 @@ class ExposureDataService:
         
         for idx, row in df.iterrows():
             try:
+                # Get currency pair from row
+                currency_pair = str(row['currency']).strip().upper()
+                
+                # Split currency pair
+                if len(currency_pair) == 6:
+                    from_currency = currency_pair[:3]
+                    to_currency = currency_pair[3:6]
+                else:
+                    # Handle cases like "EUR/USD" or "EUR-USD"
+                    currency_pair_clean = currency_pair.replace('/', '').replace('-', '')
+                    from_currency = currency_pair_clean[:3]
+                    to_currency = currency_pair_clean[3:6]
+                
                 exposure = {
                     'company_id': company_id,
                     'reference_number': str(row['reference']).strip(),
-                    'from_currency': currency_pair.strip().upper()[:3],
-                    'to_currency': currency_pair.strip().upper()[3:6],
+                    'from_currency': from_currency,
+                    'to_currency': to_currency,
                     'amount': float(row['amount']),
                     'start_date': pd.to_datetime(row['start_date']).strftime('%Y-%m-%d'),
                     'end_date': pd.to_datetime(row['end_date']).strftime('%Y-%m-%d'),
@@ -270,9 +283,9 @@ class ExposureDataService:
         # Group by currency
         currency_summary = {}
         for exp in exposures:
-            ccy = exp['currency_pair']
-            if ccy not in currency_summary:
-                currency_summary[ccy] = {
+            ccy_pair = f"{exp['from_currency']}{exp['to_currency']}"
+            if ccy_pair not in currency_summary:
+                currency_summary[ccy_pair] = {
                     'count': 0,
                     'total_amount': 0,
                     'avg_amount': 0,
@@ -281,11 +294,11 @@ class ExposureDataService:
                     'avg_period_days': 0
                 }
             
-            currency_summary[ccy]['count'] += 1
-            currency_summary[ccy]['total_amount'] += exp['amount']
-            currency_summary[ccy]['min_amount'] = min(currency_summary[ccy]['min_amount'], exp['amount'])
-            currency_summary[ccy]['max_amount'] = max(currency_summary[ccy]['max_amount'], exp['amount'])
-            currency_summary[ccy]['avg_period_days'] += exp['period_days']
+            currency_summary[ccy_pair]['count'] += 1
+            currency_summary[ccy_pair]['total_amount'] += exp['amount']
+            currency_summary[ccy_pair]['min_amount'] = min(currency_summary[ccy_pair]['min_amount'], exp['amount'])
+            currency_summary[ccy_pair]['max_amount'] = max(currency_summary[ccy_pair]['max_amount'], exp['amount'])
+            currency_summary[ccy_pair]['avg_period_days'] += exp['period_days']
         
         # Calculate averages
         for ccy, stats in currency_summary.items():
@@ -383,49 +396,49 @@ class ExposureDataService:
         # Calculate period
         period_days = (end - start).days
         
-      # Create exposure record
-# Split currency pair into from_currency and to_currency
-currency_pair_upper = currency_pair.strip().upper()
-if len(currency_pair_upper) == 6:
-    from_currency = currency_pair_upper[:3]
-    to_currency = currency_pair_upper[3:]
-else:
-    # Handle cases like "EUR/USD" or "EUR-USD"
-    currency_pair_upper = currency_pair_upper.replace('/', '').replace('-', '')
-    from_currency = currency_pair_upper[:3]
-    to_currency = currency_pair_upper[3:]
-
-exposure = {
-    'company_id': company_id,
-    'reference_number': reference_number.strip(),
-    'from_currency': from_currency,
-    'to_currency': to_currency,
-    'amount': float(amount),
-    'start_date': start_date,
-    'end_date': end_date,
-    'period_days': period_days,
-    'status': 'active',
-    'created_at': datetime.now().isoformat(),
-    'source': 'manual_entry'
-}
+        # Create exposure record
+        # Split currency pair into from_currency and to_currency
+        currency_pair_upper = currency_pair.strip().upper()
+        if len(currency_pair_upper) == 6:
+            from_currency = currency_pair_upper[:3]
+            to_currency = currency_pair_upper[3:]
+        else:
+            # Handle cases like "EUR/USD" or "EUR-USD"
+            currency_pair_upper = currency_pair_upper.replace('/', '').replace('-', '')
+            from_currency = currency_pair_upper[:3]
+            to_currency = currency_pair_upper[3:]
         
-if description:
-    exposure['description'] = description.strip()
+        exposure = {
+            'company_id': company_id,
+            'reference_number': reference_number.strip(),
+            'from_currency': from_currency,
+            'to_currency': to_currency,
+            'amount': float(amount),
+            'start_date': start_date,
+            'end_date': end_date,
+            'period_days': period_days,
+            'status': 'active',
+            'created_at': datetime.now().isoformat(),
+            'source': 'manual_entry'
+        }
         
-if rate:
-    try:
-       exposure['rate'] = float(rate)
-    except (ValueError, TypeError):
-        pass
+        if description:
+            exposure['description'] = description.strip()
         
-# In production, save to database
-# exposure_id = self.db.insert('exposures', exposure)
-# exposure['id'] = exposure_id
+        if rate:
+            try:
+                exposure['rate'] = float(rate)
+            except (ValueError, TypeError):
+                pass
         
-# Mock ID for testing
-exposure['id'] = np.random.randint(1000, 9999)
+        # In production, save to database
+        # exposure_id = self.db.insert('exposures', exposure)
+        # exposure['id'] = exposure_id
         
-return {
+        # Mock ID for testing
+        exposure['id'] = np.random.randint(1000, 9999)
+        
+        return {
             'success': True,
             'exposure': exposure,
             'message': f'Exposure {reference_number} created successfully'
@@ -549,7 +562,7 @@ if __name__ == "__main__":
     if result['success']:
         print(f"✓ Exposure created successfully")
         print(f"  Reference: {result['exposure']['reference_number']}")
-        print(f"  Currency: {result['exposure']['currency_pair']}")
+        print(f"  Currency: {result['exposure']['from_currency']}{result['exposure']['to_currency']}")
         print(f"  Amount: ${result['exposure']['amount']:,.2f}")
         print(f"  Period: {result['exposure']['period_days']} days")
     else:
