@@ -3,7 +3,7 @@ BIRK FX Phase 2B Extended - Data Import Routes (FastAPI Version)
 FastAPI endpoints for file uploads and manual exposure data entry
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -11,6 +11,13 @@ from datetime import datetime
 import io
 import sys
 import os
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+# Import models from birk_api
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from birk_api import Exposure, Company, SessionLocal, get_live_fx_rate, calculate_risk_level
 
 # Add services directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,6 +32,15 @@ data_service = ExposureDataService()
 # Configuration
 ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+# Database dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 # Pydantic models
@@ -69,7 +85,8 @@ async def health_check():
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
-    company_id: int = Form(...)
+    company_id: int = Form(...),
+    db: Session = Depends(get_db)
 ):
     """
     POST /api/exposure-data/upload
@@ -112,27 +129,58 @@ async def upload_file(
         if not result['success']:
             raise HTTPException(status_code=400, detail=result.get('error', 'Upload failed'))
         
-        # In production, save exposures to database
-        # for exposure in result['exposures']:
-        #     db.insert('exposures', exposure)
+        # Save exposures to database
+        saved_count = 0
+        for exp_data in result['exposures']:
+            try:
+                # Get live FX rate
+                rate = get_live_fx_rate(exp_data['from_currency'], exp_data['to_currency'])
+                usd_value = exp_data['amount'] * rate
+                
+                # Calculate risk level
+                risk = calculate_risk_level(usd_value, exp_data['period_days'])
+                
+                # Create database record
+                db_exposure = Exposure(
+                    company_id=company_id,
+                    from_currency=exp_data['from_currency'],
+                    to_currency=exp_data['to_currency'],
+                    amount=exp_data['amount'],
+                    initial_rate=rate,
+                    current_rate=rate,
+                    current_value_usd=usd_value,
+                    settlement_period=exp_data['period_days'],
+                    risk_level=risk,
+                    description=exp_data.get('description', '')
+                )
+                
+                db.add(db_exposure)
+                saved_count += 1
+            except Exception as e:
+                print(f"Error saving exposure: {e}")
+                continue
         
+        db.commit()
+        
+        result['saved_to_database'] = saved_count
         return result
         
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 @router.post("/manual")
-async def create_manual_exposure(request: ManualExposureRequest):
+async def create_manual_exposure(request: ManualExposureRequest, db: Session = Depends(get_db)):
     """
     POST /api/exposure-data/manual
     
     Create a single exposure record manually
     """
     try:
-        # Create exposure
+        # Validate the request using the service
         result = data_service.create_manual_exposure(
             company_id=request.company_id,
             reference_number=request.reference_number,
@@ -147,20 +195,64 @@ async def create_manual_exposure(request: ManualExposureRequest):
         if not result['success']:
             raise HTTPException(status_code=400, detail=result.get('errors', ['Validation failed']))
         
-        # In production, save to database
-        # exposure_id = db.insert('exposures', result['exposure'])
-        # result['exposure']['id'] = exposure_id
+        # Get the validated exposure data
+        exp_data = result['exposure']
         
-        return result
+        # Get live FX rate
+        rate = get_live_fx_rate(exp_data['from_currency'], exp_data['to_currency'])
+        usd_value = exp_data['amount'] * rate
+        
+        # Calculate risk level
+        risk = calculate_risk_level(usd_value, exp_data['period_days'])
+        
+        # Create database record
+        db_exposure = Exposure(
+            company_id=exp_data['company_id'],
+            from_currency=exp_data['from_currency'],
+            to_currency=exp_data['to_currency'],
+            amount=exp_data['amount'],
+            initial_rate=rate,
+            current_rate=rate,
+            current_value_usd=usd_value,
+            settlement_period=exp_data['period_days'],
+            risk_level=risk,
+            description=exp_data.get('description', '')
+        )
+        
+        db.add(db_exposure)
+        db.commit()
+        db.refresh(db_exposure)
+        
+        # Return success with database ID
+        return {
+            'success': True,
+            'exposure': {
+                'id': db_exposure.id,
+                'company_id': db_exposure.company_id,
+                'reference_number': exp_data['reference_number'],
+                'from_currency': db_exposure.from_currency,
+                'to_currency': db_exposure.to_currency,
+                'amount': db_exposure.amount,
+                'initial_rate': db_exposure.initial_rate,
+                'current_rate': db_exposure.current_rate,
+                'current_value_usd': db_exposure.current_value_usd,
+                'settlement_period': db_exposure.settlement_period,
+                'risk_level': db_exposure.risk_level.value,
+                'description': db_exposure.description,
+                'created_at': db_exposure.created_at.isoformat()
+            },
+            'message': f'Exposure {exp_data["reference_number"]} created successfully'
+        }
         
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 @router.post("/batch-manual")
-async def create_batch_exposures(request: BatchExposureRequest):
+async def create_batch_exposures(request: BatchExposureRequest, db: Session = Depends(get_db)):
     """
     POST /api/exposure-data/batch-manual
     
@@ -174,25 +266,64 @@ async def create_batch_exposures(request: BatchExposureRequest):
         errors = []
         
         for idx, exp_data in enumerate(exposures_data):
-            result = data_service.create_manual_exposure(
-                company_id=company_id,
-                reference_number=exp_data.get('reference_number', ''),
-                currency_pair=exp_data.get('currency_pair', ''),
-                amount=exp_data.get('amount', 0),
-                start_date=exp_data.get('start_date', ''),
-                end_date=exp_data.get('end_date', ''),
-                description=exp_data.get('description'),
-                rate=exp_data.get('rate')
-            )
-            
-            if result['success']:
-                created.append(result['exposure'])
-            else:
+            try:
+                result = data_service.create_manual_exposure(
+                    company_id=company_id,
+                    reference_number=exp_data.get('reference_number', ''),
+                    currency_pair=exp_data.get('currency_pair', ''),
+                    amount=exp_data.get('amount', 0),
+                    start_date=exp_data.get('start_date', ''),
+                    end_date=exp_data.get('end_date', ''),
+                    description=exp_data.get('description'),
+                    rate=exp_data.get('rate')
+                )
+                
+                if result['success']:
+                    validated_exp = result['exposure']
+                    
+                    # Get live FX rate
+                    rate = get_live_fx_rate(validated_exp['from_currency'], validated_exp['to_currency'])
+                    usd_value = validated_exp['amount'] * rate
+                    
+                    # Calculate risk level
+                    risk = calculate_risk_level(usd_value, validated_exp['period_days'])
+                    
+                    # Create database record
+                    db_exposure = Exposure(
+                        company_id=company_id,
+                        from_currency=validated_exp['from_currency'],
+                        to_currency=validated_exp['to_currency'],
+                        amount=validated_exp['amount'],
+                        initial_rate=rate,
+                        current_rate=rate,
+                        current_value_usd=usd_value,
+                        settlement_period=validated_exp['period_days'],
+                        risk_level=risk,
+                        description=validated_exp.get('description', '')
+                    )
+                    
+                    db.add(db_exposure)
+                    db.flush()
+                    
+                    created.append({
+                        'id': db_exposure.id,
+                        'reference_number': validated_exp['reference_number']
+                    })
+                else:
+                    errors.append({
+                        'index': idx,
+                        'reference': exp_data.get('reference_number', 'Unknown'),
+                        'errors': result['errors']
+                    })
+            except Exception as e:
                 errors.append({
                     'index': idx,
                     'reference': exp_data.get('reference_number', 'Unknown'),
-                    'errors': result['errors']
+                    'errors': [str(e)]
                 })
+        
+        if len(created) > 0:
+            db.commit()
         
         return {
             'success': len(errors) == 0,
@@ -203,6 +334,7 @@ async def create_batch_exposures(request: BatchExposureRequest):
         }
         
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
@@ -212,7 +344,8 @@ async def get_company_exposures(
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
     currency: Optional[str] = Query(None),
-    status: str = Query(default="active")
+    status: str = Query(default="active"),
+    db: Session = Depends(get_db)
 ):
     """
     GET /api/exposure-data/exposures/{company_id}
@@ -220,29 +353,45 @@ async def get_company_exposures(
     Get all exposures for a company with optional date filtering
     """
     try:
-        # Get exposures
-        if start_date and end_date:
-            exposures = data_service.get_exposures_by_period(
-                company_id=company_id,
-                start_date=start_date,
-                end_date=end_date
-            )
-        else:
-            # In production, query from database
-            exposures = []  # Mock empty for now
+        # Query exposures from database
+        query = db.query(Exposure).filter(Exposure.company_id == company_id)
         
-        # Apply filters
+        # Apply filters if provided
         if currency:
-            exposures = [exp for exp in exposures if exp['currency_pair'] == currency.upper()]
+            query = query.filter(
+                (Exposure.from_currency == currency.upper()) | 
+                (Exposure.to_currency == currency.upper())
+            )
         
-        if status:
-            exposures = [exp for exp in exposures if exp['status'] == status]
+        exposures = query.all()
+        
+        # Convert to dict format
+        exposure_list = []
+        for exp in exposures:
+            exposure_list.append({
+                'id': exp.id,
+                'company_id': exp.company_id,
+                'from_currency': exp.from_currency,
+                'to_currency': exp.to_currency,
+                'currency_pair': f"{exp.from_currency}{exp.to_currency}",
+                'amount': exp.amount,
+                'initial_rate': exp.initial_rate,
+                'current_rate': exp.current_rate,
+                'current_value_usd': exp.current_value_usd,
+                'settlement_period': exp.settlement_period,
+                'period_days': exp.settlement_period,
+                'risk_level': exp.risk_level.value if exp.risk_level else 'Unknown',
+                'description': exp.description,
+                'status': 'active',
+                'created_at': exp.created_at.isoformat() if exp.created_at else None,
+                'updated_at': exp.updated_at.isoformat() if exp.updated_at else None
+            })
         
         return {
             'success': True,
             'company_id': company_id,
-            'exposures': exposures,
-            'count': len(exposures),
+            'exposures': exposure_list,
+            'count': len(exposure_list),
             'filters': {
                 'start_date': start_date,
                 'end_date': end_date,
@@ -256,83 +405,111 @@ async def get_company_exposures(
 
 
 @router.get("/exposure/{exposure_id}")
-async def get_exposure_detail(exposure_id: int):
+async def get_exposure_detail(exposure_id: int, db: Session = Depends(get_db)):
     """
     GET /api/exposure-data/exposure/{exposure_id}
     
     Get details of a specific exposure
     """
     try:
-        # In production, query from database
-        # exposure = db.query("SELECT * FROM exposures WHERE id = ?", [exposure_id])
+        exposure = db.query(Exposure).filter(Exposure.id == exposure_id).first()
         
-        # Mock data
-        exposure = {
-            'id': exposure_id,
-            'company_id': 1,
-            'reference_number': 'REF-2025-001',
-            'currency_pair': 'EURUSD',
-            'amount': 1000000,
-            'start_date': '2025-01-15',
-            'end_date': '2025-04-15',
-            'period_days': 90,
-            'status': 'active'
-        }
+        if not exposure:
+            raise HTTPException(status_code=404, detail="Exposure not found")
         
         return {
             'success': True,
-            'exposure': exposure
+            'exposure': {
+                'id': exposure.id,
+                'company_id': exposure.company_id,
+                'from_currency': exposure.from_currency,
+                'to_currency': exposure.to_currency,
+                'amount': exposure.amount,
+                'initial_rate': exposure.initial_rate,
+                'current_rate': exposure.current_rate,
+                'current_value_usd': exposure.current_value_usd,
+                'settlement_period': exposure.settlement_period,
+                'risk_level': exposure.risk_level.value if exposure.risk_level else 'Unknown',
+                'description': exposure.description,
+                'created_at': exposure.created_at.isoformat() if exposure.created_at else None
+            }
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 @router.put("/exposure/{exposure_id}")
-async def update_exposure(exposure_id: int, request: ExposureUpdateRequest):
+async def update_exposure(exposure_id: int, request: ExposureUpdateRequest, db: Session = Depends(get_db)):
     """
     PUT /api/exposure-data/exposure/{exposure_id}
     
     Update an existing exposure
     """
     try:
-        # In production, update database
-        # db.update('exposures', exposure_id, request.dict(exclude_none=True))
+        exposure = db.query(Exposure).filter(Exposure.id == exposure_id).first()
         
-        # Mock response
-        updated_exposure = {
-            'id': exposure_id,
-            'updated_at': datetime.now().isoformat(),
-            **request.dict(exclude_none=True)
-        }
+        if not exposure:
+            raise HTTPException(status_code=404, detail="Exposure not found")
+        
+        # Update fields if provided
+        if request.amount is not None:
+            exposure.amount = request.amount
+            exposure.current_value_usd = request.amount * exposure.current_rate
+        
+        if request.description is not None:
+            exposure.description = request.description
+        
+        exposure.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(exposure)
         
         return {
             'success': True,
             'message': 'Exposure updated successfully',
-            'exposure': updated_exposure
+            'exposure': {
+                'id': exposure.id,
+                'amount': exposure.amount,
+                'description': exposure.description,
+                'updated_at': exposure.updated_at.isoformat()
+            }
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 @router.delete("/exposure/{exposure_id}")
-async def delete_exposure(exposure_id: int):
+async def delete_exposure(exposure_id: int, db: Session = Depends(get_db)):
     """
     DELETE /api/exposure-data/exposure/{exposure_id}
     
     Delete an exposure
     """
     try:
-        # In production, delete from database
-        # db.delete('exposures', exposure_id)
+        exposure = db.query(Exposure).filter(Exposure.id == exposure_id).first()
+        
+        if not exposure:
+            raise HTTPException(status_code=404, detail="Exposure not found")
+        
+        db.delete(exposure)
+        db.commit()
         
         return {
             'success': True,
             'message': f'Exposure {exposure_id} deleted successfully'
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
@@ -406,7 +583,8 @@ async def validate_data(request: ManualExposureRequest):
 async def get_exposure_summary(
     company_id: int,
     start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None)
+    end_date: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
 ):
     """
     GET /api/exposure-data/summary/{company_id}
@@ -414,13 +592,20 @@ async def get_exposure_summary(
     Get summary statistics for company exposures
     """
     try:
-        # Get exposures
-        if start_date and end_date:
-            exposures = data_service.get_exposures_by_period(
-                company_id, start_date, end_date
-            )
-        else:
-            exposures = []  # Mock
+        # Get exposures from database
+        exposures_db = db.query(Exposure).filter(Exposure.company_id == company_id).all()
+        
+        # Convert to list format for summary calculation
+        exposures = []
+        for exp in exposures_db:
+            exposures.append({
+                'from_currency': exp.from_currency,
+                'to_currency': exp.to_currency,
+                'amount': exp.amount,
+                'period_days': exp.settlement_period,
+                'start_date': exp.created_at.strftime('%Y-%m-%d') if exp.created_at else '',
+                'end_date': (exp.created_at + timedelta(days=exp.settlement_period)).strftime('%Y-%m-%d') if exp.created_at else ''
+            })
         
         # Calculate summary
         if exposures:
