@@ -77,68 +77,65 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaveResult(null);
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setSaveResult(null);
 
-    if (!validateForm()) {
-      return;
-    }
+  if (!validateForm()) {
+    return;
+  }
 
-    setSaving(true);
+  setSaving(true);
 
-    try {
-      const response = await fetch('/api/exposure-data/manual', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          company_id: companyId,
-          ...formData,
-          amount: parseFloat(formData.amount),
-          rate: formData.rate ? parseFloat(formData.rate) : null
-        })
+  try {
+    // Split currency pair into from_currency and to_currency
+    const currencyPair = formData.currency_pair.toUpperCase();
+    const from_currency = currencyPair.substring(0, 3);
+    const to_currency = currencyPair.substring(3, 6);
+
+    const response = await fetch('/api/exposure-data/manual', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        company_id: companyId,
+        reference_number: formData.reference_number,
+        currency_pair: formData.currency_pair,  // Keep this for backend compatibility
+        amount: parseFloat(formData.amount),
+        start_date: formData.start_date,
+        end_date: formData.end_date,
+        description: formData.description,
+        rate: formData.rate ? parseFloat(formData.rate) : null
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      setSaveResult(result);
+      // Reset form
+      setFormData({
+        reference_number: '',
+        currency_pair: '',
+        amount: '',
+        start_date: '',
+        end_date: '',
+        description: '',
+        rate: ''
       });
-
-      const result = await response.json();
-
-      if (result.success) {
-        setSaveResult(result);
-        // Reset form
-        setFormData({
-          reference_number: '',
-          currency_pair: '',
-          amount: '',
-          start_date: '',
-          end_date: '',
-          description: '',
-          rate: ''
-        });
-        if (onSaveSuccess) {
-          onSaveSuccess(result.exposure);
-        }
-      } else {
-        setErrors({ submit: result.errors?.join(', ') || result.error });
+      if (onSaveSuccess) {
+        onSaveSuccess(result.exposure);
       }
-    } catch (err) {
-      setErrors({ submit: `Save failed: ${err.message}` });
-    } finally {
-      setSaving(false);
+    } else {
+      setErrors({ submit: result.errors?.join(', ') || result.error });
     }
-  };
-
-  const handleChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    // Clear error for this field
-    if (errors[field]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
-      });
-    }
-  };
+  } catch (err) {
+    setErrors({ submit: `Save failed: ${err.message}` });
+  } finally {
+    setSaving(false);
+  }
+};
 
   const calculatePeriodDays = () => {
     if (formData.start_date && formData.end_date) {
