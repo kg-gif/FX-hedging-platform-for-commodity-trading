@@ -379,6 +379,11 @@ async def startup_event():
             print("✅ Database seeded successfully!")
         else:
             print(f"ℹ️  Database already contains {company_count} companies")
+except Exception as e:
+        print(f"✗ Error during startup: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     import uvicorn
