@@ -20,6 +20,7 @@ COPY seed_demo_data.py .
 COPY routes/ ./routes/
 COPY services/ ./services/
 COPY models.py .
+COPY database.py .
 
 # Expose port
 EXPOSE 8000

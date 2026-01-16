@@ -10,39 +10,19 @@ Enhancements in this version:
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, Enum, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from typing import List, Optional
-import os
-import enum
-import requests
 from functools import lru_cache
 
-# Import models from separate file
+# Import models and database utilities
 from models import Base, Company, Exposure, CompanyType, RiskLevel
+from database import SessionLocal, get_live_fx_rate, calculate_risk_level, engine
 
 # Import Phase 2B FastAPI routers
 from routes.hedging_routes_fastapi import router as hedging_router
 from routes.data_import_routes_fastapi import router as data_import_router
-
-
-# Database setup
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:pass@localhost/birk_db')
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-# API Configuration
-FX_API_KEY = os.getenv('FX_API_KEY', '8e0eb70d6c0fb96657f30109')
-FX_API_BASE = f"https://v6.exchangerate-api.com/v6/{FX_API_KEY}"
-
-# In-memory cache for FX rates (1 hour)
-fx_rate_cache = {}
-CACHE_DURATION = timedelta(hours=1)
-
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -114,50 +94,6 @@ def get_cached_fx_rate(from_currency: str, to_currency: str, cache_key: str):
     cache_key format: "YYYY-MM-DD-HH" to cache for 1 hour
     """
     return get_live_fx_rate(from_currency, to_currency)
-
-def get_live_fx_rate(from_currency: str, to_currency: str) -> float:
-    """Fetch live FX rate from exchangerate-api.com"""
-    try:
-        url = f"{FX_API_BASE}/pair/{from_currency}/{to_currency}"
-        response = requests.get(url, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-        
-        if data.get('result') == 'success':
-            return data['conversion_rate']
-        else:
-            raise Exception(f"API returned error: {data.get('error-type', 'Unknown')}")
-    except Exception as e:
-        print(f"Error fetching FX rate for {from_currency}/{to_currency}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch FX rate: {str(e)}")
-
-def calculate_risk_level(usd_value: float, settlement_period: int) -> RiskLevel:
-    """
-    Calculate risk level based on USD value and settlement period
-    
-    Risk factors:
-    - USD value (higher = more risk)
-    - Settlement period (longer = more risk)
-    """
-    # Base risk on USD value
-    if usd_value > 5_000_000:
-        base_risk = 3  # High
-    elif usd_value > 1_000_000:
-        base_risk = 2  # Medium
-    else:
-        base_risk = 1  # Low
-    
-    # Adjust for settlement period (>90 days adds risk)
-    if settlement_period > 90:
-        base_risk = min(3, base_risk + 1)
-    
-    # Map to RiskLevel enum
-    if base_risk >= 3:
-        return RiskLevel.HIGH
-    elif base_risk == 2:
-        return RiskLevel.MEDIUM
-    else:
-        return RiskLevel.LOW
 
 def calculate_rate_change(initial_rate: Optional[float], current_rate: float) -> tuple[Optional[float], str]:
     """
@@ -352,7 +288,3 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
