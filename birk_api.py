@@ -233,7 +233,7 @@ async def startup_event():
             
             # Create demo company
             demo_company = Company(
-                name="GlobalTrade Commodities Ltd",
+                name="BIRK Commodities A/S",
                 base_currency="USD",
                 company_type=CompanyType.COMMODITY_TRADER,
                 trading_volume_monthly=150_000_000
