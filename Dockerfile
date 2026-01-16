@@ -19,6 +19,7 @@ COPY birk_api.py .
 COPY seed_demo_data.py .
 COPY routes/ ./routes/
 COPY services/ ./services/
+COPY models.py .
 
 # Expose port
 EXPOSE 8000
