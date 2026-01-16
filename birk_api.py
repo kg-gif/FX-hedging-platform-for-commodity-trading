@@ -365,7 +365,7 @@ async def startup_event():
                     from_currency=exp_data["from"],
                     to_currency=exp_data["to"],
                     amount=exp_data["amount"],
-                    initial_rate=rate,  # Set initial rate on creation
+                    initial_rate=rate,
                     current_rate=rate,
                     current_value_usd=usd_value,
                     settlement_period=exp_data["period"],
@@ -373,19 +373,22 @@ async def startup_event():
                     description=exp_data["desc"]
                 )
                 db.add(exposure)
-
-            if company_count == 0:
-            # seeding code
+            
             db.commit()
             print("✅ Database seeded successfully!")
-            else:
-            print(f"ℹ️  Database already contains {company_count} companies")
-except Exception as e:
+        else:
+            print(f"ℹ️ Database already contains {company_count} companies")
+            
+    except Exception as e:
         print(f"✗ Error during startup: {e}")
         db.rollback()
     finally:
         db.close()
 
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
