@@ -222,7 +222,7 @@ def refresh_company_rates(company_id: int, db: Session = Depends(get_db)):
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database with demo data if empty"""
+    """Initialize database with demo data if empty, or update existing"""
     db = SessionLocal()
     
     try:
@@ -230,8 +230,7 @@ async def startup_event():
         company_count = db.query(Company).count()
         
         if company_count == 0:
-            
-            # Create demo company
+            # Create new demo company
             demo_company = Company(
                 name="BIRK Commodities A/S",
                 base_currency="USD",
@@ -276,7 +275,19 @@ async def startup_event():
             db.commit()
             print("✅ Database seeded successfully!")
         else:
+            # UPDATE EXISTING COMPANY NAME
             print(f"ℹ️ Database already contains {company_count} companies")
+            
+            # Find and update the first company
+            first_company = db.query(Company).first()
+            if first_company and first_company.name != "BIRK Commodities A/S":
+                old_name = first_company.name
+                first_company.name = "BIRK Commodities A/S"
+                first_company.updated_at = datetime.utcnow()
+                db.commit()
+                print(f"✅ Updated company name from '{old_name}' to 'BIRK Commodities A/S'")
+            else:
+                print(f"✅ Company name is already correct: {first_company.name if first_company else 'No company found'}")
             
     except Exception as e:
         print(f"✗ Error during startup: {e}")
