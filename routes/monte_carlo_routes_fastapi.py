@@ -130,4 +130,3 @@ async def simulate_portfolio(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Portfolio simulation failed: {str(e)}")
-</details>
