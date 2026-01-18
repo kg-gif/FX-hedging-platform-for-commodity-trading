@@ -1,9 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 
-// Create the context
 const CompanyContext = createContext()
 
-// Custom hook for easy access
 export const useCompany = () => {
   const context = useContext(CompanyContext)
   if (!context) {
@@ -12,17 +10,14 @@ export const useCompany = () => {
   return context
 }
 
-// Provider component
 export const CompanyProvider = ({ children }) => {
   const [selectedCompanyId, setSelectedCompanyId] = useState(null)
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // API base URL
   const API_BASE_URL = 'https://birk-fx-api.onrender.com'
 
-  // Fetch companies on mount
   useEffect(() => {
     fetchCompanies()
   }, [])
@@ -39,7 +34,6 @@ export const CompanyProvider = ({ children }) => {
       const data = await response.json()
       setCompanies(data)
 
-      // Auto-select first company if none selected
       if (data.length > 0 && !selectedCompanyId) {
         setSelectedCompanyId(data[0].id)
       }
@@ -55,7 +49,6 @@ export const CompanyProvider = ({ children }) => {
 
   const selectCompany = (companyId) => {
     setSelectedCompanyId(companyId)
-    // Store in localStorage for persistence
     localStorage.setItem('selectedCompanyId', companyId)
   }
 

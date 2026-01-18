@@ -61,3 +61,63 @@ const CompanySelector = () => {
 }
 
 export default CompanySelector
+```
+
+5. **Save the file** (Ctrl+S)
+
+---
+
+### **Step 3: Create MonteCarloSimulation.jsx**
+
+1. **Navigate to:** `src/components/`
+
+2. **Create a new file:** `MonteCarloSimulation.jsx`
+
+3. **Open it in Notepad**
+
+4. **This file is VERY long** (about 500 lines)
+
+**Instead of pasting here, let me give you a simpler approach:**
+
+Can you:
+1. Go back to my previous message where I shared the **MonteCarloSimulation.jsx** code
+2. Copy the ENTIRE code from that section
+3. Paste it into your new `MonteCarloSimulation.jsx` file
+4. Save it
+
+**Or if you can't find it, let me know and I'll share it again!**
+
+---
+
+### **Step 4: Verify File Structure**
+
+Your folder structure should now look like this:
+```
+src/
+├── contexts/
+│   └── CompanyContext.jsx  ✅ NEW
+├── components/
+│   ├── CompanySelector.jsx  ✅ NEW
+│   ├── MonteCarloSimulation.jsx  ✅ NEW
+│   ├── Dashboard.jsx  ✅ MODIFIED
+│   ├── DataImportDashboard.jsx
+│   └── ... (other components)
+└── App.jsx  ✅ MODIFIED
+```
+
+---
+
+### **Step 5: Push to GitHub Again**
+
+1. **Open GitHub Desktop**
+
+2. **Switch to your dashboard repository**
+
+3. **You should now see:**
+   - `src/contexts/CompanyContext.jsx` (new)
+   - `src/components/CompanySelector.jsx` (new)
+   - `src/components/MonteCarloSimulation.jsx` (new)
+
+4. **In the Summary box, type:**
+```
+   Fix: Add missing context and component files
