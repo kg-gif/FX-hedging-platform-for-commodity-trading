@@ -23,6 +23,7 @@ from database import SessionLocal, get_live_fx_rate, calculate_risk_level, engin
 # Import Phase 2B FastAPI routers
 from routes.hedging_routes_fastapi import router as hedging_router
 from routes.data_import_routes_fastapi import router as data_import_router
+from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -42,6 +43,7 @@ app.add_middleware(
 # Include Phase 2B routers
 app.include_router(hedging_router)
 app.include_router(data_import_router)
+app.include_router(monte_carlo_router)
 
 # Pydantic Models
 class CompanyResponse(BaseModel):

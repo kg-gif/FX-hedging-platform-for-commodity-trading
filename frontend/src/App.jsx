@@ -1,23 +1,29 @@
 import React, { useState } from 'react'
+import { CompanyProvider } from './contexts/CompanyContext'
+import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
 import HedgingRecommendations from './components/HedgingRecommendations'
 import ScenarioAnalysis from './components/ScenarioAnalysis'
 import HedgeTracker from './components/HedgeTracker'
 import DataImportDashboard from './components/DataImportDashboard'
+import MonteCarloSimulation from './components/MonteCarloSimulation'
 
-function App() {
+function AppContent() {
   const [currentPage, setCurrentPage] = useState('dashboard')
-
+  
   const navigation = [
     { id: 'dashboard', name: 'Dashboard', icon: '📊' },
+    { id: 'monte-carlo', name: 'Monte Carlo', icon: '🎲' },
     { id: 'hedging', name: 'Hedging', icon: '🛡️' },
     { id: 'data-import', name: 'Data Import', icon: '📥' }
   ]
-
+  
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard />
+      case 'monte-carlo':
+        return <MonteCarloSimulation />
       case 'hedging':
         return (
           <div className="space-y-6">
@@ -32,7 +38,7 @@ function App() {
         return <Dashboard />
     }
   }
-
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
@@ -43,9 +49,12 @@ function App() {
               <h1 className="text-3xl font-bold text-gray-800">BIRK FX Risk Management</h1>
               <p className="text-gray-600 mt-1">Real-time currency exposure monitoring & hedging</p>
             </div>
+            
+            {/* Global Company Selector */}
+            <CompanySelector />
           </div>
         </div>
-
+        
         {/* Navigation Tabs */}
         <div className="border-t border-gray-200">
           <div className="container mx-auto px-4">
@@ -70,12 +79,20 @@ function App() {
           </div>
         </div>
       </div>
-
+      
       {/* Page Content */}
       <div className="container mx-auto px-4 py-8">
         {renderPage()}
       </div>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <CompanyProvider>
+      <AppContent />
+    </CompanyProvider>
   )
 }
 
