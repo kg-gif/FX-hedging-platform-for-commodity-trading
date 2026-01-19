@@ -399,26 +399,27 @@ async def get_company_exposures(
         
         # Convert to dict format
         exposure_list = []
-exposure_list.append({
-            'id': exp.id,
-            'company_id': exp.company_id,
-            'from_currency': exp.from_currency,
-            'to_currency': exp.to_currency,
-            'currency_pair': f"{exp.from_currency}{exp.to_currency}",
-            'amount': exp.amount,
-            'start_date': exp.start_date.isoformat() if exp.start_date else None,
-            'end_date': exp.end_date.isoformat() if exp.end_date else None,
-            'initial_rate': exp.initial_rate,
-            'current_rate': exp.current_rate,
-            'current_value_usd': exp.current_value_usd,
-            'settlement_period': exp.settlement_period,
-            'period_days': exp.settlement_period,
-            'risk_level': exp.risk_level.value if exp.risk_level else 'Unknown',
-            'description': exp.description,
-            'status': 'active',
-            'created_at': exp.created_at.isoformat() if exp.created_at else None,
-            'updated_at': exp.updated_at.isoformat() if exp.updated_at else None
-        })
+        for exp in exposures:
+            exposure_list.append({
+                'id': exp.id,
+                'company_id': exp.company_id,
+                'from_currency': exp.from_currency,
+                'to_currency': exp.to_currency,
+                'currency_pair': f"{exp.from_currency}{exp.to_currency}",
+                'amount': exp.amount,
+                'start_date': exp.start_date.isoformat() if exp.start_date else None,
+                'end_date': exp.end_date.isoformat() if exp.end_date else None,
+                'initial_rate': exp.initial_rate,
+                'current_rate': exp.current_rate,
+                'current_value_usd': exp.current_value_usd,
+                'settlement_period': exp.settlement_period,
+                'period_days': exp.settlement_period,
+                'risk_level': exp.risk_level.value if exp.risk_level else 'Unknown',
+                'description': exp.description,
+                'status': 'active',
+                'created_at': exp.created_at.isoformat() if exp.created_at else None,
+                'updated_at': exp.updated_at.isoformat() if exp.updated_at else None
+            })
         
         return {
             'success': True,
