@@ -2,7 +2,7 @@
 Database Models for BIRK FX Platform
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Date
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Date, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 import enum
