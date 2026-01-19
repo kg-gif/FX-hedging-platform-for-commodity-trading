@@ -2,7 +2,7 @@
 Database Models for BIRK FX Platform
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Date
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 import enum
@@ -37,15 +37,12 @@ class Exposure(Base):
     __tablename__ = "exposures"
     
     id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, index=True)
-    from_currency = Column(String)
-    to_currency = Column(String)
-    amount = Column(Float)
-    initial_rate = Column(Float)
-    current_rate = Column(Float)
-    current_value_usd = Column(Float)
-    settlement_period = Column(Integer)
-    risk_level = Column(Enum(RiskLevel))
-    description = Column(Text)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    currency_pair = Column(String, nullable=False)
+    amount = Column(Float, nullable=False)
+    period_days = Column(Integer, nullable=False)
+    start_date = Column(Date, nullable=True)  
+    end_date = Column(Date, nullable=True)    
+    description = Column(String, nullable=True)
+    status = Column(String, default="active")
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 

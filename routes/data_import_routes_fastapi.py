@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Dep
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
 import sys
 import os
@@ -129,7 +129,7 @@ async def upload_file(
         if not result['success']:
             raise HTTPException(status_code=400, detail=result.get('error', 'Upload failed'))
         
-        # Save exposures to database
+      # Save exposures to database
         saved_count = 0
         for exp_data in result['exposures']:
             try:
@@ -140,12 +140,22 @@ async def upload_file(
                 # Calculate risk level
                 risk = calculate_risk_level(usd_value, exp_data['period_days'])
                 
+                # Parse dates if provided
+                start_date = None
+                end_date = None
+                if exp_data.get('start_date'):
+                    start_date = datetime.strptime(exp_data['start_date'], '%Y-%m-%d').date()
+                if exp_data.get('end_date'):
+                    end_date = datetime.strptime(exp_data['end_date'], '%Y-%m-%d').date()
+                
                 # Create database record
                 db_exposure = Exposure(
                     company_id=company_id,
                     from_currency=exp_data['from_currency'],
                     to_currency=exp_data['to_currency'],
                     amount=exp_data['amount'],
+                    start_date=start_date,
+                    end_date=end_date,
                     initial_rate=rate,
                     current_rate=rate,
                     current_value_usd=usd_value,
@@ -205,12 +215,22 @@ async def create_manual_exposure(request: ManualExposureRequest, db: Session = D
         # Calculate risk level
         risk = calculate_risk_level(usd_value, exp_data['period_days'])
         
+        # Parse dates if provided
+        start_date = None
+        end_date = None
+        if exp_data.get('start_date'):
+            start_date = datetime.strptime(exp_data['start_date'], '%Y-%m-%d').date()
+        if exp_data.get('end_date'):
+            end_date = datetime.strptime(exp_data['end_date'], '%Y-%m-%d').date()
+        
         # Create database record
         db_exposure = Exposure(
             company_id=exp_data['company_id'],
             from_currency=exp_data['from_currency'],
             to_currency=exp_data['to_currency'],
             amount=exp_data['amount'],
+            start_date=start_date,
+            end_date=end_date,
             initial_rate=rate,
             current_rate=rate,
             current_value_usd=usd_value,
@@ -233,6 +253,8 @@ async def create_manual_exposure(request: ManualExposureRequest, db: Session = D
                 'from_currency': db_exposure.from_currency,
                 'to_currency': db_exposure.to_currency,
                 'amount': db_exposure.amount,
+                'start_date': db_exposure.start_date.isoformat() if db_exposure.start_date else None,
+                'end_date': db_exposure.end_date.isoformat() if db_exposure.end_date else None,
                 'initial_rate': db_exposure.initial_rate,
                 'current_rate': db_exposure.current_rate,
                 'current_value_usd': db_exposure.current_value_usd,
@@ -288,12 +310,22 @@ async def create_batch_exposures(request: BatchExposureRequest, db: Session = De
                     # Calculate risk level
                     risk = calculate_risk_level(usd_value, validated_exp['period_days'])
                     
+                    # Parse dates if provided
+                    start_date = None
+                    end_date = None
+                    if validated_exp.get('start_date'):
+                        start_date = datetime.strptime(validated_exp['start_date'], '%Y-%m-%d').date()
+                    if validated_exp.get('end_date'):
+                        end_date = datetime.strptime(validated_exp['end_date'], '%Y-%m-%d').date()
+                    
                     # Create database record
                     db_exposure = Exposure(
                         company_id=company_id,
                         from_currency=validated_exp['from_currency'],
                         to_currency=validated_exp['to_currency'],
                         amount=validated_exp['amount'],
+                        start_date=start_date,
+                        end_date=end_date,
                         initial_rate=rate,
                         current_rate=rate,
                         current_value_usd=usd_value,
@@ -367,25 +399,26 @@ async def get_company_exposures(
         
         # Convert to dict format
         exposure_list = []
-        for exp in exposures:
-            exposure_list.append({
-                'id': exp.id,
-                'company_id': exp.company_id,
-                'from_currency': exp.from_currency,
-                'to_currency': exp.to_currency,
-                'currency_pair': f"{exp.from_currency}{exp.to_currency}",
-                'amount': exp.amount,
-                'initial_rate': exp.initial_rate,
-                'current_rate': exp.current_rate,
-                'current_value_usd': exp.current_value_usd,
-                'settlement_period': exp.settlement_period,
-                'period_days': exp.settlement_period,
-                'risk_level': exp.risk_level.value if exp.risk_level else 'Unknown',
-                'description': exp.description,
-                'status': 'active',
-                'created_at': exp.created_at.isoformat() if exp.created_at else None,
-                'updated_at': exp.updated_at.isoformat() if exp.updated_at else None
-            })
+exposure_list.append({
+            'id': exp.id,
+            'company_id': exp.company_id,
+            'from_currency': exp.from_currency,
+            'to_currency': exp.to_currency,
+            'currency_pair': f"{exp.from_currency}{exp.to_currency}",
+            'amount': exp.amount,
+            'start_date': exp.start_date.isoformat() if exp.start_date else None,
+            'end_date': exp.end_date.isoformat() if exp.end_date else None,
+            'initial_rate': exp.initial_rate,
+            'current_rate': exp.current_rate,
+            'current_value_usd': exp.current_value_usd,
+            'settlement_period': exp.settlement_period,
+            'period_days': exp.settlement_period,
+            'risk_level': exp.risk_level.value if exp.risk_level else 'Unknown',
+            'description': exp.description,
+            'status': 'active',
+            'created_at': exp.created_at.isoformat() if exp.created_at else None,
+            'updated_at': exp.updated_at.isoformat() if exp.updated_at else None
+        })
         
         return {
             'success': True,
