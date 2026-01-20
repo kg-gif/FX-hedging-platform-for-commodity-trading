@@ -63,26 +63,44 @@ const MonteCarloSimulation = () => {
   }
 
   const runPortfolioSimulation = async () => {
-    setLoading(true)
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/monte-carlo/simulate/portfolio`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          company_id: selectedCompanyId,
-          time_horizon_days: timeHorizon,
-          num_scenarios: numScenarios
-        })
+  setLoading(true)
+  try {
+    console.log('🎯 Calling portfolio simulation...', {
+      url: `${API_BASE_URL}/api/monte-carlo/simulate/portfolio`,
+      company_id: selectedCompanyId,
+      time_horizon_days: timeHorizon,
+      num_scenarios: numScenarios
+    })
+    
+    const response = await fetch(`${API_BASE_URL}/api/monte-carlo/simulate/portfolio`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company_id: selectedCompanyId,
+        time_horizon_days: timeHorizon,
+        num_scenarios: numScenarios
       })
-      
-      const data = await response.json()
-      setPortfolioResult(data.portfolio_simulation)
-    } catch (err) {
-      console.error('Portfolio simulation error:', err)
-    } finally {
-      setLoading(false)
+    })
+    
+    console.log('📡 Response status:', response.status)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('❌ API Error:', errorText)
+      alert(`Portfolio simulation failed: ${response.status} - ${errorText}`)
+      return
     }
+    
+    const data = await response.json()
+    console.log('✅ Portfolio result:', data)
+    setPortfolioResult(data.portfolio_simulation)
+  } catch (err) {
+    console.error('❌ Portfolio simulation error:', err)
+    alert(`Error running portfolio simulation: ${err.message}`)
+  } finally {
+    setLoading(false)
   }
+}
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-US', {
