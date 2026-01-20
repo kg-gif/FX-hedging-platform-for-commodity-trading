@@ -88,43 +88,28 @@ async def simulate_exposure(
 
 
 @router.post("/simulate/portfolio")
-async def simulate_portfolio(
-    request: PortfolioSimulationRequest,
-    db: Session = Depends(get_db)
-):
-    try:
-        exposures = db.query(Exposure).filter(
-            Exposure.company_id == request.company_id
-        ).all()
-        
-        if not exposures:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No exposures found for company {request.company_id}"
-            )
-        
-        exposure_dicts = []
-        for exp in exposures:
-            exposure_dicts.append({
-                'id': exp.id,
-                'currency_pair': f"{exp.from_currency}{exp.to_currency}",
-                'current_rate': exp.current_rate,
-                'amount': exp.amount,
-                'from_currency': exp.from_currency,
-                'to_currency': exp.to_currency
-            })
-        
-        result = monte_carlo_service.run_portfolio_simulation(
-            exposures=exposure_dicts,
-            time_horizon_days=request.time_horizon_days,
-            num_scenarios=request.num_scenarios
-        )
-        
-        return {
-            'success': True,
-            'company_id': request.company_id,
-            'portfolio_simulation': result
-        }
+@router.post("/simulate/portfolio")
+async def simulate_portfolio_exposure(request: PortfolioSimulationRequest, db: Session = Depends(get_db)):
+    # ... existing code ...
+    
+    # Run portfolio simulation
+    portfolio_result = mc_service.run_portfolio_simulation(
+        exposures=exposure_data,
+        time_horizon_days=request.time_horizon_days,
+        num_scenarios=request.num_scenarios
+    )
+    
+    # Clean up: Remove NumPy arrays from individual exposure results before returning
+    if 'individual_exposures' in portfolio_result:
+        for exp_result in portfolio_result['individual_exposures']:
+            if 'result' in exp_result and '_internal_full_pnl' in exp_result['result']:
+                # Remove the NumPy array before JSON serialization
+                del exp_result['result']['_internal_full_pnl']
+    
+    return {
+        'success': True,
+        'portfolio_simulation': portfolio_result
+    }
         
     except HTTPException:
         raise
