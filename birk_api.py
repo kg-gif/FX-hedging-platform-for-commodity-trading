@@ -25,15 +25,30 @@ from routes.hedging_routes_fastapi import router as hedging_router
 from routes.data_import_routes_fastapi import router as data_import_router
 from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
 
-# TEMPORARY: Force recreate database tables (development only)
-# This will delete all existing data
-print("🔄 Recreating database tables...")
-try:
-    Base.metadata.drop_all(bind=engine)
-    print("✅ Old tables dropped")
-except Exception as e:
-    print(f"⚠️ Drop tables warning: {e}")
+# TEMPORARY: Force recreate database tables with CASCADE (development only)
+# This will delete all existing data AND dependent tables
+print("🔄 Recreating database tables with CASCADE...")
 
+try:
+    # Import text for raw SQL
+    from sqlalchemy import text
+    
+    # Get a connection
+    with engine.connect() as conn:
+        # Drop all tables with CASCADE to remove foreign key dependencies
+        conn.execute(text("""
+            DROP SCHEMA public CASCADE;
+            CREATE SCHEMA public;
+            GRANT ALL ON SCHEMA public TO postgres;
+            GRANT ALL ON SCHEMA public TO public;
+        """))
+        conn.commit()
+    
+    print("✅ All tables dropped with CASCADE")
+except Exception as e:
+    print(f"⚠️ Drop warning: {e}")
+
+# Now create fresh tables
 Base.metadata.create_all(bind=engine)
 print("✅ Database tables created with new schema")
 
