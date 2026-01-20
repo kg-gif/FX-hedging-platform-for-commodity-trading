@@ -136,7 +136,7 @@ class MonteCarloService:
                 'expected_pnl': float(np.mean(pnl)),
                 'downside_risk_95': float(abs(var_95)),
                 'upside_potential_95': float(max_gain * 0.95)
-            }
+            },
             '_internal_full_pnl': pnl  # Internal use only - will be stripped before JSON response
         }
     
