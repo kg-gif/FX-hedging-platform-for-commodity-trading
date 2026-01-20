@@ -15,6 +15,7 @@ import {
 const API_BASE_URL = 'https://birk-fx-api.onrender.com';
 
 const ManualEntry = ({ companyId, onSaveSuccess }) => {
+  const [mode, setMode] = useState('single'); // 'single' or 'batch'
   const [formData, setFormData] = useState({
     reference_number: '',
     currency_pair: '',
@@ -25,22 +26,16 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     rate: ''
   });
 
+  const [batchEntries, setBatchEntries] = useState([]);
   const [errors, setErrors] = useState({});
-  const [saving, setSaving] = useState(false);
-  const [saveResult, setSaveResult] = useState(null);
-  const [showBatchEntry, setShowBatchEntry] = useState(false);
-  const [batchExposures, setBatchExposures] = useState([]);
+  const [message, setMessage] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const currencyPairs = [
-    'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD',
-    'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY', 'EURCHF', 'AUDJPY',
-    'NOKSEK', 'EURNOK', 'EURSEK', 'USDNOK', 'USDSEK'
-  ];
-
+  // Validate form
   const validateForm = () => {
     const newErrors = {};
 
-    if (!formData.reference_number.trim()) {
+    if (!formData.reference_number) {
       newErrors.reference_number = 'Reference number is required';
     }
 
@@ -48,9 +43,8 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       newErrors.currency_pair = 'Currency pair is required';
     }
 
-    const amount = parseFloat(formData.amount);
-    if (!formData.amount || isNaN(amount) || amount <= 0) {
-      newErrors.amount = 'Valid amount is required';
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      newErrors.amount = 'Amount must be greater than 0';
     }
 
     if (!formData.start_date) {
@@ -69,94 +63,189 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       }
     }
 
-    if (formData.rate) {
-      const rate = parseFloat(formData.rate);
-      if (isNaN(rate) || rate <= 0) {
-        newErrors.rate = 'Rate must be a positive number';
-      }
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e) => {
-  e.preventDefault();
-  setSaveResult(null);
+  // Handle single exposure save
+  const handleSave = async (e) => {
+    e.preventDefault();
 
-  if (!validateForm()) {
-    return;
-  }
-
-  setSaving(true);
-
-  try {
-    const payload = {
-      company_id: companyId,
-      reference_number: formData.reference_number,
-      currency_pair: formData.currency_pair,
-      amount: parseFloat(formData.amount),
-      start_date: formData.start_date,
-      end_date: formData.end_date,
-      description: formData.description || '',
-      rate: formData.rate ? parseFloat(formData.rate) : null
-    };
-    
-    console.log('Sending payload:', payload);  // Debug log
-    
-    const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const result = await response.json();
-    console.log('API response:', result);  // Debug log
-
-    if (result.success) {
-      setSaveResult(result);
-      setFormData({
-        reference_number: '',
-        currency_pair: '',
-        amount: '',
-        start_date: '',
-        end_date: '',
-        description: '',
-        rate: ''
-      });
-      if (onSaveSuccess) {
-        onSaveSuccess(result.exposure);
-      }
-    } else {
-      // Handle both error formats
-      const errorMsg = result.errors?.join(', ') || 
-                      result.error || 
-                      (Array.isArray(result.detail) ? result.detail.join(', ') : result.detail) ||
-                      'Unknown error';
-      setErrors({ submit: errorMsg });
+    if (!validateForm()) {
+      setMessage({ type: 'error', text: 'Please fix the errors above' });
+      return;
     }
-  } catch (err) {
-    console.error('Submit error:', err);  // Debug log
-    setErrors({ submit: `Save failed: ${err.message}` });
-  } finally {
-    setSaving(false);
-  }
-};
 
-  const handleChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    // Clear error for this field
-    if (errors[field]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[field];
-        return newErrors;
+    if (!companyId) {
+      setMessage({ type: 'error', text: 'Please select a company first' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setMessage(null);
+
+      const payload = {
+        company_id: companyId,
+        reference_number: formData.reference_number,
+        currency_pair: formData.currency_pair,
+        amount: parseFloat(formData.amount),
+        start_date: formData.start_date,
+        end_date: formData.end_date,
+        description: formData.description || '',
+        rate: formData.rate ? parseFloat(formData.rate) : null
+      };
+
+      console.log('Sending payload:', payload);
+
+      const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
       });
+
+      console.log('Response status:', response.status);
+      
+      const data = await response.json();
+      console.log('Response data:', data);
+
+      if (response.ok && data.success) {
+        setMessage({ type: 'success', text: data.message || 'Exposure created successfully!' });
+        
+        // Reset form
+        setFormData({
+          reference_number: '',
+          currency_pair: '',
+          amount: '',
+          start_date: '',
+          end_date: '',
+          description: '',
+          rate: ''
+        });
+        setErrors({});
+
+        // Notify parent
+        if (onSaveSuccess) {
+          onSaveSuccess();
+        }
+      } else {
+        // Handle error response
+        const errorMessage = data.detail || data.message || 'Failed to create exposure';
+        setMessage({ type: 'error', text: errorMessage });
+      }
+    } catch (error) {
+      console.error('Error saving exposure:', error);
+      setMessage({ type: 'error', text: `Network error: ${error.message}` });
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Add to batch
+  const handleAddToBatch = (e) => {
+    e.preventDefault();
+
+    if (!validateForm()) {
+      setMessage({ type: 'error', text: 'Please fix the errors above' });
+      return;
+    }
+
+    setBatchEntries([...batchEntries, { ...formData }]);
+    
+    // Reset form but keep some fields
+    setFormData({
+      reference_number: '',
+      currency_pair: formData.currency_pair, // Keep currency pair
+      amount: '',
+      start_date: '',
+      end_date: '',
+      description: '',
+      rate: formData.rate // Keep rate
+    });
+    setErrors({});
+    
+    setMessage({ type: 'success', text: `Added to batch (${batchEntries.length + 1} entries)` });
+  };
+
+  // Save batch
+  const handleSaveBatch = async () => {
+    if (batchEntries.length === 0) {
+      setMessage({ type: 'error', text: 'No entries in batch' });
+      return;
+    }
+
+    if (!companyId) {
+      setMessage({ type: 'error', text: 'Please select a company first' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const entry of batchEntries) {
+        try {
+          const payload = {
+            company_id: companyId,
+            reference_number: entry.reference_number,
+            currency_pair: entry.currency_pair,
+            amount: parseFloat(entry.amount),
+            start_date: entry.start_date,
+            end_date: entry.end_date,
+            description: entry.description || '',
+            rate: entry.rate ? parseFloat(entry.rate) : null
+          };
+
+          const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await response.json();
+
+          if (response.ok && data.success) {
+            successCount++;
+          } else {
+            failCount++;
+            console.error('Failed to save entry:', entry.reference_number, data);
+          }
+        } catch (error) {
+          failCount++;
+          console.error('Error saving entry:', entry.reference_number, error);
+        }
+      }
+
+      setMessage({ 
+        type: successCount > 0 ? 'success' : 'error', 
+        text: `${successCount} exposures created, ${failCount} failed` 
+      });
+
+      if (successCount > 0) {
+        setBatchEntries([]);
+        if (onSaveSuccess) {
+          onSaveSuccess();
+        }
+      }
+    } catch (error) {
+      console.error('Batch save error:', error);
+      setMessage({ type: 'error', text: 'Failed to save batch' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Remove from batch
+  const removeBatchEntry = (index) => {
+    setBatchEntries(batchEntries.filter((_, i) => i !== index));
+  };
+
+  // Calculate period days
   const calculatePeriodDays = () => {
     if (formData.start_date && formData.end_date) {
       const start = new Date(formData.start_date);
@@ -167,380 +256,232 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     return 0;
   };
 
-  const addToBatch = () => {
-    if (!validateForm()) {
-      return;
-    }
-
-    const newExposure = {
-      ...formData,
-      amount: parseFloat(formData.amount),
-      rate: formData.rate ? parseFloat(formData.rate) : null,
-      period_days: calculatePeriodDays()
-    };
-
-    setBatchExposures([...batchExposures, newExposure]);
-    
-    // Reset form
-    setFormData({
-      reference_number: '',
-      currency_pair: '',
-      amount: '',
-      start_date: '',
-      end_date: '',
-      description: '',
-      rate: ''
-    });
-    setErrors({});
-  };
-
-  const removeBatchExposure = (index) => {
-    setBatchExposures(batchExposures.filter((_, i) => i !== index));
-  };
-
-  const saveBatch = async () => {
-    if (batchExposures.length === 0) {
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/exposure-data/batch-manual`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          company_id: companyId,
-          exposures: batchExposures
-        })
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        setSaveResult({
-          success: true,
-          message: `Successfully created ${result.created_count} exposures`,
-          batch: true
-        });
-        setBatchExposures([]);
-        setShowBatchEntry(false);
-      } else {
-        setErrors({ 
-          submit: `${result.created_count} exposures created, ${result.error_count} failed` 
-        });
-      }
-    } catch (err) {
-      setErrors({ submit: `Batch save failed: ${err.message}` });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount);
-  };
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
-              <Plus className="w-6 h-6" />
-              Manual Data Entry
-            </h2>
-            <p className="text-green-100">
-              Enter individual exposure records or create multiple entries at once
-            </p>
-          </div>
+    <div className="bg-white rounded-lg shadow p-6">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-xl font-semibold">Manual Data Entry</h2>
+          <p className="text-gray-600 text-sm">Enter individual exposure records or create multiple entries at once</p>
+        </div>
+        <div className="flex gap-2">
           <button
-            onClick={() => setShowBatchEntry(!showBatchEntry)}
-            className="px-4 py-2 bg-white text-green-600 rounded-lg hover:bg-green-50 transition-colors font-semibold"
+            onClick={() => setMode('single')}
+            className={`px-4 py-2 rounded-lg ${
+              mode === 'single'
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
           >
-            {showBatchEntry ? 'Single Entry' : 'Batch Entry'}
+            Single Entry
+          </button>
+          <button
+            onClick={() => setMode('batch')}
+            className={`px-4 py-2 rounded-lg ${
+              mode === 'batch'
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Batch Entry
           </button>
         </div>
       </div>
 
-      {/* Success Message */}
-      {saveResult && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-green-900">
-                {saveResult.batch ? 'Batch Save Successful!' : 'Exposure Created!'}
-              </p>
-              <p className="text-sm text-green-700 mt-1">
-                {saveResult.message || `Reference: ${saveResult.exposure?.reference_number}`}
-              </p>
-            </div>
-          </div>
+      {/* Message */}
+      {message && (
+        <div className={`mb-4 p-4 rounded-lg flex items-center ${
+          message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+        }`}>
+          {message.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertCircle className="mr-2" size={20} />}
+          {message.text}
         </div>
       )}
 
-      {/* Error Message */}
-      {errors.submit && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-red-900">Error</p>
-              <p className="text-sm text-red-700 mt-1">{errors.submit}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Form */}
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Reference Number & Currency Pair */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <Hash className="w-4 h-4" />
-                  Reference Number *
-                </div>
-              </label>
-              <input
-                type="text"
-                value={formData.reference_number}
-                onChange={(e) => handleChange('reference_number', e.target.value)}
-                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                  errors.reference_number ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="e.g., REF-2025-001"
-              />
-              {errors.reference_number && (
-                <p className="mt-1 text-sm text-red-600">{errors.reference_number}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Currency Pair *
-              </label>
-              <select
-                value={formData.currency_pair}
-                onChange={(e) => handleChange('currency_pair', e.target.value)}
-                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                  errors.currency_pair ? 'border-red-500' : 'border-gray-300'
-                }`}
-              >
-                <option value="">Select currency pair</option>
-                {currencyPairs.map(pair => (
-                  <option key={pair} value={pair}>{pair}</option>
-                ))}
-              </select>
-              {errors.currency_pair && (
-                <p className="mt-1 text-sm text-red-600">{errors.currency_pair}</p>
-              )}
-            </div>
+      {/* Form */}
+      <form onSubmit={mode === 'single' ? handleSave : handleAddToBatch}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Reference Number */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Hash className="inline mr-1" size={16} />
+              Reference Number *
+            </label>
+            <input
+              type="text"
+              value={formData.reference_number}
+              onChange={(e) => setFormData({ ...formData, reference_number: e.target.value })}
+              className={`w-full px-4 py-2 border rounded-lg ${errors.reference_number ? 'border-red-500' : ''}`}
+              placeholder="e.g., REF-2025-001"
+            />
+            {errors.reference_number && <p className="text-red-500 text-xs mt-1">{errors.reference_number}</p>}
           </div>
 
-          {/* Amount & Rate */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="w-4 h-4" />
-                  Amount *
-                </div>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.amount}
-                onChange={(e) => handleChange('amount', e.target.value)}
-                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                  errors.amount ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="1000000"
-              />
-              {errors.amount && (
-                <p className="mt-1 text-sm text-red-600">{errors.amount}</p>
-              )}
-            </div>
+          {/* Currency Pair */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Currency Pair *
+            </label>
+            <select
+              value={formData.currency_pair}
+              onChange={(e) => setFormData({ ...formData, currency_pair: e.target.value })}
+              className={`w-full px-4 py-2 border rounded-lg ${errors.currency_pair ? 'border-red-500' : ''}`}
+            >
+              <option value="">Select currency pair</option>
+              <option value="EURUSD">EUR/USD</option>
+              <option value="GBPUSD">GBP/USD</option>
+              <option value="JPYUSD">JPY/USD</option>
+              <option value="CHFUSD">CHF/USD</option>
+              <option value="AUDUSD">AUD/USD</option>
+              <option value="CADUSD">CAD/USD</option>
+              <option value="NZDUSD">NZD/USD</option>
+              <option value="CNYUSD">CNY/USD</option>
+              <option value="INRUSD">INR/USD</option>
+              <option value="BRLUSD">BRL/USD</option>
+              <option value="MXNUSD">MXN/USD</option>
+              <option value="ZARUSD">ZAR/USD</option>
+            </select>
+            {errors.currency_pair && <p className="text-red-500 text-xs mt-1">{errors.currency_pair}</p>}
+          </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                FX Rate (Optional)
-              </label>
-              <input
-                type="number"
-                step="0.000001"
-                value={formData.rate}
-                onChange={(e) => handleChange('rate', e.target.value)}
-                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                  errors.rate ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="1.085000"
-              />
-              {errors.rate && (
-                <p className="mt-1 text-sm text-red-600">{errors.rate}</p>
-              )}
-            </div>
+          {/* Amount */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <DollarSign className="inline mr-1" size={16} />
+              Amount *
+            </label>
+            <input
+              type="number"
+              value={formData.amount}
+              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+              className={`w-full px-4 py-2 border rounded-lg ${errors.amount ? 'border-red-500' : ''}`}
+              placeholder="1000000"
+              step="0.01"
+            />
+            {errors.amount && <p className="text-red-500 text-xs mt-1">{errors.amount}</p>}
+          </div>
+
+          {/* FX Rate */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              FX Rate (Optional)
+            </label>
+            <input
+              type="number"
+              value={formData.rate}
+              onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg"
+              placeholder="1.085000"
+              step="0.000001"
+            />
+            <p className="text-xs text-gray-500 mt-1">Leave blank to fetch live rate</p>
           </div>
 
           {/* Start Date & End Date */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4" />
-                  Start Date *
-                </div>
-              </label>
-              <input
-                type="date"
-                value={formData.start_date}
-                onChange={(e) => handleChange('start_date', e.target.value)}
-                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                  errors.start_date ? 'border-red-500' : 'border-gray-300'
-                }`}
-              />
-              {errors.start_date && (
-                <p className="mt-1 text-sm text-red-600">{errors.start_date}</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4" />
-                  End Date *
-                </div>
-              </label>
-              <input
-                type="date"
-                value={formData.end_date}
-                onChange={(e) => handleChange('end_date', e.target.value)}
-                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                  errors.end_date ? 'border-red-500' : 'border-gray-300'
-                }`}
-              />
-              {errors.end_date && (
-                <p className="mt-1 text-sm text-red-600">{errors.end_date}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Period Calculation */}
-          {formData.start_date && formData.end_date && !errors.end_date && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-blue-900">Exposure Period:</span>
-                <span className="font-semibold text-blue-900">
-                  {calculatePeriodDays()} days
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Description (Optional)
-              </div>
+              <Calendar className="inline mr-1" size={16} />
+              Start Date *
             </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => handleChange('description', e.target.value)}
-              rows={3}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Add notes or description..."
+            <input
+              type="date"
+              value={formData.start_date}
+              onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+              className={`w-full px-4 py-2 border rounded-lg ${errors.start_date ? 'border-red-500' : ''}`}
             />
+            {errors.start_date && <p className="text-red-500 text-xs mt-1">{errors.start_date}</p>}
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex gap-3 pt-4 border-t">
-            {showBatchEntry ? (
-              <>
-                <button
-                  type="button"
-                  onClick={addToBatch}
-                  className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-5 h-5" />
-                  Add to Batch
-                </button>
-              </>
-            ) : (
-              <button
-                type="submit"
-                disabled={saving}
-                className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold flex items-center justify-center gap-2"
-              >
-                <Save className="w-5 h-5" />
-                {saving ? 'Saving...' : 'Save Exposure'}
-              </button>
-            )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Calendar className="inline mr-1" size={16} />
+              End Date *
+            </label>
+            <input
+              type="date"
+              value={formData.end_date}
+              onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+              className={`w-full px-4 py-2 border rounded-lg ${errors.end_date ? 'border-red-500' : ''}`}
+            />
+            {errors.end_date && <p className="text-red-500 text-xs mt-1">{errors.end_date}</p>}
           </div>
-        </form>
-      </div>
+        </div>
 
-      {/* Batch Entry List */}
-      {showBatchEntry && batchExposures.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Batch Queue ({batchExposures.length} {batchExposures.length === 1 ? 'exposure' : 'exposures'})
-            </h3>
+        {/* Exposure Period Display */}
+        {formData.start_date && formData.end_date && (
+          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+            <p className="text-sm text-gray-700">
+              <strong>Exposure Period:</strong> {calculatePeriodDays()} days
+            </p>
+          </div>
+        )}
+
+        {/* Description */}
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <FileText className="inline mr-1" size={16} />
+            Description (Optional)
+          </label>
+          <textarea
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            className="w-full px-4 py-2 border rounded-lg"
+            rows="2"
+            placeholder="Add notes or description..."
+          />
+        </div>
+
+        {/* Submit Button */}
+        <div className="mt-6">
+          {mode === 'single' ? (
             <button
-              onClick={saveBatch}
-              disabled={saving}
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold flex items-center gap-2"
+              type="submit"
+              disabled={loading}
+              className="w-full bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center"
             >
-              <Save className="w-4 h-4" />
-              {saving ? 'Saving...' : `Save All (${batchExposures.length})`}
+              <Save className="mr-2" size={20} />
+              {loading ? 'Saving...' : 'Save Exposure'}
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+            >
+              <Plus className="mr-2" size={20} />
+              Add to Batch
+            </button>
+          )}
+        </div>
+      </form>
+
+      {/* Batch Queue */}
+      {mode === 'batch' && batchEntries.length > 0 && (
+        <div className="mt-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Batch Queue ({batchEntries.length} entries)</h3>
+            <button
+              onClick={handleSaveBatch}
+              disabled={loading}
+              className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+            >
+              {loading ? 'Saving...' : `Save All ${batchEntries.length} Exposures`}
             </button>
           </div>
 
-          <div className="space-y-3">
-            {batchExposures.map((exposure, index) => (
-              <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div className="flex-1 grid grid-cols-5 gap-4">
-                  <div>
-                    <div className="text-xs text-gray-600">Reference</div>
-                    <div className="font-semibold text-gray-900">{exposure.reference_number}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-600">Currency</div>
-                    <div className="font-semibold text-gray-900">{exposure.currency_pair}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-600">Amount</div>
-                    <div className="font-semibold text-gray-900">{formatCurrency(exposure.amount)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-600">Period</div>
-                    <div className="font-semibold text-gray-900">{exposure.period_days} days</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-600">Dates</div>
-                    <div className="text-sm text-gray-900">
-                      {exposure.start_date} to {exposure.end_date}
-                    </div>
-                  </div>
+          <div className="space-y-2">
+            {batchEntries.map((entry, index) => (
+              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex-1">
+                  <p className="font-medium">{entry.reference_number}</p>
+                  <p className="text-sm text-gray-600">
+                    {entry.currency_pair} • ${parseFloat(entry.amount).toLocaleString()} • {calculatePeriodDays()} days
+                  </p>
                 </div>
                 <button
-                  onClick={() => removeBatchExposure(index)}
-                  className="ml-4 p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  onClick={() => removeBatchEntry(index)}
+                  className="text-red-600 hover:text-red-800"
                 >
-                  <X className="w-5 h-5" />
+                  <X size={20} />
                 </button>
               </div>
             ))}
