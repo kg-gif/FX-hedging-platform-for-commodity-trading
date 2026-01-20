@@ -60,7 +60,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:5173",
-        "https://birk-dashboard.onrender.com",  # ✅ ADD THIS
+        "https://birk-dashboard.onrender.com",
         "https://birk-fx-api.onrender.com"
     ],
     allow_credentials=True,

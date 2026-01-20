@@ -112,7 +112,6 @@ class MonteCarloService:
                 'simulated_rates': final_rates.tolist()[:100],
                 'simulated_values_usd': final_values_usd.tolist()[:100],
                 'simulated_pnl': pnl.tolist()[:100],
-                'simulated_pnl_full': pnl
             },
             'risk_metrics': {
                 'var_95': float(var_95),
@@ -138,6 +137,7 @@ class MonteCarloService:
                 'downside_risk_95': float(abs(var_95)),
                 'upside_potential_95': float(max_gain * 0.95)
             }
+            '_internal_full_pnl': pnl  # Internal use only - will be stripped before JSON response
         }
     
     def run_portfolio_simulation(self, exposures: List[Dict], time_horizon_days: int = 90, num_scenarios: Optional[int] = None) -> Dict:
@@ -162,10 +162,11 @@ class MonteCarloService:
             })
             
             # Use the full array for portfolio aggregation
-            if isinstance(result['outcomes']['simulated_pnl_full'], np.ndarray):
-                portfolio_pnl += result['outcomes']['simulated_pnl_full']
-            else:
-                portfolio_pnl += np.array(result['outcomes']['simulated_pnl_full'])
+            if '_internal_full_pnl' in result:
+    portfolio_pnl += result['_internal_full_pnl']
+else:
+    # Fallback: reconstruct from limited data (not ideal)
+    portfolio_pnl += np.array(result['outcomes']['simulated_pnl'])
         
         portfolio_var_95 = np.percentile(portfolio_pnl, 5)
         portfolio_var_99 = np.percentile(portfolio_pnl, 1)
