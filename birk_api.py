@@ -38,7 +38,6 @@ except Exception as e:
     # Fallback: create tables if they don't exist
     Base.metadata.create_all(bind=engine)
     print("✅ Database tables created")
-```
 
 # FastAPI app
 app = FastAPI(title="BIRK FX Risk Management API", version="2.0.0")
