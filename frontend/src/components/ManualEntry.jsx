@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useCompany } from '../contexts/CompanyContext';
 import {
   Plus,
   Save,
@@ -15,6 +16,7 @@ import {
 const API_BASE_URL = 'https://birk-fx-api.onrender.com';
 
 const ManualEntry = ({ companyId, onSaveSuccess }) => {
+  const { selectedCompanyId } = useCompany();
   const [mode, setMode] = useState('single'); // 'single' or 'batch'
   const [formData, setFormData] = useState({
     reference_number: '',
@@ -95,7 +97,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       setMessage(null);
 
       const payload = {
-        company_id: companyId,
+        company_id: selectedCompanyId,
         reference_number: formData.reference_number,
         currency_pair: formData.currency_pair,
         amount: parseFloat(formData.amount),
