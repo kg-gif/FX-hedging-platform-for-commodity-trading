@@ -11,23 +11,23 @@ from models import Exposure
 from database import SessionLocal
 from services.monte_carlo_service import MonteCarloService
 
-router = APIRouter(prefix="/api/monte-carlo", tags=["monte-carlo"])
-monte_carlo_service = MonteCarloService()
+router = APIRouter(prefix="/api/monte-carlo", tags=["Monte Carlo Simulation"])
 
 
-class SimulationRequest(BaseModel):
+# Pydantic Models
+class ExposureSimulationRequest(BaseModel):
     exposure_id: int
     time_horizon_days: int = Field(default=90, ge=1, le=365)
-    num_scenarios: Optional[int] = Field(default=10000, ge=1000, le=50000)
-    volatility: Optional[float] = Field(default=None, ge=0.01, le=1.0)
+    num_scenarios: Optional[int] = Field(default=10000, ge=100, le=100000)
 
 
 class PortfolioSimulationRequest(BaseModel):
     company_id: int
     time_horizon_days: int = Field(default=90, ge=1, le=365)
-    num_scenarios: Optional[int] = Field(default=10000, ge=1000, le=50000)
+    num_scenarios: Optional[int] = Field(default=10000, ge=100, le=100000)
 
 
+# Database dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -36,48 +36,46 @@ def get_db():
         db.close()
 
 
-@router.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "service": "monte_carlo"
-    }
-
-
 @router.post("/simulate/exposure")
-async def simulate_exposure(
-    request: SimulationRequest,
+async def simulate_single_exposure(
+    request: ExposureSimulationRequest,
     db: Session = Depends(get_db)
 ):
+    """
+    POST /api/monte-carlo/simulate/exposure
+    Run Monte Carlo simulation for a single exposure
+    """
     try:
+        mc_service = MonteCarloService()
+        
+        # Fetch exposure from database
         exposure = db.query(Exposure).filter(Exposure.id == request.exposure_id).first()
         
         if not exposure:
-            raise HTTPException(status_code=404, detail="Exposure not found")
+            raise HTTPException(status_code=404, detail=f"Exposure {request.exposure_id} not found")
         
+        # Prepare simulation parameters
         currency_pair = f"{exposure.from_currency}{exposure.to_currency}"
+        current_rate = exposure.current_rate or 1.0
         
-        result = monte_carlo_service.run_simulation(
-            current_rate=exposure.current_rate,
+        # Run simulation
+        result = mc_service.run_simulation(
+            current_rate=current_rate,
             amount=exposure.amount,
             time_horizon_days=request.time_horizon_days,
             num_scenarios=request.num_scenarios,
-            volatility=request.volatility,
             currency_pair=currency_pair
         )
         
-        result['exposure_context'] = {
-            'id': exposure.id,
-            'currency_pair': currency_pair,
-            'from_currency': exposure.from_currency,
-            'to_currency': exposure.to_currency,
-            'description': exposure.description,
-            'settlement_period': exposure.settlement_period,
-            'risk_level': exposure.risk_level.value if exposure.risk_level else 'Unknown'
-        }
+        # Clean up internal arrays before returning
+        if '_internal_full_pnl' in result:
+            del result['_internal_full_pnl']
         
         return {
             'success': True,
+            'exposure_id': exposure.id,
+            'currency_pair': currency_pair,
+            'amount': exposure.amount,
             'simulation': result
         }
         
@@ -88,30 +86,65 @@ async def simulate_exposure(
 
 
 @router.post("/simulate/portfolio")
-@router.post("/simulate/portfolio")
-async def simulate_portfolio_exposure(request: PortfolioSimulationRequest, db: Session = Depends(get_db)):
-    # ... existing code ...
-    
-    # Run portfolio simulation
-    portfolio_result = mc_service.run_portfolio_simulation(
-        exposures=exposure_data,
-        time_horizon_days=request.time_horizon_days,
-        num_scenarios=request.num_scenarios
-    )
-    
-    # Clean up: Remove NumPy arrays from individual exposure results before returning
-    if 'individual_exposures' in portfolio_result:
-        for exp_result in portfolio_result['individual_exposures']:
-            if 'result' in exp_result and '_internal_full_pnl' in exp_result['result']:
-                # Remove the NumPy array before JSON serialization
-                del exp_result['result']['_internal_full_pnl']
-    
-    return {
-        'success': True,
-        'portfolio_simulation': portfolio_result
-    }
+async def simulate_portfolio_exposure(
+    request: PortfolioSimulationRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    POST /api/monte-carlo/simulate/portfolio
+    Run Monte Carlo simulation for entire portfolio
+    """
+    try:
+        mc_service = MonteCarloService()
+        
+        # Fetch all exposures for the company
+        exposures = db.query(Exposure).filter(
+            Exposure.company_id == request.company_id
+        ).all()
+        
+        if not exposures:
+            raise HTTPException(status_code=404, detail="No exposures found for this company")
+        
+        # Prepare exposure data
+        exposure_data = []
+        for exp in exposures:
+            currency_pair = f"{exp.from_currency}{exp.to_currency}"
+            exposure_data.append({
+                'id': exp.id,
+                'amount': exp.amount,
+                'current_rate': exp.current_rate or 1.0,
+                'currency_pair': currency_pair
+            })
+        
+        # Run portfolio simulation
+        portfolio_result = mc_service.run_portfolio_simulation(
+            exposures=exposure_data,
+            time_horizon_days=request.time_horizon_days,
+            num_scenarios=request.num_scenarios
+        )
+        
+        # Clean up: Remove NumPy arrays before JSON serialization
+        if 'individual_exposures' in portfolio_result:
+            for exp_result in portfolio_result['individual_exposures']:
+                if 'result' in exp_result and '_internal_full_pnl' in exp_result['result']:
+                    del exp_result['result']['_internal_full_pnl']
+        
+        return {
+            'success': True,
+            'portfolio_simulation': portfolio_result
+        }
         
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Portfolio simulation failed: {str(e)}")
+
+
+@router.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        'status': 'healthy',
+        'service': 'Monte Carlo Simulation',
+        'version': '2.0.0'
+    }
