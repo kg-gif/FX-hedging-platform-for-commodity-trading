@@ -25,7 +25,7 @@ from routes.hedging_routes_fastapi import router as hedging_router
 from routes.data_import_routes_fastapi import router as data_import_router
 from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
 
-python# Run Alembic migrations on startup
+# Run Alembic migrations on startup
 from alembic.config import Config
 from alembic import command
 
