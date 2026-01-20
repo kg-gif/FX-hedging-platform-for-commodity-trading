@@ -55,10 +55,14 @@ print("✅ Database tables created with new schema")
 # FastAPI app
 app = FastAPI(title="BIRK FX Risk Management API", version="2.0.0")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://birk-dashboard.onrender.com",  # ✅ ADD THIS
+        "https://birk-fx-api.onrender.com"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
