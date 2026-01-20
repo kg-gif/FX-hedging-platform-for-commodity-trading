@@ -98,46 +98,48 @@ class MonteCarloService:
         percentile_75 = np.percentile(final_rates, 75)
         percentile_95 = np.percentile(final_rates, 95)
         
-        return {
-            'simulation_params': {
-                'current_rate': current_rate,
-                'amount': amount,
-                'time_horizon_days': time_horizon_days,
-                'volatility': volatility,
-                'num_scenarios': num_scenarios,
-                'drift': drift,
-                'currency_pair': currency_pair
-            },
-            'outcomes': {
-                'simulated_rates': final_rates.tolist()[:100],
-                'simulated_values_usd': final_values_usd.tolist()[:100],
-                'simulated_pnl': pnl.tolist()[:100]
-            },
-            'risk_metrics': {
-                'var_95': float(var_95),
-                'var_99': float(var_99),
-                'expected_loss': float(expected_loss),
-                'max_loss': float(max_loss),
-                'max_gain': float(max_gain),
-                'probability_of_loss': float(probability_of_loss)
-            },
-            'distribution': {
-                'mean_final_rate': float(np.mean(final_rates)),
-                'std_final_rate': float(np.std(final_rates)),
-                'percentile_5': float(percentile_5),
-                'percentile_25': float(percentile_25),
-                'percentile_50': float(percentile_50),
-                'percentile_75': float(percentile_75),
-                'percentile_95': float(percentile_95)
-            },
-            'summary': {
-                'expected_rate': float(np.mean(final_rates)),
-                'expected_value_usd': float(np.mean(final_values_usd)),
-                'expected_pnl': float(np.mean(pnl)),
-                'downside_risk_95': float(abs(var_95)),
-                'upside_potential_95': float(max_gain * 0.95)
-            }
-        }
+       return {
+    'simulation_params': {
+        'current_rate': current_rate,
+        'amount': amount,
+        'time_horizon_days': time_horizon_days,
+        'volatility': volatility,
+        'num_scenarios': num_scenarios,
+        'drift': drift,
+        'currency_pair': currency_pair
+    },
+    'outcomes': {
+        'simulated_rates': final_rates.tolist()[:100],
+        'simulated_values_usd': final_values_usd.tolist()[:100],
+        'simulated_pnl': pnl.tolist()[:100],
+        # ✅ ADD FULL ARRAYS FOR PORTFOLIO AGGREGATION
+        'simulated_pnl_full': pnl  # Keep as NumPy array, don't convert to list
+    },
+    'risk_metrics': {
+        'var_95': float(var_95),
+        'var_99': float(var_99),
+        'expected_loss': float(expected_loss),
+        'max_loss': float(max_loss),
+        'max_gain': float(max_gain),
+        'probability_of_loss': float(probability_of_loss)
+    },
+    'distribution': {
+        'mean_final_rate': float(np.mean(final_rates)),
+        'std_final_rate': float(np.std(final_rates)),
+        'percentile_5': float(percentile_5),
+        'percentile_25': float(percentile_25),
+        'percentile_50': float(percentile_50),
+        'percentile_75': float(percentile_75),
+        'percentile_95': float(percentile_95)
+    },
+    'summary': {
+        'expected_rate': float(np.mean(final_rates)),
+        'expected_value_usd': float(np.mean(final_values_usd)),
+        'expected_pnl': float(np.mean(pnl)),
+        'downside_risk_95': float(abs(var_95)),
+        'upside_potential_95': float(max_gain * 0.95)
+    }
+}
     
     def run_portfolio_simulation(self, exposures: List[Dict], time_horizon_days: int = 90, num_scenarios: Optional[int] = None) -> Dict:
         num_scenarios = num_scenarios or self.default_scenarios
@@ -160,7 +162,11 @@ class MonteCarloService:
                 'result': result
             })
             
-            portfolio_pnl += np.array(result['outcomes']['simulated_pnl'])
+            # Use the full array for portfolio aggregation
+if isinstance(result['outcomes']['simulated_pnl_full'], np.ndarray):
+    portfolio_pnl += result['outcomes']['simulated_pnl_full']
+else:
+    portfolio_pnl += np.array(result['outcomes']['simulated_pnl_full'])
         
         portfolio_var_95 = np.percentile(portfolio_pnl, 5)
         portfolio_var_99 = np.percentile(portfolio_pnl, 1)
