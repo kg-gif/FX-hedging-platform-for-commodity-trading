@@ -50,6 +50,7 @@ class MonteCarloService:
         self.default_scenarios = default_scenarios
     
     def estimate_volatility_from_pair(self, currency_pair: str) -> float:
+        """Estimate volatility based on currency pair"""
         pair_upper = currency_pair.upper()
         
         if 'EUR' in pair_upper or 'GBP' in pair_upper or 'JPY' in pair_upper or 'CHF' in pair_upper:
@@ -61,27 +62,41 @@ class MonteCarloService:
         else:
             return 0.10
     
-    def run_simulation(self, current_rate: float, amount: float, time_horizon_days: int, volatility: Optional[float] = None, num_scenarios: Optional[int] = None, drift: float = 0.0, currency_pair: str = "UNKNOWN") -> Dict:
+    def run_simulation(self, current_rate: float, amount: float, time_horizon_days: int, 
+                      volatility: Optional[float] = None, num_scenarios: Optional[int] = None, 
+                      drift: float = 0.0, currency_pair: str = "UNKNOWN") -> Dict:
+        """
+        Run Monte Carlo simulation for a single exposure
+        Returns both API-safe data and internal full arrays
+        """
         num_scenarios = num_scenarios or self.default_scenarios
         volatility = volatility or self.estimate_volatility_from_pair(currency_pair)
         
+        # Geometric Brownian Motion parameters
         dt = 1 / 252
         num_steps = time_horizon_days
         
+        # Initialize rate paths
         rate_paths = np.zeros((num_scenarios, num_steps + 1))
         rate_paths[:, 0] = current_rate
         
+        # Generate random shocks
         np.random.seed(42)
         shocks = np.random.normal(0, 1, (num_scenarios, num_steps))
         
+        # Simulate rate paths
         for t in range(num_steps):
-            rate_paths[:, t + 1] = rate_paths[:, t] * np.exp((drift - 0.5 * volatility**2) * dt + volatility * np.sqrt(dt) * shocks[:, t])
+            rate_paths[:, t + 1] = rate_paths[:, t] * np.exp(
+                (drift - 0.5 * volatility**2) * dt + volatility * np.sqrt(dt) * shocks[:, t]
+            )
         
+        # Calculate final outcomes
         final_rates = rate_paths[:, -1]
         initial_value_usd = amount * current_rate
         final_values_usd = amount * final_rates
         pnl = final_values_usd - initial_value_usd
         
+        # Risk metrics
         var_95 = np.percentile(pnl, 5)
         var_99 = np.percentile(pnl, 1)
         
@@ -92,12 +107,14 @@ class MonteCarloService:
         max_gain = np.max(pnl)
         probability_of_loss = len(losses) / num_scenarios
         
+        # Distribution percentiles
         percentile_5 = np.percentile(final_rates, 5)
         percentile_25 = np.percentile(final_rates, 25)
         percentile_50 = np.percentile(final_rates, 50)
         percentile_75 = np.percentile(final_rates, 75)
         percentile_95 = np.percentile(final_rates, 95)
         
+        # Return API-safe dictionary
         return {
             'simulation_params': {
                 'current_rate': current_rate,
@@ -111,7 +128,7 @@ class MonteCarloService:
             'outcomes': {
                 'simulated_rates': final_rates.tolist()[:100],
                 'simulated_values_usd': final_values_usd.tolist()[:100],
-                'simulated_pnl': pnl.tolist()[:100],
+                'simulated_pnl': pnl.tolist()[:100]
             },
             'risk_metrics': {
                 'var_95': float(var_95),
@@ -137,16 +154,22 @@ class MonteCarloService:
                 'downside_risk_95': float(abs(var_95)),
                 'upside_potential_95': float(max_gain * 0.95)
             },
-            '_internal_full_pnl': pnl  # Internal use only - will be stripped before JSON response
+            '_internal_full_pnl': pnl
         }
     
-    def run_portfolio_simulation(self, exposures: List[Dict], time_horizon_days: int = 90, num_scenarios: Optional[int] = None) -> Dict:
+    def run_portfolio_simulation(self, exposures: List[Dict], time_horizon_days: int = 90, 
+                                num_scenarios: Optional[int] = None) -> Dict:
+        """
+        Run Monte Carlo simulation for entire portfolio
+        Aggregates risk across all exposures
+        """
         num_scenarios = num_scenarios or self.default_scenarios
         
         individual_results = []
         portfolio_pnl = np.zeros(num_scenarios)
         
         for exp in exposures:
+            # Run simulation for this exposure
             result = self.run_simulation(
                 current_rate=exp['current_rate'],
                 amount=exp['amount'],
@@ -161,13 +184,14 @@ class MonteCarloService:
                 'result': result
             })
             
-            # Use the full array for portfolio aggregation
+            # Aggregate portfolio P&L using internal full array
             if '_internal_full_pnl' in result:
-    portfolio_pnl += result['_internal_full_pnl']
-else:
-    # Fallback: reconstruct from limited data (not ideal)
-    portfolio_pnl += np.array(result['outcomes']['simulated_pnl'])
+                portfolio_pnl += result['_internal_full_pnl']
+            else:
+                # Fallback if internal array not available
+                portfolio_pnl += np.array(result['outcomes']['simulated_pnl'])
         
+        # Calculate portfolio-level risk metrics
         portfolio_var_95 = np.percentile(portfolio_pnl, 5)
         portfolio_var_99 = np.percentile(portfolio_pnl, 1)
         portfolio_max_loss = np.min(portfolio_pnl)
