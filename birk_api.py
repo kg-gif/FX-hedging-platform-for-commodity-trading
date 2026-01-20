@@ -25,8 +25,20 @@ from routes.hedging_routes_fastapi import router as hedging_router
 from routes.data_import_routes_fastapi import router as data_import_router
 from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+python# Run Alembic migrations on startup
+from alembic.config import Config
+from alembic import command
+
+try:
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
+    print("✅ Database migrations applied successfully")
+except Exception as e:
+    print(f"⚠️ Migration warning: {e}")
+    # Fallback: create tables if they don't exist
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database tables created")
+```
 
 # FastAPI app
 app = FastAPI(title="BIRK FX Risk Management API", version="2.0.0")
