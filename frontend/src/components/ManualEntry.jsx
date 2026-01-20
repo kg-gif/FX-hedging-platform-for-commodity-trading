@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus,
   Save,
@@ -30,6 +30,11 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
   const [errors, setErrors] = useState({});
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Debug: Log company ID whenever it changes
+  useEffect(() => {
+    console.log('🏢 Company ID received in ManualEntry:', companyId);
+  }, [companyId]);
 
   // Validate form
   const validateForm = () => {
@@ -71,13 +76,17 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
   const handleSave = async (e) => {
     e.preventDefault();
 
+    console.log('💾 Attempting to save exposure...');
+    console.log('🏢 Current company ID:', companyId);
+
     if (!validateForm()) {
       setMessage({ type: 'error', text: 'Please fix the errors above' });
       return;
     }
 
     if (!companyId) {
-      setMessage({ type: 'error', text: 'Please select a company first' });
+      console.error('❌ No company ID provided!');
+      setMessage({ type: 'error', text: 'Please select a company first. Company ID is missing.' });
       return;
     }
 
@@ -96,7 +105,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
         rate: formData.rate ? parseFloat(formData.rate) : null
       };
 
-      console.log('Sending payload:', payload);
+      console.log('📤 Sending payload:', payload);
 
       const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
         method: 'POST',
@@ -106,10 +115,10 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
         body: JSON.stringify(payload),
       });
 
-      console.log('Response status:', response.status);
+      console.log('📡 Response status:', response.status);
       
       const data = await response.json();
-      console.log('Response data:', data);
+      console.log('📥 Response data:', data);
 
       if (response.ok && data.success) {
         setMessage({ type: 'success', text: data.message || 'Exposure created successfully!' });
@@ -133,10 +142,11 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       } else {
         // Handle error response
         const errorMessage = data.detail || data.message || 'Failed to create exposure';
+        console.error('❌ Error response:', errorMessage);
         setMessage({ type: 'error', text: errorMessage });
       }
     } catch (error) {
-      console.error('Error saving exposure:', error);
+      console.error('❌ Error saving exposure:', error);
       setMessage({ type: 'error', text: `Network error: ${error.message}` });
     } finally {
       setLoading(false);
@@ -262,6 +272,13 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
         <div>
           <h2 className="text-xl font-semibold">Manual Data Entry</h2>
           <p className="text-gray-600 text-sm">Enter individual exposure records or create multiple entries at once</p>
+          {/* Debug info */}
+          {companyId && (
+            <p className="text-xs text-green-600 mt-1">✅ Company ID: {companyId}</p>
+          )}
+          {!companyId && (
+            <p className="text-xs text-red-600 mt-1">❌ No company ID - please select company in header</p>
+          )}
         </div>
         <div className="flex gap-2">
           <button
@@ -435,7 +452,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
           {mode === 'single' ? (
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !companyId}
               className="w-full bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center"
             >
               <Save className="mr-2" size={20} />
@@ -444,7 +461,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
           ) : (
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !companyId}
               className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
             >
               <Plus className="mr-2" size={20} />
@@ -474,7 +491,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
                 <div className="flex-1">
                   <p className="font-medium">{entry.reference_number}</p>
                   <p className="text-sm text-gray-600">
-                    {entry.currency_pair} • ${parseFloat(entry.amount).toLocaleString()} • {calculatePeriodDays()} days
+                    {entry.currency_pair} • ${parseFloat(entry.amount).toLocaleString()}
                   </p>
                 </div>
                 <button
