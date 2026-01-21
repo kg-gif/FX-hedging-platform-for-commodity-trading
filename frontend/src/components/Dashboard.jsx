@@ -508,12 +508,6 @@ const handleDeleteConfirm = async () => {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-</div>
-    </div>
 
     {/* Edit Modal */}
     {showEditModal && editingExposure && (
