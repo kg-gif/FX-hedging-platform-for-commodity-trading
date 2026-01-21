@@ -591,7 +591,9 @@ const handleDeleteConfirm = async () => {
         </div>
       </div>
     )}
-  )
+
+    </div>
+    )
 }
 
 export default Dashboard
