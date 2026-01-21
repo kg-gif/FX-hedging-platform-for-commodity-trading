@@ -189,7 +189,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       return;
     }
 
-    if (!companyId) {
+    if (!selectedCompanyId) {
       setMessage({ type: 'error', text: 'Please select a company first' });
       return;
     }
