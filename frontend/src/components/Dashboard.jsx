@@ -92,7 +92,7 @@ function Dashboard() {
 // Filter exposures based on criteria
 const filteredExposures = exposures.filter(exp => {
   // Currency filter
-  if (filterCurrency && exp.currency_pair !== filterCurrency) return false
+  if (filterCurrency && `${exp.from_currency}/${exp.to_currency}` !== filterCurrency) return false
   
   // Date range filter
   if (filterStartDate && exp.start_date < filterStartDate) return false
