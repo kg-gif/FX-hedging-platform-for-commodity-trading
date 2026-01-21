@@ -460,6 +460,7 @@ const handleDeleteConfirm = async () => {
           <p className="mt-4 text-gray-600">Loading exposures...</p>
         </div>
       ) : (
+  <>
 
 {/* Filter Panel */}
 <div className="bg-white rounded-lg shadow-md p-6 mb-6">
@@ -654,6 +655,7 @@ const handleDeleteConfirm = async () => {
             </table>
           </div>
         </div>
+        </>
       )}
 
     {/* Edit Modal */}
