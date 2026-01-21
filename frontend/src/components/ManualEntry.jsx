@@ -80,7 +80,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     e.preventDefault();
 
     console.log('💾 Attempting to save exposure...');
-    console.log('🏢 Current company ID:', companyId);
+    console.log('🏢 Current company ID:', selectedCompanyId);
 
     if (!validateForm()) {
       setMessage({ type: 'error', text: 'Please fix the errors above' });
@@ -455,7 +455,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
           {mode === 'single' ? (
             <button
               type="submit"
-              disabled={loading || !companyId}
+              disabled={loading || !selectedCompanyId}
               className="w-full bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center"
             >
               <Save className="mr-2" size={20} />
@@ -464,7 +464,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
           ) : (
             <button
               type="submit"
-              disabled={loading || !companyId}
+              disabled={loading || !selectedCompanyId}
               className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
             >
               <Plus className="mr-2" size={20} />
