@@ -17,6 +17,7 @@ const API_BASE_URL = 'https://birk-fx-api.onrender.com';
 
 const ManualEntry = ({ companyId, onSaveSuccess }) => {
   const { selectedCompanyId } = useCompany();
+  console.log('🔍 Company ID in ManualEntry:', selectedCompanyId);
   const [mode, setMode] = useState('single'); // 'single' or 'batch'
   const [formData, setFormData] = useState({
     reference_number: '',
@@ -86,7 +87,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       return;
     }
 
-    if (!companyId) {
+    if (!selectedCompanyId) {
       console.error('❌ No company ID provided!');
       setMessage({ type: 'error', text: 'Please select a company first. Company ID is missing.' });
       return;
@@ -275,11 +276,11 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
           <h2 className="text-xl font-semibold">Manual Data Entry</h2>
           <p className="text-gray-600 text-sm">Enter individual exposure records or create multiple entries at once</p>
           {/* Debug info */}
-          {companyId && (
-            <p className="text-xs text-green-600 mt-1">✅ Company ID: {companyId}</p>
+          {selectedCompanyId && (
+          <p className="text-xs text-green-600 mt-1">✅ Company ID: {selectedCompanyId}</p>
           )}
-          {!companyId && (
-            <p className="text-xs text-red-600 mt-1">❌ No company ID - please select company in header</p>
+          {!selectedCompanyId && (
+          <p className="text-xs text-red-600 mt-1">❌ No company ID - please select company in header</p>
           )}
         </div>
         <div className="flex gap-2">
