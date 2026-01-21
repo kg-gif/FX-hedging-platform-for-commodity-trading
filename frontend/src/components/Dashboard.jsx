@@ -566,9 +566,6 @@ const handleDeleteConfirm = async () => {
   </div>
 </div>
 
-{/* Exposures Table */}
-<table className="...">
-
         /* Exposures Table */
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
           <div className="overflow-x-auto">
