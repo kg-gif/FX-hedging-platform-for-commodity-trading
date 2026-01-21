@@ -29,6 +29,12 @@ function Dashboard() {
   const [deletingExposure, setDeletingExposure] = useState(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [filterCurrency, setFilterCurrency] = useState('')
+  const [filterStartDate, setFilterStartDate] = useState('')
+  const [filterEndDate, setFilterEndDate] = useState('')
+  const [filterMinAmount, setFilterMinAmount] = useState('')
+  const [filterMaxAmount, setFilterMaxAmount] = useState('')
+  const [searchText, setSearchText] = useState('')
 
   useEffect(() => {
     fetchCompanies()
@@ -83,6 +89,39 @@ function Dashboard() {
       setRefreshing(false)
     }
   }
+// Filter exposures based on criteria
+const filteredExposures = exposures.filter(exp => {
+  // Currency filter
+  if (filterCurrency && exp.currency_pair !== filterCurrency) return false
+  
+  // Date range filter
+  if (filterStartDate && exp.start_date < filterStartDate) return false
+  if (filterEndDate && exp.end_date > filterEndDate) return false
+  
+  // Amount range filter
+  if (filterMinAmount && exp.amount < parseFloat(filterMinAmount)) return false
+  if (filterMaxAmount && exp.amount > parseFloat(filterMaxAmount)) return false
+  
+  // Search text filter (reference number or description)
+  if (searchText) {
+    const search = searchText.toLowerCase()
+    const matchRef = exp.reference_number?.toLowerCase().includes(search)
+    const matchDesc = exp.description?.toLowerCase().includes(search)
+    if (!matchRef && !matchDesc) return false
+  }
+  
+  return true
+})
+
+// Clear all filters
+const clearFilters = () => {
+  setFilterCurrency('')
+  setFilterStartDate('')
+  setFilterEndDate('')
+  setFilterMinAmount('')
+  setFilterMaxAmount('')
+  setSearchText('')
+}
 
 // Handle edit exposure
 const handleEditSave = async (updatedExposure) => {
@@ -421,6 +460,114 @@ const handleDeleteConfirm = async () => {
           <p className="mt-4 text-gray-600">Loading exposures...</p>
         </div>
       ) : (
+
+{/* Filter Panel */}
+<div className="bg-white rounded-lg shadow-md p-6 mb-6">
+  <div className="flex items-center justify-between mb-4">
+    <h3 className="text-lg font-semibold">Filter Exposures</h3>
+    <button
+      onClick={clearFilters}
+      className="text-sm text-blue-600 hover:text-blue-800"
+    >
+      Clear All Filters
+    </button>
+  </div>
+  
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    {/* Search Box */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Search
+      </label>
+      <input
+        type="text"
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        placeholder="Reference number or description..."
+        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+    
+    {/* Currency Filter */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Currency Pair
+      </label>
+      <select
+        value={filterCurrency}
+        onChange={(e) => setFilterCurrency(e.target.value)}
+        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+      >
+        <option value="">All Currencies</option>
+        <option value="EUR/USD">EUR/USD</option>
+        <option value="GBP/USD">GBP/USD</option>
+        <option value="USD/JPY">USD/JPY</option>
+        <option value="USD/CNY">USD/CNY</option>
+        <option value="USD/MXN">USD/MXN</option>
+        <option value="USD/CAD">USD/CAD</option>
+      </select>
+    </div>
+    
+    {/* Amount Range */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Amount Range
+      </label>
+      <div className="flex gap-2">
+        <input
+          type="number"
+          value={filterMinAmount}
+          onChange={(e) => setFilterMinAmount(e.target.value)}
+          placeholder="Min"
+          className="w-1/2 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+        />
+        <input
+          type="number"
+          value={filterMaxAmount}
+          onChange={(e) => setFilterMaxAmount(e.target.value)}
+          placeholder="Max"
+          className="w-1/2 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+    </div>
+    
+    {/* Date Range */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Start Date (From)
+      </label>
+      <input
+        type="date"
+        value={filterStartDate}
+        onChange={(e) => setFilterStartDate(e.target.value)}
+        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+    
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        End Date (To)
+      </label>
+      <input
+        type="date"
+        value={filterEndDate}
+        onChange={(e) => setFilterEndDate(e.target.value)}
+        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+    
+    {/* Results Count */}
+    <div className="flex items-end">
+      <div className="text-sm text-gray-600">
+        Showing <span className="font-semibold">{filteredExposures.length}</span> of {exposures.length} exposures
+      </div>
+    </div>
+  </div>
+</div>
+
+{/* Exposures Table */}
+<table className="...">
+
         /* Exposures Table */
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
           <div className="overflow-x-auto">
@@ -439,7 +586,7 @@ const handleDeleteConfirm = async () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {exposures.map((exp) => (
+                {filteredExposures.map((exp) => (
                   <tr key={exp.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-lg mr-2">{CURRENCY_FLAGS[exp.from_currency] || '🏳️'}</span>
