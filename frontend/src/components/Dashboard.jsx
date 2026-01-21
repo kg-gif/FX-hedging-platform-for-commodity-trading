@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { Edit2, Trash2 } from 'lucide-react';
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 
@@ -24,6 +25,10 @@ function Dashboard() {
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [error, setError] = useState(null)
+  const [editingExposure, setEditingExposure] = useState(null)
+  const [deletingExposure, setDeletingExposure] = useState(null)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   useEffect(() => {
     fetchCompanies()
@@ -79,6 +84,47 @@ function Dashboard() {
     }
   }
 
+// Handle edit exposure
+const handleEditSave = async (updatedExposure) => {
+  try {
+    const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${updatedExposure.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updatedExposure)
+    })
+    
+    if (response.ok) {
+      setShowEditModal(false)
+      setEditingExposure(null)
+      fetchExposures(selectedCompany.id) // Refresh the list
+    } else {
+      alert('Failed to update exposure')
+    }
+  } catch (error) {
+    console.error('Error updating exposure:', error)
+    alert('Error updating exposure')
+  }
+}
+
+// Handle delete exposure
+const handleDeleteConfirm = async () => {
+  try {
+    const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, {
+      method: 'DELETE'
+    })
+    
+    if (response.ok) {
+      setShowDeleteConfirm(false)
+      setDeletingExposure(null)
+      fetchExposures(selectedCompany.id) // Refresh the list
+    } else {
+      alert('Failed to delete exposure')
+    }
+  } catch (error) {
+    console.error('Error deleting exposure:', error)
+    alert('Error deleting exposure')
+  }
+}
   const exportToCSV = () => {
     const headers = ['Currency Pair', 'Amount', 'Rate', 'Change %', 'USD Value', 'Period', 'Risk', 'Description']
     const rows = exposures.map(exp => [
@@ -389,6 +435,7 @@ function Dashboard() {
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Period</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Risk</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -418,10 +465,32 @@ function Dashboard() {
                         {exp.risk_level}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {exp.description}
-                    </td>
-                  </tr>
+                   <td className="px-6 py-4 text-sm text-gray-600">
+  {exp.description}
+</td>
+<td className="px-6 py-4 whitespace-nowrap text-center">
+  <button
+    onClick={() => {
+      setEditingExposure(exp);
+      setShowEditModal(true);
+    }}
+    className="text-blue-600 hover:text-blue-800 mr-3"
+    title="Edit exposure"
+  >
+    <Edit2 size={18} />
+  </button>
+  <button
+    onClick={() => {
+      setDeletingExposure(exp);
+      setShowDeleteConfirm(true);
+    }}
+    className="text-red-600 hover:text-red-800"
+    title="Delete exposure"
+  >
+    <Trash2 size={18} />
+  </button>
+</td>
+</tr>
                 ))}
               </tbody>
               <tfoot className="bg-gray-50">
@@ -440,6 +509,94 @@ function Dashboard() {
         </div>
       )}
     </div>
+  )
+}
+
+</div>
+    </div>
+
+    {/* Edit Modal */}
+    {showEditModal && editingExposure && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 max-w-2xl w-full mx-4">
+          <h2 className="text-2xl font-bold mb-6">Edit Exposure</h2>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Amount</label>
+              <input
+                type="number"
+                value={editingExposure.amount}
+                onChange={(e) => setEditingExposure({...editingExposure, amount: parseFloat(e.target.value)})}
+                className="w-full px-4 py-2 border rounded-lg"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-2">Description</label>
+              <textarea
+                value={editingExposure.description || ''}
+                onChange={(e) => setEditingExposure({...editingExposure, description: e.target.value})}
+                className="w-full px-4 py-2 border rounded-lg"
+                rows="3"
+              />
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-4 mt-6">
+            <button
+              onClick={() => {
+                setShowEditModal(false)
+                setEditingExposure(null)
+              }}
+              className="px-6 py-2 border rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleEditSave(editingExposure)}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Delete Confirmation */}
+    {showDeleteConfirm && deletingExposure && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4">
+          <h2 className="text-2xl font-bold mb-4">Delete Exposure?</h2>
+          <p className="text-gray-600 mb-6">
+            Are you sure you want to delete this exposure?
+            <br />
+            <span className="font-semibold">{deletingExposure.from_currency}/{deletingExposure.to_currency}</span>
+            <br />
+            Amount: ${deletingExposure.amount?.toLocaleString()}
+          </p>
+          
+          <div className="flex justify-end gap-4">
+            <button
+              onClick={() => {
+                setShowDeleteConfirm(false)
+                setDeletingExposure(null)
+              }}
+              className="px-6 py-2 border rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDeleteConfirm}
+              className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   )
 }
 
