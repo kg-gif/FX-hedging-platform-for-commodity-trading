@@ -202,7 +202,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       for (const entry of batchEntries) {
         try {
           const payload = {
-            company_id: companyId,
+            company_id: selectedCompanyId,
             reference_number: entry.reference_number,
             currency_pair: entry.currency_pair,
             amount: parseFloat(entry.amount),
@@ -239,6 +239,10 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
         text: `${successCount} exposures created, ${failCount} failed` 
       });
 
+// Notify parent to refresh exposures list
+        if (onSaveSuccess) {
+        onSaveSuccess();
+        }
       if (successCount > 0) {
         setBatchEntries([]);
         if (onSaveSuccess) {
