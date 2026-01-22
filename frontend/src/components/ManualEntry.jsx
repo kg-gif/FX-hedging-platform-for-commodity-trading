@@ -218,7 +218,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
             start_date: entry.start_date,
             end_date: entry.end_date,
             description: entry.description || '',
-            rate: entry.rate ? parseFloat(entry.rate) : null
+            rate: entry.rate ? parseFloat(entry.rate) : null,
             budget_rate: entry.budget_rate ? parseFloat(entry.budget_rate) : null,
             max_loss_limit: entry.max_loss_limit ? parseFloat(entry.max_loss_limit) : null,
             target_profit: entry.target_profit ? parseFloat(entry.target_profit) : null,
