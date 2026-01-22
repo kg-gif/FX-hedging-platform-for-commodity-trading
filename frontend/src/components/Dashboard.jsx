@@ -51,6 +51,7 @@ function Dashboard() {
       const response = await fetch(`${API_BASE}/exposures?company_id=${companyId}`)
       const data = await response.json()
       setCompanies(data)
+      setError(null)
       if (data.length > 0) {
         setSelectedCompany(data[0])
       }
