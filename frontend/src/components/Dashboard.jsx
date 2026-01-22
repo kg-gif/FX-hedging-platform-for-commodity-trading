@@ -48,7 +48,7 @@ function Dashboard() {
 
   const fetchCompanies = async () => {
     try {
-      const response = await fetch(`${API_BASE}/companies`)
+      const response = await fetch(`${API_BASE}/exposures?company_id=${companyId}`)
       const data = await response.json()
       setCompanies(data)
       if (data.length > 0) {
@@ -566,6 +566,65 @@ const handleDeleteConfirm = async () => {
   </div>
 </div>
 
+{/* Portfolio Summary Card */}
+<div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border border-indigo-200">
+  <h3 className="text-lg font-semibold text-gray-800 mb-4">📊 Portfolio Summary</h3>
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    {/* Total P&L */}
+    <div className="bg-white rounded-lg p-4 shadow-sm">
+      <p className="text-sm text-gray-600 mb-1">Total P&L</p>
+      <p className={`text-2xl font-bold ${
+        filteredExposures.reduce((sum, exp) => sum + (exp.current_pnl || 0), 0) >= 0
+          ? 'text-green-600'
+          : 'text-red-600'
+      }`}>
+        {new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          signDisplay: 'always',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0
+        }).format(filteredExposures.reduce((sum, exp) => sum + (exp.current_pnl || 0), 0))}
+      </p>
+    </div>
+
+    {/* Breaches */}
+    <div className="bg-white rounded-lg p-4 shadow-sm">
+      <p className="text-sm text-gray-600 mb-1">Breaches</p>
+      <p className="text-2xl font-bold text-red-600">
+        {filteredExposures.filter(exp => exp.pnl_status === 'BREACH').length}
+        <span className="text-sm text-gray-500 ml-1">exposures</span>
+      </p>
+    </div>
+
+    {/* Warnings */}
+    <div className="bg-white rounded-lg p-4 shadow-sm">
+      <p className="text-sm text-gray-600 mb-1">Warnings</p>
+      <p className="text-2xl font-bold text-yellow-600">
+        {filteredExposures.filter(exp => exp.pnl_status === 'WARNING').length}
+        <span className="text-sm text-gray-500 ml-1">exposures</span>
+      </p>
+    </div>
+
+    {/* Total Unhedged */}
+    <div className="bg-white rounded-lg p-4 shadow-sm">
+      <p className="text-sm text-gray-600 mb-1">At Risk (Unhedged)</p>
+      <p className="text-2xl font-bold text-orange-600">
+        {new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0
+        }).format(
+          filteredExposures.reduce((sum, exp) => sum + (exp.unhedged_amount || 0), 0)
+        )}
+      </p>
+    </div>
+  </div>
+</div>
+
+        /* Exposures Table */
+
         /* Exposures Table */
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
           <div className="overflow-x-auto">
@@ -574,86 +633,100 @@ const handleDeleteConfirm = async () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Currency Pair</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Rate</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Change</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">USD Value</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Period</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Risk</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Budget Rate</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Current Rate</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">P&L</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Hedge %</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredExposures.map((exp) => (
-                  <tr key={exp.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-lg mr-2">{CURRENCY_FLAGS[exp.from_currency] || '🏳️'}</span>
-                      <span className="font-medium">{exp.from_currency}/{exp.to_currency}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      {exp.amount.toLocaleString()} {exp.from_currency}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right font-mono">
-                      {exp.current_rate.toFixed(4)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {getRateChangeDisplay(exp)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right font-semibold">
-                      ${exp.current_value_usd.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {exp.settlement_period} days
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getRiskBadgeColor(exp.risk_level)}`}>
-                        {exp.risk_level}
-                      </span>
-                    </td>
-                   <td className="px-6 py-4 text-sm text-gray-600">
-  {exp.description}
-</td>
-<td className="px-6 py-4 whitespace-nowrap text-center">
-  <button
-    onClick={() => {
-      setEditingExposure(exp);
-      setShowEditModal(true);
-    }}
-    className="text-blue-600 hover:text-blue-800 mr-3"
-    title="Edit exposure"
-  >
-    <Edit2 size={18} />
-  </button>
-  <button
-    onClick={() => {
-      setDeletingExposure(exp);
-      setShowDeleteConfirm(true);
-    }}
-    className="text-red-600 hover:text-red-800"
-    title="Delete exposure"
-  >
-    <Trash2 size={18} />
-  </button>
-</td>
-</tr>
-                ))}
+                {filteredExposures.map((exp) => {
+                  // Helper function for P&L color
+                  const getPnLColor = () => {
+                    if (!exp.current_pnl && exp.current_pnl !== 0) return 'text-gray-500';
+                    if (exp.current_pnl > 0) return 'text-green-600 font-semibold';
+                    if (exp.current_pnl < 0) return 'text-red-600 font-semibold';
+                    return 'text-gray-700';
+                  };
+
+                  // Helper function for status badge
+                  const getStatusBadge = () => {
+                    switch (exp.pnl_status) {
+                      case 'BREACH':
+                        return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">🔴 BREACH</span>;
+                      case 'WARNING':
+                        return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">🟡 WARNING</span>;
+                      case 'TARGET_MET':
+                        return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">🎯 TARGET</span>;
+                      case 'OK':
+                        return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">🟢 OK</span>;
+                      default:
+                        return <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">—</span>;
+                    }
+                  };
+
+                  return (
+                    <tr key={exp.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-lg mr-2">{CURRENCY_FLAGS[exp.from_currency] || '🏳️'}</span>
+                        <span className="font-medium">{exp.from_currency}/{exp.to_currency}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        {exp.amount.toLocaleString()} {exp.from_currency}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right font-mono">
+                        {exp.budget_rate ? exp.budget_rate.toFixed(4) : '—'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right font-mono">
+                        {exp.current_rate ? exp.current_rate.toFixed(4) : '—'}
+                      </td>
+                      <td className={`px-6 py-4 whitespace-nowrap text-right ${getPnLColor()}`}>
+                        {exp.current_pnl !== null && exp.current_pnl !== undefined
+                          ? new Intl.NumberFormat('en-US', {
+                              style: 'currency',
+                              currency: 'USD',
+                              signDisplay: 'always'
+                            }).format(exp.current_pnl)
+                          : '—'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {getStatusBadge()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center font-medium">
+                        {exp.hedge_ratio_policy ? `${(exp.hedge_ratio_policy * 100).toFixed(0)}%` : '100%'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {exp.description}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        <button
+                          onClick={() => {
+                            setEditingExposure(exp);
+                            setShowEditModal(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-800 mr-3"
+                          title="Edit exposure"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeletingExposure(exp);
+                            setShowDeleteConfirm(true);
+                          }}
+                          className="text-red-600 hover:text-red-800"
+                          title="Delete exposure"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
-              <tfoot className="bg-gray-50">
-                <tr>
-                  <td colSpan="4" className="px-6 py-4 text-right font-bold text-gray-700">
-                    Total Portfolio Value:
-                  </td>
-                  <td className="px-6 py-4 text-right font-bold text-lg text-blue-600">
-                    ${totalValue.toLocaleString()}
-                  </td>
-                  <td colSpan="3"></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-        </>
-      )}
 
     {/* Edit Modal */}
     {showEditModal && editingExposure && (
