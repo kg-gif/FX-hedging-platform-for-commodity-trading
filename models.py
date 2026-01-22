@@ -52,3 +52,10 @@ class Exposure(Base):
     status = Column(String, default="active")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    budget_rate = Column(Float, nullable=True)
+    max_loss_limit = Column(Float, nullable=True)  # e.g., -500000
+    target_profit = Column(Float, nullable=True)   # e.g., 300000
+    hedge_ratio_policy = Column(Float, nullable=True, default=1.0)  # e.g., 0.60 for 60%
+    current_pnl = Column(Float, nullable=True)
+    hedged_amount = Column(Float, nullable=True)
+    unhedged_amount = Column(Float, nullable=True)
