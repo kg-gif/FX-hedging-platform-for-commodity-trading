@@ -68,6 +68,73 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============================================
+# HELPER FUNCTIONS FOR P&L CALCULATIONS
+# ============================================
+
+def get_mock_current_rate(from_currency, to_currency):
+    """
+    Mock current FX rates for demonstration.
+    In production, replace with real FX API (e.g., exchangerate-api.com)
+    """
+    mock_rates = {
+        "EUR/USD": 1.0722,
+        "USD/EUR": 0.9327,
+        "GBP/USD": 1.2654,
+        "USD/GBP": 0.7903,
+        "CNY/USD": 0.1434,
+        "USD/CNY": 6.9735,
+        "MXN/USD": 0.0587,
+        "USD/MXN": 17.0358,
+        "JPY/USD": 0.0067,
+        "USD/JPY": 149.25,
+    }
+    
+    pair = f"{from_currency}/{to_currency}"
+    return mock_rates.get(pair, 1.0)  # Default to 1.0 if pair not found
+
+
+def calculate_pnl_and_status(exposure, current_rate):
+    """
+    Calculate P&L and determine breach status for an exposure.
+    Returns dict with calculated values.
+    """
+    if not exposure.budget_rate or not current_rate:
+        return {
+            "current_pnl": None,
+            "hedged_amount": None,
+            "unhedged_amount": None,
+            "pnl_status": "NO_DATA"
+        }
+    
+    # Calculate P&L: (current_rate - budget_rate) × amount
+    pnl = (current_rate - exposure.budget_rate) * exposure.amount
+    
+    # Calculate hedged/unhedged amounts
+    hedge_ratio = exposure.hedge_ratio_policy if exposure.hedge_ratio_policy else 1.0
+    hedged_amt = exposure.amount * hedge_ratio
+    unhedged_amt = exposure.amount * (1 - hedge_ratio)
+    
+    # Determine status
+    status = "OK"
+    
+    # Check for breach (loss exceeds limit)
+    if exposure.max_loss_limit is not None and pnl < exposure.max_loss_limit:
+        status = "BREACH"
+    # Check for warning (within 10% of limit)
+    elif exposure.max_loss_limit is not None and pnl < (exposure.max_loss_limit * 1.1):
+        status = "WARNING"
+    # Check if target profit achieved
+    elif exposure.target_profit is not None and pnl >= exposure.target_profit:
+        status = "TARGET_MET"
+    
+    return {
+        "current_pnl": round(pnl, 2),
+        "hedged_amount": round(hedged_amt, 2),
+        "unhedged_amount": round(unhedged_amt, 2),
+        "pnl_status": status
+    }
+
 # Include Phase 2B routers
 app.include_router(hedging_router)
 app.include_router(data_import_router)
@@ -249,6 +316,48 @@ def refresh_company_rates(company_id: int, db: Session = Depends(get_db)):
         updated_count=updated_count,
         timestamp=datetime.utcnow()
     )
+
+@app.get("/exposures")
+def get_exposures(company_id: int, db: Session = Depends(get_db)):
+    """Get all exposures for a company with calculated P&L data"""
+    exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
+    
+    # Enrich each exposure with P&L calculations
+    enriched_exposures = []
+    for exp in exposures:
+        # Get current rate (using mock rates for now)
+        current_rate = get_mock_current_rate(exp.from_currency, exp.to_currency)
+        
+        # Calculate P&L and status
+        pnl_data = calculate_pnl_and_status(exp, current_rate)
+        
+        # Convert exposure to dict and add calculated fields
+        exp_dict = {
+            "id": exp.id,
+            "company_id": exp.company_id,
+            "from_currency": exp.from_currency,
+            "to_currency": exp.to_currency,
+            "amount": exp.amount,
+            "exposure_type": exp.exposure_type if hasattr(exp, 'exposure_type') else "payable",
+            "start_date": exp.start_date.isoformat() if hasattr(exp, 'start_date') and exp.start_date else None,
+            "end_date": exp.end_date.isoformat() if hasattr(exp, 'end_date') and exp.end_date else None,
+            "reference": exp.reference if hasattr(exp, 'reference') else None,
+            "description": exp.description,
+            "budget_rate": exp.budget_rate if hasattr(exp, 'budget_rate') else None,
+            "max_loss_limit": exp.max_loss_limit if hasattr(exp, 'max_loss_limit') else None,
+            "target_profit": exp.target_profit if hasattr(exp, 'target_profit') else None,
+            "hedge_ratio_policy": exp.hedge_ratio_policy if hasattr(exp, 'hedge_ratio_policy') else 1.0,
+            # Add calculated fields
+            "current_rate": current_rate,
+            "current_pnl": pnl_data["current_pnl"],
+            "hedged_amount": pnl_data["hedged_amount"],
+            "unhedged_amount": pnl_data["unhedged_amount"],
+            "pnl_status": pnl_data["pnl_status"]
+        }
+        
+        enriched_exposures.append(exp_dict)
+    
+    return enriched_exposures
 
 @app.on_event("startup")
 async def startup_event():
