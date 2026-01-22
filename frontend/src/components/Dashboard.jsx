@@ -48,7 +48,7 @@ function Dashboard() {
 
   const fetchCompanies = async () => {
     try {
-      const response = await fetch(`${API_BASE}/exposures?company_id=${companyId}`)
+      const response = await fetch(`${API_BASE}/companies`)
       const data = await response.json()
       setCompanies(data)
       setError(null)
@@ -417,18 +417,7 @@ const handleDeleteConfirm = async () => {
 
       {/* Controls */}
       <div className="bg-white rounded-lg shadow p-4 mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <label className="text-sm font-medium text-gray-700">Company:</label>
-          <select 
-            value={selectedCompany?.id || ''}
-            onChange={(e) => setSelectedCompany(companies.find(c => c.id === parseInt(e.target.value)))}
-            className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-          >
-            {companies.map(company => (
-              <option key={company.id} value={company.id}>{company.name}</option>
-            ))}
-          </select>
-        </div>
+        
         <div className="flex gap-3">
           <button
             onClick={exportToCSV}
