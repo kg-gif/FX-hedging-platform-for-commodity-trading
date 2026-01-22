@@ -26,7 +26,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     start_date: '',
     end_date: '',
     description: '',
-    rate: ''
+    rate: '',
     budget_rate: '',
     max_loss_limit: '',
     target_profit: '',
@@ -138,7 +138,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
           start_date: '',
           end_date: '',
           description: '',
-          rate: ''
+          rate: '',
         });
         setErrors({});
 
