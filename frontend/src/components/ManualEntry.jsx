@@ -102,15 +102,20 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       setMessage(null);
 
       const payload = {
-        company_id: selectedCompanyId,
-        reference_number: formData.reference_number,
-        currency_pair: formData.currency_pair,
-        amount: parseFloat(formData.amount),
-        start_date: formData.start_date,
-        end_date: formData.end_date,
-        description: formData.description || '',
-        rate: formData.rate ? parseFloat(formData.rate) : null
-      };
+  company_id: selectedCompanyId,
+  reference_number: formData.reference_number,
+  currency_pair: formData.currency_pair,
+  amount: parseFloat(formData.amount),
+  start_date: formData.start_date,
+  end_date: formData.end_date,
+  description: formData.description || '',
+  rate: formData.rate ? parseFloat(formData.rate) : null,
+  // Budget & Risk Limits
+  budget_rate: formData.budget_rate ? parseFloat(formData.budget_rate) : null,
+  max_loss_limit: formData.max_loss_limit ? parseFloat(formData.max_loss_limit) : null,
+  target_profit: formData.target_profit ? parseFloat(formData.target_profit) : null,
+  hedge_ratio_policy: formData.hedge_ratio_policy ? parseFloat(formData.hedge_ratio_policy) : 1.0
+};
 
       console.log('📤 Sending payload:', payload);
 
@@ -214,6 +219,10 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
             end_date: entry.end_date,
             description: entry.description || '',
             rate: entry.rate ? parseFloat(entry.rate) : null
+            budget_rate: entry.budget_rate ? parseFloat(entry.budget_rate) : null,
+            max_loss_limit: entry.max_loss_limit ? parseFloat(entry.max_loss_limit) : null,
+            target_profit: entry.target_profit ? parseFloat(entry.target_profit) : null,
+            hedge_ratio_policy: entry.hedge_ratio_policy ? parseFloat(entry.hedge_ratio_policy) : 1.0
           };
 
           const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
