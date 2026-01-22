@@ -472,7 +472,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
         step="0.0001"
         name="budget_rate"
         value={formData.budget_rate}
-        onChange={handleChange}
+        onChange={(e) => setFormData({ ...formData, budget_rate: e.target.value })}
         placeholder="e.g., 1.1000"
         className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
         required
@@ -516,7 +516,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
         step="1000"
         name="max_loss_limit"
         value={formData.max_loss_limit}
-        onChange={handleChange}
+        onChange={(e) => setFormData({ ...formData, max_loss_limit: e.target.value })}
         placeholder="e.g., -500000"
         className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
       />
@@ -535,7 +535,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
         step="1000"
         name="target_profit"
         value={formData.target_profit}
-        onChange={handleChange}
+        onChange={(e) => setFormData({ ...formData, target_profit: e.target.value })}
         placeholder="e.g., 300000"
         className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
       />
