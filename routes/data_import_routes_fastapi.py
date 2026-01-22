@@ -90,7 +90,6 @@ async def upload_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-
 @router.post("/manual")
 async def create_manual_exposure(
     request: ManualExposureRequest,
@@ -135,26 +134,25 @@ async def create_manual_exposure(
         # Calculate risk level
         risk = calculate_risk_level(usd_value, period_days)
         
-        # Create database record
-db_exposure = Exposure(
-    company_id=request.company_id,
-    from_currency=from_currency,
-    to_currency=to_currency,
-    amount=request.amount,
-    start_date=start_date_obj,
-    end_date=end_date_obj,
-    initial_rate=rate,
-    current_rate=rate,
-    current_value_usd=usd_value,
-    settlement_period=period_days,
-    risk_level=risk,
-    description=request.description or '',
-    # Budget & Risk Limits (Phase 2B)
-    budget_rate=request.budget_rate,
-    max_loss_limit=request.max_loss_limit,
-    target_profit=request.target_profit,
-    hedge_ratio_policy=request.hedge_ratio_policy if request.hedge_ratio_policy else 1.0
-)
+        # Create database record with Budget & Risk Limits
+        db_exposure = Exposure(
+            company_id=request.company_id,
+            from_currency=from_currency,
+            to_currency=to_currency,
+            amount=request.amount,
+            start_date=start_date_obj,
+            end_date=end_date_obj,
+            initial_rate=rate,
+            current_rate=rate,
+            current_value_usd=usd_value,
+            settlement_period=period_days,
+            risk_level=risk,
+            description=request.description or '',
+            budget_rate=request.budget_rate,
+            max_loss_limit=request.max_loss_limit,
+            target_profit=request.target_profit,
+            hedge_ratio_policy=request.hedge_ratio_policy if request.hedge_ratio_policy else 1.0
+        )
         
         db.add(db_exposure)
         db.commit()
@@ -177,6 +175,7 @@ db_exposure = Exposure(
                 'settlement_period': db_exposure.settlement_period,
                 'risk_level': db_exposure.risk_level.value,
                 'description': db_exposure.description,
+                'budget_rate': db_exposure.budget_rate,
                 'created_at': db_exposure.created_at.isoformat()
             },
             'message': f'Exposure {request.reference_number} created successfully'
