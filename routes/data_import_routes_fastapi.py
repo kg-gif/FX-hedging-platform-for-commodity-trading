@@ -28,6 +28,11 @@ class ManualExposureRequest(BaseModel):
     end_date: str
     description: Optional[str] = None
     rate: Optional[float] = None
+    # Budget & Risk Limits (Phase 2B)
+    budget_rate: Optional[float] = None
+    max_loss_limit: Optional[float] = None
+    target_profit: Optional[float] = None
+    hedge_ratio_policy: Optional[float] = Field(default=1.0, ge=0, le=1)
 
 
 class UpdateExposureRequest(BaseModel):
@@ -131,20 +136,25 @@ async def create_manual_exposure(
         risk = calculate_risk_level(usd_value, period_days)
         
         # Create database record
-        db_exposure = Exposure(
-            company_id=request.company_id,
-            from_currency=from_currency,
-            to_currency=to_currency,
-            amount=request.amount,
-            start_date=start_date_obj,
-            end_date=end_date_obj,
-            initial_rate=rate,
-            current_rate=rate,
-            current_value_usd=usd_value,
-            settlement_period=period_days,
-            risk_level=risk,
-            description=request.description or ''
-        )
+db_exposure = Exposure(
+    company_id=request.company_id,
+    from_currency=from_currency,
+    to_currency=to_currency,
+    amount=request.amount,
+    start_date=start_date_obj,
+    end_date=end_date_obj,
+    initial_rate=rate,
+    current_rate=rate,
+    current_value_usd=usd_value,
+    settlement_period=period_days,
+    risk_level=risk,
+    description=request.description or '',
+    # Budget & Risk Limits (Phase 2B)
+    budget_rate=request.budget_rate,
+    max_loss_limit=request.max_loss_limit,
+    target_profit=request.target_profit,
+    hedge_ratio_policy=request.hedge_ratio_policy if request.hedge_ratio_policy else 1.0
+)
         
         db.add(db_exposure)
         db.commit()
