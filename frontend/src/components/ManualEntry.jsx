@@ -27,6 +27,10 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     end_date: '',
     description: '',
     rate: ''
+    budget_rate: '',
+    max_loss_limit: '',
+    target_profit: '',
+    hedge_ratio_policy: '1.0', // Default 100%
   });
 
   const [batchEntries, setBatchEntries] = useState([]);
@@ -453,6 +457,109 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
             placeholder="Add notes or description..."
           />
         </div>
+{/* Budget Rate & P&L Limits Section */}
+<div className="border-t pt-4 mt-4">
+  <h3 className="text-md font-semibold mb-3 text-gray-700">📊 Budget & Risk Limits</h3>
+  
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {/* Budget Rate */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Budget Rate <span className="text-red-500">*</span>
+      </label>
+      <input
+        type="number"
+        step="0.0001"
+        name="budget_rate"
+        value={formData.budget_rate}
+        onChange={handleChange}
+        placeholder="e.g., 1.1000"
+        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+        required
+      />
+      <p className="text-xs text-gray-500 mt-1">
+        Your planned/budgeted exchange rate
+      </p>
+    </div>
+    
+    {/* Hedge Ratio Policy */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Hedge Ratio Policy (%)
+      </label>
+      <input
+        type="number"
+        step="5"
+        min="0"
+        max="100"
+        name="hedge_ratio_policy"
+        value={parseFloat(formData.hedge_ratio_policy) * 100}
+        onChange={(e) => setFormData({
+          ...formData,
+          hedge_ratio_policy: (parseFloat(e.target.value) / 100).toString()
+        })}
+        placeholder="e.g., 60"
+        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+      />
+      <p className="text-xs text-gray-500 mt-1">
+        % of exposure to hedge (default: 100%)
+      </p>
+    </div>
+    
+    {/* Max Loss Limit */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Max Loss Limit
+      </label>
+      <input
+        type="number"
+        step="1000"
+        name="max_loss_limit"
+        value={formData.max_loss_limit}
+        onChange={handleChange}
+        placeholder="e.g., -500000"
+        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+      />
+      <p className="text-xs text-gray-500 mt-1">
+        Max acceptable loss (negative number)
+      </p>
+    </div>
+    
+    {/* Target Profit */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-2">
+        Target Profit
+      </label>
+      <input
+        type="number"
+        step="1000"
+        name="target_profit"
+        value={formData.target_profit}
+        onChange={handleChange}
+        placeholder="e.g., 300000"
+        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+      />
+      <p className="text-xs text-gray-500 mt-1">
+        Target profit goal (positive number)
+      </p>
+    </div>
+  </div>
+  
+  {/* Hedge Ratio Breakdown */}
+  {formData.hedge_ratio_policy && parseFloat(formData.hedge_ratio_policy) < 1.0 && formData.amount && (
+    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+      <p className="text-sm text-blue-800">
+        <strong>📌 Hedge Breakdown:</strong>
+        <br />
+        Hedged: ${(parseFloat(formData.amount || 0) * parseFloat(formData.hedge_ratio_policy)).toLocaleString()} 
+        ({(parseFloat(formData.hedge_ratio_policy) * 100).toFixed(0)}%)
+        <br />
+        Unhedged: ${(parseFloat(formData.amount || 0) * (1 - parseFloat(formData.hedge_ratio_policy))).toLocaleString()} 
+        ({((1 - parseFloat(formData.hedge_ratio_policy)) * 100).toFixed(0)}%)
+      </p>
+    </div>
+  )}
+</div>
 
         {/* Submit Button */}
         <div className="mt-6">
