@@ -63,7 +63,7 @@ function Dashboard() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`${API_BASE}/companies/${companyId}/exposures`)
+      const response = await fetch(`${API_BASE}/exposures?company_id=${companyId}`)
       const data = await response.json()
       setExposures(data)
       setLastUpdated(new Date())
