@@ -624,8 +624,6 @@ const handleDeleteConfirm = async () => {
 </div>
 
         /* Exposures Table */
-
-        /* Exposures Table */
         <div className="bg-white rounded-lg shadow-lg overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -727,6 +725,22 @@ const handleDeleteConfirm = async () => {
                   );
                 })}
               </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td colSpan="5" className="px-6 py-4 text-right font-bold text-gray-700">
+                    Total Portfolio Value:
+                  </td>
+                  <td className="px-6 py-4 text-right font-bold text-lg text-blue-600">
+                    ${totalValue.toLocaleString()}
+                  </td>
+                  <td colSpan="3"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+        </>
+      )}
 
     {/* Edit Modal */}
     {showEditModal && editingExposure && (
