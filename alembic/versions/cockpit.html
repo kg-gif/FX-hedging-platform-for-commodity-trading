@@ -1,0 +1,302 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xyroth Cockpit | FX Dealer Co-Pilot (Portable)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Babel for on-the-fly TSX transpilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        
+        @keyframes scroll {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        .animate-scroll {
+          animation: scroll 60s linear infinite;
+        }
+        .animate-scroll:hover {
+          animation-play-state: paused;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+    </style>
+
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/client": "https://esm.sh/react-dom@^19.2.3/client",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "recharts": "https://esm.sh/recharts@^3.7.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+</head>
+<body class="bg-[#0f172a] text-slate-200 overflow-hidden">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import ReactDOM from 'react-dom/client';
+        import { GoogleGenAI } from '@google/genai';
+        import { 
+            Search, Bell, Settings, Filter, LayoutGrid, LayoutList, ChevronLeft, 
+            TrendingUp, TrendingDown, Activity, User, Shield, AlertTriangle, 
+            Sparkles, Phone, Mail, FileText, CheckCircle2, Send, 
+            ShieldCheck, Clock, Scale, ArrowUpRight, ArrowDownRight, RefreshCw, Zap,
+            Landmark, FileCheck, ShieldAlert, Play, RotateCcw, Info, Download, Calendar,
+            Newspaper, ChevronRight
+        } from 'lucide-react';
+        import { 
+            AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, 
+            ResponsiveContainer, BarChart, Bar, Cell 
+        } from 'recharts';
+
+        // --- CONSTANTS & MOCKS ---
+        const SYSTEM_PROMPT = `You are an AI-powered Senior FX Dealer & Risk Co-Pilot operating within a bank or FX broker's dealer cockpit interface ("Xyroth Cockpit"). Your role is to amplify, not replace, the dealer. Communication Style: Professional, analytical, commercially astute. UK English.`;
+
+        const MOCK_CLIENTS = [
+            { id: '1', name: 'AcmeCorp Ltd', tier: 'Tier 2: Mid-market', industry: 'Manufacturing', hedgePolicy: '70-80% coverage', marginLimit: 2000000, marginUsed: 1840000, unrealisedPnL: -180000, exposure: [{ pair: 'EUR/USD', netPosition: -5200000, hedgeCoverage: 68, nextExpiry: '2025-03-15' }] },
+            { id: '2', name: 'GlobalTech Inc', tier: 'Tier 1: Sophisticated', industry: 'Technology', hedgePolicy: 'Strategic Hedging', marginLimit: 10000000, marginUsed: 2500000, unrealisedPnL: 45000, exposure: [{ pair: 'USD/JPY', netPosition: 12000000, hedgeCoverage: 85, nextExpiry: '2025-05-20' }] },
+            { id: '3', name: 'BritExport PLC', tier: 'Tier 3: SME', industry: 'Consumer Goods', hedgePolicy: 'Budget Certainty', marginLimit: 500000, marginUsed: 460000, unrealisedPnL: -95000, exposure: [{ pair: 'GBP/EUR', netPosition: 2000000, hedgeCoverage: 40, nextExpiry: '2025-03-25' }] }
+        ];
+
+        // --- SERVICES ---
+        class GeminiService {
+            constructor() {
+                this.ai = new GoogleGenAI({ apiKey: window.process?.env?.API_KEY || '' });
+            }
+            async streamDealerChat(context, userMessage, onChunk) {
+                if (!window.process?.env?.API_KEY) {
+                    onChunk("API Key missing. Please provide a key in the environment to enable AI insights.");
+                    return;
+                }
+                const chat = this.ai.chats.create({
+                    model: 'gemini-3-flash-preview',
+                    config: { systemInstruction: SYSTEM_PROMPT }
+                });
+                const response = await chat.sendMessageStream({ message: `CONTEXT:\n${context}\n\nMESSAGE:\n${userMessage}` });
+                for await (const chunk of response) {
+                    const text = chunk.text;
+                    if (text) onChunk(text);
+                }
+            }
+        }
+        const geminiService = new GeminiService();
+
+        // --- COMPONENTS ---
+
+        const MarketFeed = () => {
+            const [rates, setRates] = useState([
+                { pair: 'EUR/USD', bid: 1.0852, ask: 1.0854, change: +0.02 },
+                { pair: 'GBP/USD', bid: 1.2645, ask: 1.2647, change: -0.15 },
+                { pair: 'USD/JPY', bid: 149.20, ask: 149.22, change: +0.08 }
+            ]);
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    setRates(prev => prev.map(r => ({ ...r, bid: r.bid + (Math.random() - 0.5) * 0.0002 })));
+                }, 2000);
+                return () => clearInterval(interval);
+            }, []);
+            return (
+                <div className="bg-slate-900 border-b border-slate-800 p-2 overflow-hidden flex items-center gap-6 whitespace-nowrap">
+                    <div className="flex items-center gap-2 text-blue-400 font-bold px-4 border-r border-slate-700">
+                        <Activity size={16} /> <span className="text-xs uppercase tracking-widest">Live Market Feed</span>
+                    </div>
+                    <div className="flex gap-8 animate-scroll">
+                        {rates.map(rate => (
+                            <div key={rate.pair} className="flex items-center gap-3 text-sm">
+                                <span className="font-bold text-slate-400">{rate.pair}</span>
+                                <span className="font-mono text-slate-100">{rate.bid.toFixed(4)}</span>
+                                <span className={`flex items-center gap-0.5 text-xs ${rate.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {rate.change >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                                    {Math.abs(rate.change)}%
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const NewsTicker = () => {
+            const news = [
+                { id: '1', headline: "ECB's Lagarde hints at potential June rate cut.", source: "Bloomberg", sentiment: 'BULLISH', timestamp: '2m ago' },
+                { id: '2', headline: "US Treasury yields climb following retail data.", source: "Reuters", sentiment: 'BEARISH', timestamp: '5m ago' }
+            ];
+            return (
+                <div className="bg-slate-900 border-b border-slate-800 p-1.5 overflow-hidden flex items-center gap-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2 text-indigo-400 font-bold px-4 border-r border-slate-700">
+                        <Newspaper size={14} /> <span className="text-[10px] uppercase tracking-[0.2em]">Live Wire</span>
+                    </div>
+                    <div className="flex gap-10 animate-scroll items-center">
+                        {news.map(item => (
+                            <div key={item.id} className="flex items-center gap-3 text-[11px]">
+                                <span className="text-slate-200">{item.headline}</span>
+                                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${item.sentiment === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                                    {item.sentiment}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const ClientCard = ({ client, isSelected, onClick }) => {
+            const marginPct = (client.marginUsed / client.marginLimit) * 100;
+            return (
+                <div onClick={onClick} className={`p-4 rounded-xl border transition-all cursor-pointer ${isSelected ? 'bg-blue-600/10 border-blue-500 shadow-lg' : 'bg-slate-800/40 border-slate-700 hover:border-slate-600'}`}>
+                    <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${isSelected ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400'}`}><User size={18} /></div>
+                            <div><h3 className="font-semibold text-slate-100">{client.name}</h3><p className="text-[10px] text-slate-500 uppercase">{client.industry}</p></div>
+                        </div>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden mt-2">
+                        <div className="h-full bg-blue-500" style={{ width: `${marginPct}%` }}></div>
+                    </div>
+                </div>
+            );
+        };
+
+        const CopilotPanel = ({ selectedClient }) => {
+            const [messages, setMessages] = useState([{ role: 'model', content: "Xyroth AI Online. How can I assist with your portfolio today?", timestamp: new Date() }]);
+            const [inputValue, setInputValue] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const scrollRef = useRef(null);
+
+            const handleSend = async () => {
+                if (!inputValue.trim()) return;
+                const userMsg = { role: 'user', content: inputValue, timestamp: new Date() };
+                setMessages(prev => [...prev, userMsg]);
+                setInputValue('');
+                setIsTyping(true);
+                let full = '';
+                await geminiService.streamDealerChat(JSON.stringify(selectedClient), userMsg.content, (chunk) => {
+                    setIsTyping(false);
+                    full += chunk;
+                    setMessages(prev => {
+                        const last = prev[prev.length - 1];
+                        return last.role === 'model' ? [...prev.slice(0, -1), { ...last, content: full }] : [...prev, { role: 'model', content: full, timestamp: new Date() }];
+                    });
+                });
+            };
+
+            return (
+                <div className="flex flex-col h-full bg-slate-900 border-l border-slate-800">
+                    <div className="p-4 border-b border-slate-800 flex items-center gap-3 bg-slate-900/50">
+                        <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white"><Sparkles size={16} /></div>
+                        <div><h2 className="text-sm font-bold text-slate-100">Xyroth Co-Pilot</h2></div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        {messages.map((m, i) => (
+                            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[85%] p-3 rounded-xl text-sm ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-700 text-slate-200'}`}>
+                                    {m.content}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="p-4 border-t border-slate-800">
+                        <div className="relative">
+                            <textarea 
+                                value={inputValue} 
+                                onChange={e => setInputValue(e.target.value)}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm focus:ring-1 focus:ring-blue-500 outline-none h-20 resize-none"
+                                placeholder="Message Xyroth..."
+                            />
+                            <button onClick={handleSend} className="absolute right-2 bottom-2 p-2 bg-blue-600 rounded-lg"><Send size={16} /></button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ExposureDashboard = ({ client }) => (
+            <div className="p-6 space-y-6">
+                <div className="grid grid-cols-4 gap-4">
+                    <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700">
+                        <div className="text-[10px] text-slate-500 uppercase mb-1">Net Exposure</div>
+                        <div className="text-xl font-bold font-mono text-slate-100">-$5.2M</div>
+                    </div>
+                    <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700">
+                        <div className="text-[10px] text-slate-500 uppercase mb-1">Hedge Ratio</div>
+                        <div className="text-xl font-bold font-mono text-slate-100">68%</div>
+                    </div>
+                </div>
+                <div className="bg-slate-800/20 border border-slate-700 h-[300px] rounded-xl p-4 flex items-center justify-center text-slate-500">
+                    Portfolio Analytics Chart View
+                </div>
+            </div>
+        );
+
+        // --- MAIN APP ---
+        const App = () => {
+            const [selectedId, setSelectedId] = useState(MOCK_CLIENTS[0].id);
+            const [activeTab, setActiveTab] = useState('Dashboard');
+            const client = MOCK_CLIENTS.find(c => c.id === selectedId);
+
+            return (
+                <div className="flex flex-col h-screen bg-[#0f172a] text-slate-200 select-none">
+                    <header className="h-14 border-b border-slate-800 flex items-center justify-between px-6 bg-[#0f172a]/80 backdrop-blur-md">
+                        <div className="flex items-center gap-8">
+                            <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center font-bold">X</div>
+                                <span className="font-bold text-lg">XYROTH</span>
+                            </div>
+                            <nav className="flex gap-4">
+                                {['Dashboard', 'Trading', 'Credit', 'Risk Simulation', 'Reports'].map(t => (
+                                    <button key={t} onClick={() => setActiveTab(t)} className={`text-sm px-2 ${activeTab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-500'}`}>
+                                        {t}
+                                    </button>
+                                ))}
+                            </nav>
+                        </div>
+                    </header>
+                    <MarketFeed />
+                    <NewsTicker />
+                    <main className="flex-1 flex overflow-hidden">
+                        <aside className="w-80 border-r border-slate-800 overflow-y-auto p-4 space-y-4 bg-slate-900/20">
+                            {MOCK_CLIENTS.map(c => <ClientCard key={c.id} client={c} isSelected={selectedId === c.id} onClick={() => setSelectedId(c.id)} />)}
+                        </aside>
+                        <div className="flex-1 overflow-hidden bg-[#0f172a]">
+                            <ExposureDashboard client={client} />
+                        </div>
+                        <aside className="w-[400px]">
+                            <CopilotPanel selectedClient={client} />
+                        </aside>
+                    </main>
+                    <footer className="h-8 border-t border-slate-800 px-4 flex items-center justify-between text-[10px] text-slate-500">
+                        <span>API Connectivity: Optimal</span>
+                        <span>Session: XYR-7729-ALPHA</span>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
