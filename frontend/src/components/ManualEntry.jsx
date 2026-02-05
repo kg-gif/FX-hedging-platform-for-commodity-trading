@@ -31,6 +31,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     max_loss_limit: '',
     target_profit: '',
     hedge_ratio_policy: '1.0', // Default 100%
+    instrument_type: 'Spot'
   });
 
   const [batchEntries, setBatchEntries] = useState([]);
@@ -117,6 +118,9 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
   hedge_ratio_policy: formData.hedge_ratio_policy ? parseFloat(formData.hedge_ratio_policy) : 1.0
 };
 
+      // include instrument type
+      payload.instrument_type = formData.instrument_type || 'Spot'
+
       console.log('📤 Sending payload:', payload);
 
       const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
@@ -184,7 +188,8 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       start_date: '',
       end_date: '',
       description: '',
-      rate: formData.rate // Keep rate
+      rate: formData.rate, // Keep rate
+      instrument_type: formData.instrument_type || 'Spot'
     });
     setErrors({});
     
@@ -224,6 +229,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
             target_profit: entry.target_profit ? parseFloat(entry.target_profit) : null,
             hedge_ratio_policy: entry.hedge_ratio_policy ? parseFloat(entry.hedge_ratio_policy) : 1.0
           };
+          payload.instrument_type = entry.instrument_type || 'Spot'
 
           const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
             method: 'POST',
@@ -411,6 +417,22 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
               step="0.000001"
             />
             <p className="text-xs text-gray-500 mt-1">Leave blank to fetch live rate</p>
+          </div>
+
+          {/* Instrument Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Instrument Type</label>
+            <select
+              value={formData.instrument_type}
+              onChange={(e) => setFormData({ ...formData, instrument_type: e.target.value })}
+              className="w-full px-4 py-2 border rounded-lg"
+            >
+              <option value="Spot">Spot (Immediate Settlement)</option>
+              <option value="Forward">Forward (Future Delivery)</option>
+              <option value="Option">Option (Right to Buy/Sell)</option>
+              <option value="Swap">Swap (Exchange Cash Flows)</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">Select instrument type (default: Spot)</p>
           </div>
 
           {/* Start Date & End Date */}

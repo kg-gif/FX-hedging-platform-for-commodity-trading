@@ -59,3 +59,14 @@ class Exposure(Base):
     current_pnl = Column(Float, nullable=True)
     hedged_amount = Column(Float, nullable=True)
     unhedged_amount = Column(Float, nullable=True)
+    instrument_type = Column(String(20), default="Spot")  # Spot, Forward, Option, Swap
+
+
+class FXRate(Base):
+    __tablename__ = "fx_rates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    currency_pair = Column(String(7), nullable=False, index=True)  # e.g., EUR/USD
+    rate = Column(Float, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    source = Column(String(50), nullable=True)

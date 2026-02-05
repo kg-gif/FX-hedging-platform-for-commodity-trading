@@ -13,11 +13,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
+import os
+import asyncio
+import httpx
 from functools import lru_cache
 
 # Import models and database utilities
-from models import Base, Company, Exposure, CompanyType, RiskLevel
+from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
 from database import SessionLocal, get_live_fx_rate, calculate_risk_level, engine
 
 # Import Phase 2B FastAPI routers
@@ -170,6 +173,87 @@ def get_cached_fx_rate(from_currency: str, to_currency: str, cache_key: str):
     """
     return get_live_fx_rate(from_currency, to_currency)
 
+
+# --- Live FX fetching via ExchangeRate-API ---
+EXCHANGERATE_API_KEY = os.getenv("EXCHANGERATE_API_KEY")
+EXCHANGERATE_BASE_URL = os.getenv("EXCHANGERATE_BASE_URL", "https://v6.exchangerate-api.com/v6")
+
+
+async def fetch_fx_rate(base_currency: str, target_currency: str) -> Optional[Dict]:
+    """Fetch a single FX rate from ExchangeRate-API.
+
+    Returns dict with keys: rate (float), timestamp (datetime), source (str)
+    """
+    if not EXCHANGERATE_API_KEY:
+        return None
+
+    url = f"{EXCHANGERATE_BASE_URL}/{EXCHANGERATE_API_KEY}/pair/{base_currency}/{target_currency}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Try common response shapes
+            rate = None
+            timestamp = datetime.utcnow()
+            source = "ExchangeRate-API"
+
+            if isinstance(data, dict):
+                # v6 responses include 'conversion_rate'
+                rate = data.get("conversion_rate") or data.get("rate")
+                # try to parse time fields if present
+                time_str = data.get("time_last_update_utc") or data.get("time_last_update_unix")
+                if isinstance(time_str, str):
+                    try:
+                        timestamp = datetime.strptime(time_str, "%a, %d %b %Y %H:%M:%S %z")
+                    except Exception:
+                        try:
+                            timestamp = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                        except Exception:
+                            timestamp = datetime.utcnow()
+
+            if rate is None:
+                return None
+
+            return {"rate": float(rate), "timestamp": timestamp, "source": source}
+
+    except Exception as e:
+        print(f"Error fetching FX rate {base_currency}/{target_currency}: {e}")
+        return None
+
+
+async def get_current_rates(currency_pairs: List[str]) -> Dict[str, Dict]:
+    """Fetch multiple currency pairs concurrently.
+
+    currency_pairs: list like ["EUR/USD", "GBP/USD"]
+    Returns mapping pair -> {rate, timestamp, source}
+    """
+    tasks = []
+    for pair in currency_pairs:
+        parts = pair.split("/")
+        if len(parts) != 2:
+            continue
+        base, target = parts[0].strip(), parts[1].strip()
+        tasks.append(fetch_fx_rate(base, target))
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    out = {}
+    idx = 0
+    for pair in currency_pairs:
+        parts = pair.split("/")
+        if len(parts) != 2:
+            continue
+        res = results[idx]
+        idx += 1
+        if isinstance(res, Exception) or res is None:
+            out[pair] = None
+        else:
+            out[pair] = res
+
+    return out
+
 def calculate_rate_change(initial_rate: Optional[float], current_rate: float) -> tuple[Optional[float], str]:
     """
     Calculate percentage change and direction
@@ -247,68 +331,135 @@ def get_company_exposures(company_id: int, db: Session = Depends(get_db)):
     return result
 
 @app.post("/companies/{company_id}/refresh-rates", response_model=RefreshResponse)
-def refresh_company_rates(company_id: int, db: Session = Depends(get_db)):
-    """Refresh FX rates for all company exposures"""
+async def refresh_company_rates(company_id: int, db: Session = Depends(get_db)):
+    """Refresh FX rates for all company exposures using live rates and persist them."""
     exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
-    
+
     if not exposures:
         raise HTTPException(status_code=404, detail="No exposures found for this company")
-    
+
+    # Build unique pairs list
+    pairs = [f"{e.from_currency}/{e.to_currency}" for e in exposures]
+    # Fetch current rates concurrently
+    rates_map = await get_current_rates(pairs)
+
     updated_count = 0
-    cache_key = datetime.utcnow().strftime("%Y-%m-%d-%H")  # Cache key changes every hour
-    
     for exposure in exposures:
+        pair = f"{exposure.from_currency}/{exposure.to_currency}"
+        rate_info = rates_map.get(pair)
+        if not rate_info:
+            continue
+
         try:
-            # Get live rate (with caching)
-            new_rate = get_cached_fx_rate(
-                exposure.from_currency, 
-                exposure.to_currency,
-                cache_key
-            )
-            
-            # Update rate and USD value
+            new_rate = rate_info["rate"]
             exposure.current_rate = new_rate
             exposure.current_value_usd = exposure.amount * new_rate
-            
-            # Set initial_rate if not set
+
             if exposure.initial_rate is None:
                 exposure.initial_rate = new_rate
-            
-            # Recalculate risk level
+
             exposure.risk_level = calculate_risk_level(
                 exposure.current_value_usd,
                 exposure.settlement_period
             )
-            
+
             exposure.updated_at = datetime.utcnow()
+
+            # Persist FXRate record
+            fx = FXRate(
+                currency_pair=pair,
+                rate=new_rate,
+                timestamp=rate_info.get("timestamp", datetime.utcnow()),
+                source=rate_info.get("source", "ExchangeRate-API")
+            )
+            db.add(fx)
+
             updated_count += 1
-            
         except Exception as e:
             print(f"Error updating exposure {exposure.id}: {e}")
             continue
-    
+
     db.commit()
-    
+
     return RefreshResponse(
         message=f"Successfully refreshed rates for {updated_count} exposures",
         updated_count=updated_count,
         timestamp=datetime.utcnow()
     )
 
+
+@app.get("/api/fx-rates")
+async def api_get_fx_rates(pairs: str, company_id: Optional[int] = None, db: Session = Depends(get_db)):
+    """Fetch live FX rates for comma-separated pairs, persist them, and return results."""
+    pair_list = [p.strip() for p in pairs.split(",") if p.strip()]
+    rates_map = await get_current_rates(pair_list)
+
+    response = []
+    for pair in pair_list:
+        info = rates_map.get(pair)
+        if not info:
+            response.append({"currency_pair": pair, "rate": None, "timestamp": None, "source": None})
+            continue
+
+        # Persist
+        fx = FXRate(
+            currency_pair=pair,
+            rate=info["rate"],
+            timestamp=info.get("timestamp", datetime.utcnow()),
+            source=info.get("source", "ExchangeRate-API")
+        )
+        db.add(fx)
+
+        response.append({
+            "currency_pair": pair,
+            "rate": info["rate"],
+            "timestamp": info.get("timestamp"),
+            "source": info.get("source")
+        })
+
+    db.commit()
+    return {"rates": response, "timestamp": datetime.utcnow()}
+
+
+@app.get("/api/fx-rates/history")
+def api_get_fx_history(currency_pair: str, days: int = 30, db: Session = Depends(get_db)):
+    """Return historical FX rates for a currency pair over the last N days."""
+    since = datetime.utcnow() - timedelta(days=days)
+    rows = db.query(FXRate).filter(
+        FXRate.currency_pair == currency_pair,
+        FXRate.timestamp >= since
+    ).order_by(FXRate.timestamp.desc()).all()
+
+    result = [
+        {"currency_pair": r.currency_pair, "rate": r.rate, "timestamp": r.timestamp, "source": r.source}
+        for r in rows
+    ]
+
+    return {"currency_pair": currency_pair, "history": result}
+
 @app.get("/exposures")
-def get_exposures(company_id: int, db: Session = Depends(get_db)):
-    """Get all exposures for a company with calculated P&L data"""
+async def get_exposures(company_id: int, db: Session = Depends(get_db)):
+    """Get all exposures for a company with calculated P&L data (uses live FX rates)."""
     exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
-    
-    # Enrich each exposure with P&L calculations
+
+    # Build pairs and fetch live rates
+    pairs = [f"{e.from_currency}/{e.to_currency}" for e in exposures]
+    unique_pairs = list(dict.fromkeys(pairs))
+    rates_map = await get_current_rates(unique_pairs)
+
     enriched_exposures = []
     for exp in exposures:
-        # Get current rate (using mock rates for now)
-        current_rate = get_mock_current_rate(exp.from_currency, exp.to_currency)
-        
+        pair = f"{exp.from_currency}/{exp.to_currency}"
+        rate_info = rates_map.get(pair)
+
+        if rate_info and rate_info.get("rate"):
+            current_rate = rate_info["rate"]
+        else:
+            current_rate = get_mock_current_rate(exp.from_currency, exp.to_currency)
+
         # Calculate P&L and status
         pnl_data = calculate_pnl_and_status(exp, current_rate)
-        
+
         # Convert exposure to dict and add calculated fields
         exp_dict = {
             "id": exp.id,
@@ -316,6 +467,7 @@ def get_exposures(company_id: int, db: Session = Depends(get_db)):
             "from_currency": exp.from_currency,
             "to_currency": exp.to_currency,
             "amount": exp.amount,
+            "instrument_type": getattr(exp, 'instrument_type', 'Spot'),
             "exposure_type": exp.exposure_type if hasattr(exp, 'exposure_type') else "payable",
             "start_date": exp.start_date.isoformat() if hasattr(exp, 'start_date') and exp.start_date else None,
             "end_date": exp.end_date.isoformat() if hasattr(exp, 'end_date') and exp.end_date else None,
@@ -332,9 +484,9 @@ def get_exposures(company_id: int, db: Session = Depends(get_db)):
             "unhedged_amount": pnl_data["unhedged_amount"],
             "pnl_status": pnl_data["pnl_status"]
         }
-        
+
         enriched_exposures.append(exp_dict)
-    
+
     return enriched_exposures
 
 @app.on_event("startup")

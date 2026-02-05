@@ -20,6 +20,7 @@ function Dashboard() {
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [lastRateUpdate, setLastRateUpdate] = useState(null)
   const [error, setError] = useState(null)
   const [editingExposure, setEditingExposure] = useState(null)
   const [deletingExposure, setDeletingExposure] = useState(null)
@@ -78,7 +79,10 @@ function Dashboard() {
       const response = await fetch(`${API_BASE}/companies/${selectedCompany.id}/refresh-rates`, {
         method: 'POST'
       })
-      await response.json()
+      const data = await response.json()
+      if (data && data.timestamp) {
+        setLastRateUpdate(new Date(data.timestamp))
+      }
       await fetchExposures(selectedCompany.id)
     } catch (err) {
       setError('Failed to refresh rates')
@@ -370,6 +374,9 @@ function Dashboard() {
           {/* Portfolio Summary */}
           <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border border-indigo-200">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">📊 Portfolio Summary</h3>
+            {lastRateUpdate && (
+              <div className="text-sm text-gray-500 mb-3">Rates last updated: {lastRateUpdate.toLocaleString()}</div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white rounded-lg p-4 shadow-sm">
                 <p className="text-sm text-gray-600 mb-1">Total P&L</p>
@@ -421,6 +428,7 @@ function Dashboard() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Instrument</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Currency</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Budget</th>
@@ -435,6 +443,9 @@ function Dashboard() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredExposures.map((exp) => (
                     <tr key={exp.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {exp.instrument_type || 'Spot'}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-lg mr-2">{CURRENCY_FLAGS[exp.from_currency] || '🏳️'}</span>
                         <span className="font-medium">{exp.from_currency}/{exp.to_currency}</span>
