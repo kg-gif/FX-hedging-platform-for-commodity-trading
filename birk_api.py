@@ -178,48 +178,53 @@ def get_cached_fx_rate(from_currency: str, to_currency: str, cache_key: str):
 EXCHANGERATE_API_KEY = os.getenv("EXCHANGERATE_API_KEY")
 EXCHANGERATE_BASE_URL = os.getenv("EXCHANGERATE_BASE_URL", "https://v6.exchangerate-api.com/v6")
 
+# Setup logging
+import logging
+logger = logging.getLogger(__name__)
 
-async def fetch_fx_rate(base_currency: str, target_currency: str) -> Optional[Dict]:
-    """Fetch a single FX rate from ExchangeRate-API.
-
-    Returns dict with keys: rate (float), timestamp (datetime), source (str)
-    """
-    if not EXCHANGERATE_API_KEY:
+async def fetch_fx_rate(base_currency: str, target_currency: str) -> Optional[float]:
+    """Fetch live FX rate from ExchangeRatesAPI.io"""
+    api_key = os.getenv("EXCHANGERATE_API_KEY")
+    if not api_key:
+        logger.error("EXCHANGERATE_API_KEY not set")
         return None
-
-    url = f"{EXCHANGERATE_BASE_URL}/{EXCHANGERATE_API_KEY}/pair/{base_currency}/{target_currency}"
+    
     try:
+        # ExchangeRatesAPI.io format - base is always EUR
+        url = f"http://api.exchangeratesapi.io/v1/latest?access_key={api_key}"
+        
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-
-            # Try common response shapes
-            rate = None
-            timestamp = datetime.utcnow()
-            source = "ExchangeRate-API"
-
-            if isinstance(data, dict):
-                # v6 responses include 'conversion_rate'
-                rate = data.get("conversion_rate") or data.get("rate")
-                # try to parse time fields if present
-                time_str = data.get("time_last_update_utc") or data.get("time_last_update_unix")
-                if isinstance(time_str, str):
-                    try:
-                        timestamp = datetime.strptime(time_str, "%a, %d %b %Y %H:%M:%S %z")
-                    except Exception:
-                        try:
-                            timestamp = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
-                        except Exception:
-                            timestamp = datetime.utcnow()
-
-            if rate is None:
+            response = await client.get(url)
+            
+            if response.status_code != 200:
+                logger.error(f"ExchangeRatesAPI error: {response.text}")
                 return None
-
-            return {"rate": float(rate), "timestamp": timestamp, "source": source}
-
+            
+            data = response.json()
+            
+            if not data.get("success"):
+                logger.error(f"ExchangeRatesAPI returned error: {data}")
+                return None
+            
+            rates = data["rates"]
+            
+            # ExchangeRatesAPI.io gives rates with EUR as base
+            # To get other pairs, we need to cross-calculate
+            if base_currency == "EUR":
+                return rates.get(target_currency)
+            elif target_currency == "EUR":
+                base_rate = rates.get(base_currency)
+                return 1 / base_rate if base_rate else None
+            else:
+                # Cross rate: BASE/TARGET = (EUR/TARGET) / (EUR/BASE)
+                base_rate = rates.get(base_currency)
+                target_rate = rates.get(target_currency)
+                if base_rate and target_rate:
+                    return target_rate / base_rate
+                return None
+                
     except Exception as e:
-        print(f"Error fetching FX rate {base_currency}/{target_currency}: {e}")
+        logger.error(f"Error fetching FX rate: {str(e)}")
         return None
 
 
