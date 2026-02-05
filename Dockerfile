@@ -21,6 +21,8 @@ COPY routes/ ./routes/
 COPY services/ ./services/
 COPY models.py .
 COPY database.py .
+COPY alembic/ ./alembic/
+COPY alembic.ini .
 
 # Expose port
 EXPOSE 8000
