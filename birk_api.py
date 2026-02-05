@@ -183,45 +183,31 @@ import logging
 logger = logging.getLogger(__name__)
 
 async def fetch_fx_rate(base_currency: str, target_currency: str) -> Optional[float]:
-    """Fetch live FX rate from ExchangeRatesAPI.io"""
+    """Fetch live FX rate from ExchangeRate-API.com"""
     api_key = os.getenv("EXCHANGERATE_API_KEY")
     if not api_key:
         logger.error("EXCHANGERATE_API_KEY not set")
         return None
     
     try:
-        # ExchangeRatesAPI.io format - base is always EUR
-        url = f"http://api.exchangeratesapi.io/v1/latest?access_key={api_key}"
+        # ExchangeRate-API.com format: get rates with base_currency as base
+        url = f"https://v6.exchangerate-api.com/v6/{api_key}/latest/{base_currency}"
         
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url)
             
             if response.status_code != 200:
-                logger.error(f"ExchangeRatesAPI error: {response.text}")
+                logger.error(f"ExchangeRate-API error: {response.text}")
                 return None
             
             data = response.json()
             
-            if not data.get("success"):
-                logger.error(f"ExchangeRatesAPI returned error: {data}")
+            if data.get("result") != "success":
+                logger.error(f"ExchangeRate-API returned error: {data}")
                 return None
             
-            rates = data["rates"]
-            
-            # ExchangeRatesAPI.io gives rates with EUR as base
-            # To get other pairs, we need to cross-calculate
-            if base_currency == "EUR":
-                return rates.get(target_currency)
-            elif target_currency == "EUR":
-                base_rate = rates.get(base_currency)
-                return 1 / base_rate if base_rate else None
-            else:
-                # Cross rate: BASE/TARGET = (EUR/TARGET) / (EUR/BASE)
-                base_rate = rates.get(base_currency)
-                target_rate = rates.get(target_currency)
-                if base_rate and target_rate:
-                    return target_rate / base_rate
-                return None
+            rates = data["conversion_rates"]
+            return rates.get(target_currency)
                 
     except Exception as e:
         logger.error(f"Error fetching FX rate: {str(e)}")
