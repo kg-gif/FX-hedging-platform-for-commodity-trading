@@ -241,7 +241,12 @@ async def get_current_rates(currency_pairs: List[str]) -> Dict[str, Dict]:
         if isinstance(res, Exception) or res is None:
             out[pair] = None
         else:
-            out[pair] = res
+            from datetime import datetime, timezone
+            out[pair] = {
+                "rate": res,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "exchangerate-api.com"
+            }
 
     return out
 
