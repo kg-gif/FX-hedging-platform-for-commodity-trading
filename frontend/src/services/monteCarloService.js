@@ -5,19 +5,28 @@ export const monteCarloService = {
    * Run Monte Carlo simulation for a single exposure
    */
   async runSimulation(exposureId, horizonDays = 90) {
+    // Backend expects a POST to /api/monte-carlo/simulate/exposure with a JSON body
+    const payload = {
+      exposure_id: exposureId,
+      time_horizon_days: horizonDays
+    }
+
     const response = await fetch(
-      `${API_BASE_URL}/api/monte-carlo/single/${exposureId}?horizon_days=${horizonDays}`,
+      `${API_BASE_URL}/api/monte-carlo/simulate/exposure`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify(payload)
       }
     );
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Simulation failed');
+      // Try to parse JSON error body, otherwise throw generic
+      let errorBody = null
+      try { errorBody = await response.json() } catch (e) {}
+      throw new Error((errorBody && (errorBody.detail || errorBody.message)) || 'Simulation failed')
     }
 
     return response.json();
