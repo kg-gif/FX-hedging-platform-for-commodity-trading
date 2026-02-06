@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { CompanyProvider } from './contexts/CompanyContext'
+import { useCompany } from './contexts/CompanyContext'
 import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
 import HedgingRecommendations from './components/HedgingRecommendations'
@@ -9,6 +10,7 @@ import DataImportDashboard from './components/DataImportDashboard'
 import MonteCarloTab from './components/MonteCarloTab'
 
 function AppContent() {
+  const { selectedCompanyId } = useCompany()
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [exposures, setExposures] = useState([])
   const [loadingExposures, setLoadingExposures] = useState(true)
@@ -17,7 +19,7 @@ function AppContent() {
     const fetchExposures = async () => {
       try {
         const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
-        const response = await fetch(`${API_URL}/api/exposures`)
+        const response = await fetch(`${API_URL}/exposures?company_id=${selectedCompanyId}`)
         
         if (!response.ok) throw new Error('Failed to fetch exposures')
         
@@ -38,8 +40,10 @@ function AppContent() {
       }
     }
 
-    fetchExposures()
-  }, [])
+    if (selectedCompanyId) {
+      fetchExposures()
+    }
+  }, [selectedCompanyId])
   
   const navigation = [
     { id: 'dashboard', name: 'Dashboard', icon: '📊' },
