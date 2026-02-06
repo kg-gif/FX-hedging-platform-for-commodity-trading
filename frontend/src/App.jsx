@@ -6,7 +6,7 @@ import HedgingRecommendations from './components/HedgingRecommendations'
 import ScenarioAnalysis from './components/ScenarioAnalysis'
 import HedgeTracker from './components/HedgeTracker'
 import DataImportDashboard from './components/DataImportDashboard'
-import MonteCarloSimulation from './components/MonteCarloSimulation'
+import MonteCarloTab from './components/MonteCarloTab'
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState('dashboard')
@@ -23,7 +23,7 @@ function AppContent() {
       case 'dashboard':
         return <Dashboard />
       case 'monte-carlo':
-        return <MonteCarloSimulation />
+        return <MonteCarloTab exposures={[]} />
       case 'hedging':
         return (
           <div className="space-y-6">
