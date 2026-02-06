@@ -30,7 +30,7 @@ function AppContent() {
         }))
         
         setExposures(transformedExposures)
-        console.log('✅ Fetched and transformed exposures:', transformedExposures)
+        console.log('Transformed exposures:', transformedExposures)
       } catch (error) {
         console.error('❌ Error fetching exposures:', error)
       } finally {

@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Play, RefreshCw, TrendingUp } from 'lucide-react';
 import { monteCarloService } from '../services/monteCarloService';
 import RiskMetricsCard from './RiskMetricsCard';
 import PnLHistogram from './PnLHistogram';
 
 export default function MonteCarloTab({ exposures, loading }) {
+  useEffect(() => {
+    console.log('MonteCarloTab received exposures:', exposures)
+  }, [exposures])
   const [selectedExposureId, setSelectedExposureId] = useState(null);
   const [horizonDays, setHorizonDays] = useState(90);
   const [simulationLoading, setSimulationLoading] = useState(false);
