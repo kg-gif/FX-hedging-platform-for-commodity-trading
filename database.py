@@ -57,3 +57,11 @@ def calculate_risk_level(usd_value: float, settlement_period: int) -> RiskLevel:
         return RiskLevel.MEDIUM
     else:
         return RiskLevel.LOW
+
+def get_db():
+    """Database session dependency for FastAPI"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
