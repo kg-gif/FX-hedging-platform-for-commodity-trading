@@ -119,7 +119,7 @@ export default function MonteCarloTab({ exposures, loading }) {
 
         {error && (
           <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
-            {error}
+            <strong>Error:</strong> {typeof error === 'string' ? error : error.message || JSON.stringify(error)}
           </div>
         )}
       </div>

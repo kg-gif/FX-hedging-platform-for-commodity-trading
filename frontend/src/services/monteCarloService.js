@@ -6,7 +6,7 @@ export const monteCarloService = {
    */
   async runSimulation(exposureId, horizonDays = 90) {
     const response = await fetch(
-      `${API_BASE_URL}/api/monte-carlo/simulate/exposure?exposure_id=${exposureId}&horizon_days=${horizonDays}`,
+      `${API_BASE_URL}/api/monte-carlo/single/${exposureId}?horizon_days=${horizonDays}`,
       {
         method: 'POST',
         headers: {
