@@ -13,7 +13,7 @@ const CURRENCY_FLAGS = {
 
 const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316']
 
-function Dashboard() {
+function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const [companies, setCompanies] = useState([])
   const [selectedCompany, setSelectedCompany] = useState(null)
   const [exposures, setExposures] = useState([])
@@ -38,10 +38,15 @@ function Dashboard() {
   }, [])
 
   useEffect(() => {
-    if (selectedCompany) {
+    // Use exposures from parent (App.jsx) if provided
+    if (propsExposures && propsExposures.length > 0) {
+      setExposures(propsExposures)
+      console.log('📊 Dashboard using exposures from App.jsx')
+    } else if (selectedCompany) {
+      // Fallback: fetch if not provided from parent
       fetchExposures(selectedCompany.id)
     }
-  }, [selectedCompany])
+  }, [selectedCompany, propsExposures])
 
   const fetchCompanies = async () => {
     try {

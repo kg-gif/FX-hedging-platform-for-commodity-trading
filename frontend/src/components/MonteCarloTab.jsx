@@ -4,10 +4,10 @@ import { monteCarloService } from '../services/monteCarloService';
 import RiskMetricsCard from './RiskMetricsCard';
 import PnLHistogram from './PnLHistogram';
 
-export default function MonteCarloTab({ exposures }) {
+export default function MonteCarloTab({ exposures, loading }) {
   const [selectedExposureId, setSelectedExposureId] = useState(null);
   const [horizonDays, setHorizonDays] = useState(90);
-  const [loading, setLoading] = useState(false);
+  const [simulationLoading, setSimulationLoading] = useState(false);
   const [error, setError] = useState(null);
   const [simulationResult, setSimulationResult] = useState(null);
 
@@ -17,7 +17,7 @@ export default function MonteCarloTab({ exposures }) {
       return;
     }
 
-    setLoading(true);
+    setSimulationLoading(true);
     setError(null);
 
     try {
@@ -29,7 +29,7 @@ export default function MonteCarloTab({ exposures }) {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      setSimulationLoading(false);
     }
   };
 
@@ -57,8 +57,11 @@ export default function MonteCarloTab({ exposures }) {
               value={selectedExposureId || ''}
               onChange={(e) => setSelectedExposureId(Number(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={loading}
             >
-              <option value="">Choose exposure...</option>
+              <option value="">
+                {loading ? '⏳ Loading exposures...' : 'Choose exposure...'}
+              </option>
               {exposures && exposures.map(exp => (
                 <option key={exp.id} value={exp.id}>
                   {exp.currency_pair} - {exp.amount.toLocaleString()} @ {exp.current_rate}
@@ -93,10 +96,10 @@ export default function MonteCarloTab({ exposures }) {
           <div className="flex items-end">
             <button
               onClick={handleRunSimulation}
-              disabled={loading || !selectedExposureId}
+              disabled={simulationLoading || !selectedExposureId}
               className="w-full bg-blue-600 text-white px-6 py-2 rounded-md font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center"
             >
-              {loading ? (
+              {simulationLoading ? (
                 <>
                   <RefreshCw className="mr-2 w-5 h-5 animate-spin" />
                   Running Simulation...

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { CompanyProvider } from './contexts/CompanyContext'
 import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
@@ -10,6 +10,36 @@ import MonteCarloTab from './components/MonteCarloTab'
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState('dashboard')
+  const [exposures, setExposures] = useState([])
+  const [loadingExposures, setLoadingExposures] = useState(true)
+  
+  useEffect(() => {
+    const fetchExposures = async () => {
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
+        const response = await fetch(`${API_URL}/api/exposures`)
+        
+        if (!response.ok) throw new Error('Failed to fetch exposures')
+        
+        const data = await response.json()
+        
+        // Transform data: combine from_currency + to_currency into currency_pair
+        const transformedExposures = data.map(exp => ({
+          ...exp,
+          currency_pair: `${exp.from_currency}/${exp.to_currency}`
+        }))
+        
+        setExposures(transformedExposures)
+        console.log('✅ Fetched and transformed exposures:', transformedExposures)
+      } catch (error) {
+        console.error('❌ Error fetching exposures:', error)
+      } finally {
+        setLoadingExposures(false)
+      }
+    }
+
+    fetchExposures()
+  }, [])
   
   const navigation = [
     { id: 'dashboard', name: 'Dashboard', icon: '📊' },
@@ -21,9 +51,9 @@ function AppContent() {
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <Dashboard />
+        return <Dashboard exposures={exposures} loading={loadingExposures} />
       case 'monte-carlo':
-        return <MonteCarloTab exposures={[]} />
+        return <MonteCarloTab exposures={exposures} loading={loadingExposures} />
       case 'hedging':
         return (
           <div className="space-y-6">
