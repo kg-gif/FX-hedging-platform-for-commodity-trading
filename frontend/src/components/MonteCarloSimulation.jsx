@@ -202,7 +202,7 @@ const MonteCarloSimulation = () => {
                 >
                   {exposures.map(exp => (
                     <option key={exp.id} value={exp.id}>
-                      {exp.from_currency}/{exp.to_currency} - {formatCurrency(exp.amount)}
+                      {exp.from_currency} → {exp.to_currency} - {formatCurrency(exp.amount)}
                     </option>
                   ))}
                 </select>

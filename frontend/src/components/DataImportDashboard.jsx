@@ -64,7 +64,7 @@ const DataImportDashboard = () => {
   const handleEdit = (exposure) => {
     setEditingExposure(exposure);
     setEditForm({
-      currency_pair: `${exposure.from_currency}${exposure.to_currency}`,
+      currency_pair: `${exposure.from_currency} → ${exposure.to_currency}`,
       amount: exposure.amount.toString(),
       start_date: exposure.start_date || '',
       end_date: exposure.end_date || '',
@@ -261,7 +261,7 @@ const DataImportDashboard = () => {
                   {exposures.map((exp) => (
                     <tr key={exp.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap font-medium">
-                        {exp.from_currency}/{exp.to_currency}
+                        {exp.from_currency} → {exp.to_currency}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         ${exp.amount?.toLocaleString()}
@@ -419,7 +419,7 @@ const DataImportDashboard = () => {
             </p>
             
             <div className="bg-gray-50 p-3 rounded mb-4">
-              <p className="text-sm"><strong>Currency:</strong> {deletingExposure.from_currency}/{deletingExposure.to_currency}</p>
+              <p className="text-sm"><strong>Currency:</strong> {deletingExposure.from_currency} → {deletingExposure.to_currency}</p>
               <p className="text-sm"><strong>Amount:</strong> ${deletingExposure.amount?.toLocaleString()}</p>
             </div>
             

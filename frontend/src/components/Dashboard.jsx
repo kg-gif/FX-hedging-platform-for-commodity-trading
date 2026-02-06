@@ -97,7 +97,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   }
 
   const filteredExposures = exposures.filter(exp => {
-    if (filterCurrency && `${exp.from_currency}/${exp.to_currency}` !== filterCurrency) return false
+    if (filterCurrency && `${exp.from_currency} → ${exp.to_currency}` !== filterCurrency) return false
     if (filterStartDate && exp.start_date < filterStartDate) return false
     if (filterEndDate && exp.end_date > filterEndDate) return false
     if (filterMinAmount && exp.amount < parseFloat(filterMinAmount)) return false
@@ -161,7 +161,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const exportToCSV = () => {
     const headers = ['Currency Pair', 'Amount', 'Budget Rate', 'Current Rate', 'P&L', 'Status', 'Hedge %', 'Description']
     const rows = filteredExposures.map(exp => [
-      `${exp.from_currency}/${exp.to_currency}`,
+      `${exp.from_currency} → ${exp.to_currency}`,
       `${exp.amount} ${exp.from_currency}`,
       exp.budget_rate || 'N/A',
       exp.current_rate || 'N/A',
@@ -453,7 +453,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-lg mr-2">{CURRENCY_FLAGS[exp.from_currency] || '🏳️'}</span>
-                        <span className="font-medium">{exp.from_currency}/{exp.to_currency}</span>
+                        <span className="font-medium">{exp.from_currency} → {exp.to_currency}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         {exp.amount.toLocaleString()} {exp.from_currency}
@@ -560,7 +560,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             <h2 className="text-2xl font-bold mb-4">Delete Exposure?</h2>
             <p className="text-gray-600 mb-6">
               Are you sure you want to delete this exposure?<br />
-              <span className="font-semibold">{deletingExposure.from_currency}/{deletingExposure.to_currency}</span><br />
+              <span className="font-semibold">{deletingExposure.from_currency} → {deletingExposure.to_currency}</span><br />
               Amount: {deletingExposure.amount?.toLocaleString()} {deletingExposure.from_currency}
             </p>
             <div className="flex justify-end gap-4">

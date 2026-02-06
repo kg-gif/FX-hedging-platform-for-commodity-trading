@@ -28,7 +28,7 @@ function AppContent() {
         // Transform data: combine from_currency + to_currency into currency_pair
         const transformedExposures = data.map(exp => ({
           ...exp,
-          currency_pair: `${exp.from_currency}/${exp.to_currency}`
+          currency_pair: `${exp.from_currency} → ${exp.to_currency}`
         }))
         
         setExposures(transformedExposures)
