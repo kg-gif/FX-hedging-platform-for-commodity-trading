@@ -2,7 +2,8 @@
 Database Models for BIRK FX Platform
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Date, ForeignKey, JSON, Numeric
+from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 import enum
@@ -60,6 +61,9 @@ class Exposure(Base):
     hedged_amount = Column(Float, nullable=True)
     unhedged_amount = Column(Float, nullable=True)
     instrument_type = Column(String(20), default="Spot")  # Spot, Forward, Option, Swap
+    
+    # Relationship to SimulationResult
+    simulations = relationship("SimulationResult", back_populates="exposure")
 
 
 class FXRate(Base):
@@ -70,3 +74,32 @@ class FXRate(Base):
     rate = Column(Float, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
     source = Column(String(50), nullable=True)
+
+
+class SimulationResult(Base):
+    __tablename__ = 'simulation_results'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    exposure_id = Column(Integer, ForeignKey('exposures.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Simulation parameters
+    horizon_days = Column(Integer, nullable=False)
+    num_scenarios = Column(Integer, nullable=False)
+    volatility = Column(Numeric(6, 4), nullable=False)
+    current_rate = Column(Numeric(10, 6), nullable=False)
+    
+    # Risk metrics
+    var_95 = Column(Numeric(15, 2))
+    var_99 = Column(Numeric(15, 2))
+    expected_pnl = Column(Numeric(15, 2))
+    max_loss = Column(Numeric(15, 2))
+    max_gain = Column(Numeric(15, 2))
+    probability_of_loss = Column(Numeric(5, 4))
+    
+    # Distribution data (for charts) - store as JSON
+    pnl_distribution = Column(JSON)  # Array of P&L values for histogram
+    rate_distribution = Column(JSON)  # Array of final rates
+    
+    # Relationship
+    exposure = relationship("Exposure", back_populates="simulations")

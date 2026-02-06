@@ -64,11 +64,32 @@ class MonteCarloService:
     
     def run_simulation(self, current_rate: float, amount: float, time_horizon_days: int, 
                       volatility: Optional[float] = None, num_scenarios: Optional[int] = None, 
-                      drift: float = 0.0, currency_pair: str = "UNKNOWN") -> Dict:
+                      drift: float = 0.0, currency_pair: str = "UNKNOWN", random_seed: int = 42) -> Dict:
         """
         Run Monte Carlo simulation for a single exposure
         Returns both API-safe data and internal full arrays
+        
+        Args:
+            current_rate: Current FX rate (must be > 0)
+            amount: Exposure amount (must be != 0)
+            time_horizon_days: Time horizon in days (must be 1-365)
+            volatility: Optional volatility estimate
+            num_scenarios: Optional number of scenarios
+            drift: Drift parameter
+            currency_pair: Currency pair identifier
+            random_seed: Random seed for reproducibility (default: 42)
+            
+        Raises:
+            ValueError: If inputs fail validation
         """
+        # Input validation
+        if current_rate <= 0:
+            raise ValueError(f"current_rate must be > 0, got {current_rate}")
+        if amount == 0:
+            raise ValueError(f"amount must be != 0, got {amount}")
+        if not (1 <= time_horizon_days <= 365):
+            raise ValueError(f"time_horizon_days must be between 1 and 365, got {time_horizon_days}")
+        
         num_scenarios = num_scenarios or self.default_scenarios
         volatility = volatility or self.estimate_volatility_from_pair(currency_pair)
         
@@ -80,8 +101,8 @@ class MonteCarloService:
         rate_paths = np.zeros((num_scenarios, num_steps + 1))
         rate_paths[:, 0] = current_rate
         
-        # Generate random shocks
-        np.random.seed(42)
+        # Generate random shocks with configurable seed
+        np.random.seed(random_seed)
         shocks = np.random.normal(0, 1, (num_scenarios, num_steps))
         
         # Simulate rate paths
@@ -158,24 +179,37 @@ class MonteCarloService:
         }
     
     def run_portfolio_simulation(self, exposures: List[Dict], time_horizon_days: int = 90, 
-                                num_scenarios: Optional[int] = None) -> Dict:
+                                num_scenarios: Optional[int] = None, random_seed: int = 42) -> Dict:
         """
         Run Monte Carlo simulation for entire portfolio
         Aggregates risk across all exposures
+        
+        Args:
+            exposures: List of exposure dicts with 'current_rate', 'amount', 'currency_pair', 'id'
+            time_horizon_days: Time horizon in days
+            num_scenarios: Optional number of scenarios
+            random_seed: Random seed for reproducibility (default: 42)
+            
+        Raises:
+            ValueError: If inputs fail validation
         """
+        if not (1 <= time_horizon_days <= 365):
+            raise ValueError(f"time_horizon_days must be between 1 and 365, got {time_horizon_days}")
+        
         num_scenarios = num_scenarios or self.default_scenarios
         
         individual_results = []
         portfolio_pnl = np.zeros(num_scenarios)
         
-        for exp in exposures:
-            # Run simulation for this exposure
+        for idx, exp in enumerate(exposures):
+            # Run simulation for this exposure with incremented seed for variation
             result = self.run_simulation(
                 current_rate=exp['current_rate'],
                 amount=exp['amount'],
                 time_horizon_days=time_horizon_days,
                 num_scenarios=num_scenarios,
-                currency_pair=exp.get('currency_pair', 'UNKNOWN')
+                currency_pair=exp.get('currency_pair', 'UNKNOWN'),
+                random_seed=random_seed + idx  # Vary seed for each exposure
             )
             
             individual_results.append({
