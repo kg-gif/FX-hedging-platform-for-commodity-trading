@@ -132,11 +132,10 @@ export default function MonteCarloTab({ exposures, loading }) {
             <div className="flex justify-between items-center">
               <div>
                 <h3 className="font-semibold text-lg">
-                  {simulationResult.exposure.from_currency} → {simulationResult.exposure.to_currency}
+                  {simulationResult.currency_pair}
                 </h3>
                 <p className="text-sm text-gray-600">
-                  Exposure: {simulationResult.exposure.amount.toLocaleString()} units @ 
-                  {' '}{simulationResult.exposure.current_rate}
+                  Exposure: {simulationResult.amount.toLocaleString()} units @{' '}{simulationResult.current_rate}
                 </p>
               </div>
               <div className="text-right">
