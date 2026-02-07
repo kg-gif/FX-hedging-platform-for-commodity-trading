@@ -5,6 +5,7 @@ export default function RiskMetricsCard({ metrics }) {
   if (!metrics) return null;
 
   const formatCurrency = (value) => {
+    if (value === null || value === undefined || isNaN(value)) return 'N/A';
     const absValue = Math.abs(value);
     if (absValue >= 1000000) {
       return `$${(value / 1000000).toFixed(2)}M`;
@@ -14,7 +15,10 @@ export default function RiskMetricsCard({ metrics }) {
     return `$${value.toFixed(0)}`;
   };
 
-  const formatPercent = (value) => `${(value * 100).toFixed(1)}%`;
+  const formatPercent = (value) => {
+    if (value === null || value === undefined || isNaN(value)) return 'N/A';
+    return `${(value * 100).toFixed(1)}%`;
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -25,7 +29,7 @@ export default function RiskMetricsCard({ metrics }) {
           <DollarSign className="w-5 h-5 text-blue-500" />
         </div>
         <div className={`text-2xl font-bold ${
-          metrics.expected_pnl >= 0 ? 'text-green-600' : 'text-red-600'
+          (typeof metrics.expected_pnl === 'number' && metrics.expected_pnl >= 0) ? 'text-green-600' : 'text-red-600'
         }`}>
           {formatCurrency(metrics.expected_pnl)}
         </div>
@@ -52,7 +56,7 @@ export default function RiskMetricsCard({ metrics }) {
           <TrendingUp className="w-5 h-5 text-green-500" />
         </div>
         <div className="text-2xl font-bold text-green-600">
-          {formatCurrency(metrics.max_gain * 0.95)}
+          {formatCurrency(metrics.max_gain != null ? metrics.max_gain * 0.95 : null)}
         </div>
         <div className="text-xs text-gray-500 mt-1">
           95th percentile outcome

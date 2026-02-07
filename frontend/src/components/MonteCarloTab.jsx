@@ -140,7 +140,7 @@ export default function MonteCarloTab({ exposures, loading }) {
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-600">
-                  {simulationResult.simulation.simulation_params.num_scenarios.toLocaleString()} scenarios
+                  {simulationResult.simulation?.simulation_params?.num_scenarios != null ? simulationResult.simulation.simulation_params.num_scenarios.toLocaleString() : 'N/A'} scenarios
                 </p>
                 <p className="text-sm text-gray-600">
                   {horizonDays}-day projection
@@ -198,9 +198,9 @@ export default function MonteCarloTab({ exposures, loading }) {
         <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
           <TrendingUp className="mx-auto w-12 h-12 text-gray-400 mb-4" />
           <p className="text-gray-600 mb-2">No simulation results yet</p>
-          <p className="text-sm text-gray-500">
-            Select an exposure and run a Monte Carlo simulation to see risk projections
-          </p>
+                <p className="text-sm text-gray-600">
+                  {simulationResult.simulation?.simulation_params?.volatility != null ? (simulationResult.simulation.simulation_params.volatility * 100).toFixed(1) + '%' : 'N/A'}
+                </p>
         </div>
       )}
     </div>

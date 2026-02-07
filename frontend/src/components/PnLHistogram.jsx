@@ -39,13 +39,14 @@ export default function PnLHistogram({ pnlData, riskMetrics }) {
 
     // Format for display
     return bins.map(bin => ({
-      range: `${(bin.binStart / 1000).toFixed(0)}K`,
+      range: `${Number.isFinite(bin.binStart) ? (bin.binStart / 1000).toFixed(0) : 0}K`,
       count: bin.count,
-      binMidpoint: (bin.binStart + bin.binEnd) / 2
+      binMidpoint: Number.isFinite(bin.binStart) && Number.isFinite(bin.binEnd) ? (bin.binStart + bin.binEnd) / 2 : 0
     }));
   }, [pnlData]);
 
   const formatCurrency = (value) => {
+    if (value === null || value === undefined || isNaN(value)) return 'N/A';
     if (Math.abs(value) >= 1000000) {
       return `$${(value / 1000000).toFixed(1)}M`;
     }
@@ -81,7 +82,7 @@ export default function PnLHistogram({ pnlData, riskMetrics }) {
           />
           
           {/* Reference line for VaR 95 */}
-          {riskMetrics && (
+          {riskMetrics && typeof riskMetrics.var_95 === 'number' && Number.isFinite(riskMetrics.var_95) && (
             <ReferenceLine 
               x={`${(riskMetrics.var_95 / 1000).toFixed(0)}K`}
               stroke="orange" 
@@ -114,8 +115,8 @@ export default function PnLHistogram({ pnlData, riskMetrics }) {
           </div>
           <div>
             <span className="text-gray-600">95th Percentile:</span>
-            <span className="ml-2 font-semibold text-green-600">
-              {formatCurrency(riskMetrics.max_gain * 0.95)}
+              <span className="ml-2 font-semibold text-green-600">
+              {formatCurrency(riskMetrics.max_gain != null ? riskMetrics.max_gain * 0.95 : null)}
             </span>
           </div>
         </div>
