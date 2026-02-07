@@ -5,6 +5,15 @@ import RiskMetricsCard from './RiskMetricsCard';
 import PnLHistogram from './PnLHistogram';
 
 export default function MonteCarloTab({ exposures, loading }) {
+  if (!exposures || exposures.length === 0) {
+    return (
+      <div className="p-6">
+        <h2 className="text-2xl font-bold mb-4">Risk Analysis</h2>
+        <p>Loading exposures...</p>
+      </div>
+    );
+  }
+
   useEffect(() => {
     console.log('MonteCarloTab received exposures:', exposures)
   }, [exposures])
