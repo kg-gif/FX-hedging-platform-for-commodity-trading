@@ -134,7 +134,7 @@ export default function MonteCarloTab({ exposures, loading }) {
       </div>
 
       {/* Results */}
-      {simulationResult && (
+      {simulationResult && simulationResult.simulation && (
         <>
           {/* Exposure Info */}
           <div className="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
@@ -149,7 +149,7 @@ export default function MonteCarloTab({ exposures, loading }) {
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-600">
-                  {simulationResult.simulation?.simulation_params?.num_scenarios != null ? simulationResult.simulation.simulation_params.num_scenarios.toLocaleString() : 'N/A'} scenarios
+                  {simulationResult.simulation?.simulation_params?.num_scenarios?.toLocaleString() ?? 'N/A'} scenarios
                 </p>
                 <p className="text-sm text-gray-600">
                   {horizonDays}-day projection
