@@ -5,6 +5,17 @@ import RiskMetricsCard from './RiskMetricsCard';
 import PnLHistogram from './PnLHistogram';
 
 export default function MonteCarloTab({ exposures, loading }) {
+  const [selectedExposureId, setSelectedExposureId] = useState(null);
+  const [horizonDays, setHorizonDays] = useState(90);
+  const [simulationLoading, setSimulationLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [simulationResult, setSimulationResult] = useState(null);
+
+  useEffect(() => {
+    console.log('MonteCarloTab received exposures:', exposures)
+  }, [exposures])
+
+  // Early return AFTER all hooks
   if (!exposures || exposures.length === 0) {
     return (
       <div className="p-6">
@@ -13,15 +24,6 @@ export default function MonteCarloTab({ exposures, loading }) {
       </div>
     );
   }
-
-  useEffect(() => {
-    console.log('MonteCarloTab received exposures:', exposures)
-  }, [exposures])
-  const [selectedExposureId, setSelectedExposureId] = useState(null);
-  const [horizonDays, setHorizonDays] = useState(90);
-  const [simulationLoading, setSimulationLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [simulationResult, setSimulationResult] = useState(null);
 
   const handleRunSimulation = async () => {
     if (!selectedExposureId) {
@@ -37,8 +39,10 @@ export default function MonteCarloTab({ exposures, loading }) {
         selectedExposureId,
         horizonDays
       );
+      console.log('Simulation result:', result);
       setSimulationResult(result);
     } catch (err) {
+      console.error('Simulation error:', err);
       setError(err.message);
     } finally {
       setSimulationLoading(false);
@@ -76,7 +80,7 @@ export default function MonteCarloTab({ exposures, loading }) {
               </option>
               {exposures && exposures.map(exp => (
                 <option key={exp.id} value={exp.id}>
-                  {exp.currency_pair} - {exp.amount.toLocaleString()} @ {exp.current_rate}
+                  {exp.currency_pair} - {exp.amount?.toLocaleString()} @ {exp.current_rate}
                 </option>
               ))}
             </select>
@@ -114,7 +118,7 @@ export default function MonteCarloTab({ exposures, loading }) {
               {simulationLoading ? (
                 <>
                   <RefreshCw className="mr-2 w-5 h-5 animate-spin" />
-                  Running Simulation...
+                  Running...
                 </>
               ) : (
                 <>
@@ -133,7 +137,7 @@ export default function MonteCarloTab({ exposures, loading }) {
         )}
       </div>
 
-      {/* Results */}
+      {/* Results - WITH DOUBLE NULL CHECK */}
       {simulationResult && simulationResult.simulation && (
         <>
           {/* Exposure Info */}
@@ -141,15 +145,16 @@ export default function MonteCarloTab({ exposures, loading }) {
             <div className="flex justify-between items-center">
               <div>
                 <h3 className="font-semibold text-lg">
-                  {simulationResult.currency_pair}
+                  {simulationResult.currency_pair || 'N/A'}
                 </h3>
                 <p className="text-sm text-gray-600">
-                  Exposure: {simulationResult.amount.toLocaleString()} units @{' '}{simulationResult.current_rate}
+                  Exposure: {simulationResult.amount?.toLocaleString() || 'N/A'} units @{' '}
+                  {simulationResult.current_rate || 'N/A'}
                 </p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-600">
-                  {simulationResult.simulation?.simulation_params?.num_scenarios?.toLocaleString() ?? 'N/A'} scenarios
+                  {simulationResult.simulation?.simulation_params?.num_scenarios?.toLocaleString() || 'N/A'} scenarios
                 </p>
                 <p className="text-sm text-gray-600">
                   {horizonDays}-day projection
@@ -159,15 +164,17 @@ export default function MonteCarloTab({ exposures, loading }) {
           </div>
 
           {/* Risk Metrics */}
-          <RiskMetricsCard 
-            metrics={simulationResult.simulation.risk_metrics}
-          />
+          {simulationResult.simulation?.risk_metrics && (
+            <RiskMetricsCard metrics={simulationResult.simulation.risk_metrics} />
+          )}
 
           {/* Histogram */}
-          <PnLHistogram 
-            pnlData={simulationResult.simulation.outcomes.simulated_pnl}
-            riskMetrics={simulationResult.simulation.risk_metrics}
-          />
+          {simulationResult.simulation?.outcomes?.simulated_pnl && (
+            <PnLHistogram 
+              pnlData={simulationResult.simulation.outcomes.simulated_pnl}
+              riskMetrics={simulationResult.simulation.risk_metrics}
+            />
+          )}
 
           {/* Summary Stats */}
           <div className="mt-6 bg-white p-6 rounded-lg shadow border border-gray-200">
@@ -176,25 +183,31 @@ export default function MonteCarloTab({ exposures, loading }) {
               <div>
                 <p className="text-sm text-gray-600">Volatility Used</p>
                 <p className="text-lg font-semibold">
-                  {(simulationResult.simulation.simulation_params.volatility * 100).toFixed(1)}%
+                  {simulationResult.simulation?.simulation_params?.volatility 
+                    ? (simulationResult.simulation.simulation_params.volatility * 100).toFixed(1) + '%'
+                    : 'N/A'}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Max Loss</p>
                 <p className="text-lg font-semibold text-red-600">
-                  ${Math.abs(simulationResult.simulation.risk_metrics.max_loss).toLocaleString()}
+                  {simulationResult.simulation?.risk_metrics?.max_loss 
+                    ? '$' + Math.abs(simulationResult.simulation.risk_metrics.max_loss).toLocaleString()
+                    : 'N/A'}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Max Gain</p>
                 <p className="text-lg font-semibold text-green-600">
-                  ${simulationResult.simulation.risk_metrics.max_gain.toLocaleString()}
+                  {simulationResult.simulation?.risk_metrics?.max_gain 
+                    ? '$' + simulationResult.simulation.risk_metrics.max_gain.toLocaleString()
+                    : 'N/A'}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-gray-600">Simulation ID</p>
                 <p className="text-lg font-semibold">
-                  #{simulationResult.simulation_id}
+                  #{simulationResult.simulation_id || 'N/A'}
                 </p>
               </div>
             </div>
@@ -202,14 +215,14 @@ export default function MonteCarloTab({ exposures, loading }) {
         </>
       )}
 
-      {/* Empty State */}
-      {!simulationResult && !loading && (
+      {/* Empty State - NO .simulation ACCESS */}
+      {!simulationResult && !simulationLoading && (
         <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
           <TrendingUp className="mx-auto w-12 h-12 text-gray-400 mb-4" />
           <p className="text-gray-600 mb-2">No simulation results yet</p>
-                <p className="text-sm text-gray-600">
-                  {simulationResult.simulation?.simulation_params?.volatility != null ? (simulationResult.simulation.simulation_params.volatility * 100).toFixed(1) + '%' : 'N/A'}
-                </p>
+          <p className="text-sm text-gray-500">
+            Select an exposure and run a simulation to see risk projections
+          </p>
         </div>
       )}
     </div>
