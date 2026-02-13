@@ -2,11 +2,13 @@
 Database Models for BIRK FX Platform
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Date, ForeignKey, JSON, Numeric
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, Enum, Date, ForeignKey, JSON, Numeric, Boolean, UniqueConstraint, TIMESTAMP
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 import enum
+import uuid
 
 Base = declarative_base()
 
@@ -103,3 +105,63 @@ class SimulationResult(Base):
     
     # Relationship
     exposure = relationship("Exposure", back_populates="simulations")
+
+
+# ============================================
+# EXPOSURE MANAGEMENT MODELS (Added 2025-02-12)
+# ============================================
+
+class Tenant(Base):
+    """Multi-tenant isolation for different companies"""
+    __tablename__ = "tenants"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_name = Column(String(255), nullable=False)
+    base_currency = Column(String(3), nullable=False, default='NOK')
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
+
+class APExposure(Base):
+    """AP line items with classification"""
+    __tablename__ = "ap_exposures"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey('tenants.id'), nullable=False)
+
+    # Source data from CSV
+    order_number = Column(String(100))
+    invoice_number = Column(String(100))
+    supplier = Column(String(255), nullable=False)
+    amount = Column(Numeric(15, 2), nullable=False)
+    currency = Column(String(3), nullable=False)
+    order_date = Column(Date)
+    invoice_date = Column(Date)
+    due_date = Column(Date)
+    payment_terms = Column(String(50))
+
+    # Classification (auto-generated)
+    confidence_level = Column(String(50), nullable=False)
+    confidence_score = Column(Numeric(3, 2), nullable=False)
+    is_recurring = Column(Boolean, default=False)
+    reasoning = Column(Text)
+
+    # Audit trail (compliance requirement)
+    uploaded_by = Column(String(255), nullable=False)
+    uploaded_at = Column(TIMESTAMP, default=datetime.utcnow)
+    source_file_name = Column(String(255), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'invoice_number', name='unique_invoice'),
+    )
+
+
+class HedgeStrategy(Base):
+    """Saved hedge scenarios"""
+    __tablename__ = "hedge_strategies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey('tenants.id'), nullable=False)
+    strategy_name = Column(String(255), nullable=False)
+    hedge_ratio = Column(Numeric(3, 2), nullable=False)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    created_by = Column(String(255))
