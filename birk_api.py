@@ -565,7 +565,7 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-    @app.get("/setup/create-policy-table")
+  @app.get("/setup/create-policy-table")
 async def setup_policy_table():
     """One-time setup: Creates policy table and inserts Conservative policy"""
     from sqlalchemy import text
@@ -622,3 +622,19 @@ async def setup_policy_table():
         }
     finally:
         db.close()
+```
+
+**F. Now it should look like this:**
+```
+Line 560:     finally:
+Line 561:         db.close()
+Line 562: 
+Line 563: 
+Line 564: @app.get("/setup/create-policy-table")
+Line 565: async def setup_policy_table():
+...
+Line 619:         db.close()
+Line 620:
+Line 621: if __name__ == "__main__":
+Line 622:     import uvicorn
+Line 623:     uvicorn.run(app, host="0.0.0.0", port=8000)
