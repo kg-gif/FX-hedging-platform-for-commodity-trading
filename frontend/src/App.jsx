@@ -51,6 +51,11 @@ function AppContent() {
     { id: 'hedging', name: 'Hedging', icon: '🛡️' },
     { id: 'data-import', name: 'Data Import', icon: '📥' }
   ]
+const handleExposureCreated = () => {
+  // Trigger Dashboard refresh
+  // You can pass this function to ManualEntry as a prop
+  fetchExposures(); // Or however you're fetching in App
+};
   
   const renderPage = () => {
     switch (currentPage) {

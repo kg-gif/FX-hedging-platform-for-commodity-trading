@@ -48,6 +48,17 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     }
   }, [selectedCompany, propsExposures])
 
+// Auto-refresh exposures every 60 seconds
+useEffect(() => {
+  if (!selectedCompany) return;
+  
+  const intervalId = setInterval(() => {
+    fetchExposures(selectedCompany.id);
+  }, 10000); // 10 seconds
+  
+  return () => clearInterval(intervalId); // Cleanup
+}, [selectedCompany]);
+
   const fetchCompanies = async () => {
     try {
       const response = await fetch(`${API_BASE}/companies`)
@@ -318,7 +329,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             disabled={refreshing}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
-            {refreshing ? 'Refreshing...' : '🔄 Refresh Rates'}
+            {refreshing ? 'Refreshing...' : '🔄 Refresh Dashboard'}
           </button>
         </div>
       </div>

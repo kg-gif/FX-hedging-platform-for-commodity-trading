@@ -564,3 +564,61 @@ async def startup_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    @app.get("/setup/create-policy-table")
+async def setup_policy_table():
+    """One-time setup: Creates policy table and inserts Conservative policy"""
+    from sqlalchemy import text
+    db = SessionLocal()
+    try:
+        # Create table
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS hedging_policies (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER NOT NULL,
+                policy_name VARCHAR(50) NOT NULL,
+                policy_type VARCHAR(20) NOT NULL,
+                hedge_ratio_over_5m NUMERIC(3,2) DEFAULT 0.85,
+                hedge_ratio_1m_to_5m NUMERIC(3,2) DEFAULT 0.70,
+                hedge_ratio_under_1m NUMERIC(3,2) DEFAULT 0.50,
+                material_exposure_threshold NUMERIC(15,2) DEFAULT 1000000,
+                de_minimis_threshold NUMERIC(15,2) DEFAULT 500000,
+                budget_breach_threshold_pct NUMERIC(5,4) DEFAULT 0.05,
+                opportunistic_trigger_threshold NUMERIC(5,4) DEFAULT 0.05,
+                trailing_stop_trigger NUMERIC(5,4) DEFAULT 0.03,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        
+        # Insert Conservative policy
+        db.execute(text("""
+            INSERT INTO hedging_policies (company_id, policy_name, policy_type) 
+            VALUES (1, 'Conservative', 'CONSERVATIVE')
+            ON CONFLICT DO NOTHING
+        """))
+        
+        db.commit()
+        
+        # Verify
+        result = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = 1")).fetchone()
+        
+        return {
+            "success": True,
+            "message": "Policy table created successfully!",
+            "policy": {
+                "id": result[0],
+                "company_id": result[1],
+                "name": result[2],
+                "type": result[3]
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "message": f"Error: {str(e)}"
+        }
+    finally:
+        db.close()
