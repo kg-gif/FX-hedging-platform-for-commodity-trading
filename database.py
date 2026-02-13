@@ -10,7 +10,7 @@ from functools import lru_cache
 from models import RiskLevel
 
 # Database setup
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://birk_user:XbCWbLZ70FhdgPrho9J3rlNO1AVhohvN@dpg-d4sl43qli9vc73eiem90-a.frankfurt-postgres.render.com/birk_db')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://birk_user:XbCWbLZ70FhdgPrho9J3rlNO1AVhohvN@dpg-d4sl43qli9vc73eiem90-a.frankfurt-postgres.render.com/birk_db?sslmode=require')
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

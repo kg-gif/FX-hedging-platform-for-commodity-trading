@@ -388,3 +388,30 @@ async def health_check():
         'version': '2.0.0',
         'features': ['CREATE', 'READ', 'UPDATE', 'DELETE']
     }
+
+@router.get("/api/exposure-data/list")
+async def list_manual_exposures(company_id: int, db: Session = Depends(get_db)):
+    """Fetch all exposures for a company (matches manual entry endpoint pattern)"""
+    from models import Exposure
+    
+    exposures = db.query(Exposure).filter(
+        Exposure.company_id == company_id
+    ).order_by(Exposure.created_at.desc()).limit(50).all()
+    
+    # Convert to dict for JSON serialization
+    exposure_list = []
+    for exp in exposures:
+        exposure_list.append({
+            "id": exp.id,
+            "reference_number": exp.reference if hasattr(exp, 'reference') else exp.reference_number if hasattr(exp, 'reference_number') else None,
+            "currency_pair": exp.currency_pair if hasattr(exp, 'currency_pair') else f"{exp.from_currency}{exp.to_currency}",
+            "amount": float(exp.amount),
+            "start_date": exp.start_date.isoformat() if hasattr(exp, 'start_date') and exp.start_date else None,
+            "end_date": exp.end_date.isoformat() if hasattr(exp, 'end_date') and exp.end_date else None,
+            "description": exp.description,
+            "budget_rate": float(exp.budget_rate) if hasattr(exp, 'budget_rate') and exp.budget_rate else None,
+            "hedge_ratio_policy": float(exp.hedge_ratio_policy) if hasattr(exp, 'hedge_ratio_policy') and exp.hedge_ratio_policy else 1.0,
+            "created_at": exp.created_at.isoformat() if hasattr(exp, 'created_at') else None
+        })
+    
+    return {"success": True, "exposures": exposure_list, "total": len(exposure_list)}

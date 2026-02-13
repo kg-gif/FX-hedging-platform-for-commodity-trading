@@ -101,23 +101,23 @@ async def process_exposures(
         classification = classify_exposure(row.to_dict(), supplier_count)
         
         exposure_data = {
-            "tenant_id": tenant_id,
-            "order_number": row.get('order_number'),
-            "invoice_number": row.get('invoice_number'),
-            "supplier": supplier,
-            "amount": float(row['amount']),
-            "currency": row['currency'],
-            "order_date": row.get('order_date'),
-            "invoice_date": row.get('invoice_date'),
-            "due_date": row.get('due_date'),
-            "payment_terms": row.get('payment_terms'),
-            "confidence_level": classification['confidence_level'],
-            "confidence_score": float(classification['confidence_score']),
-            "is_recurring": classification['is_recurring'],
-            "reasoning": classification['reasoning'],
-            "uploaded_by": uploaded_by,
-            "source_file_name": source_file
-        }
+    "tenant_id": tenant_id,
+    "order_number": row.get('order_number'),
+    "invoice_number": row.get('invoice_number'),
+    "supplier": supplier,
+    "amount": float(row['amount']),
+    "currency": row['currency'],
+    "order_date": row.get('order_date').isoformat() if pd.notna(row.get('order_date')) else None,
+    "invoice_date": row.get('invoice_date').isoformat() if pd.notna(row.get('invoice_date')) else None,
+    "due_date": row.get('due_date').isoformat() if pd.notna(row.get('due_date')) else None,
+    "payment_terms": row.get('payment_terms'),
+    "confidence_level": classification['confidence_level'],
+    "confidence_score": float(classification['confidence_score']),
+    "is_recurring": classification['is_recurring'],
+    "reasoning": classification['reasoning'],
+    "uploaded_by": uploaded_by,
+    "source_file_name": source_file
+}
         
         classified_exposures.append(exposure_data)
     
@@ -149,16 +149,15 @@ def generate_summary(exposures: List[Dict]) -> Dict:
 
 async def bulk_insert_exposures(exposures: List[Dict], db: Session) -> int:
     """
-    Bulk insert exposures into database, handling duplicates gracefully
+    Bulk insert exposures into database with batch processing
     """
     try:
-        # Deduplicate within the batch first (keep first occurrence)
+        # Deduplicate within the batch first
         seen = set()
         unique_exposures = []
         duplicates_skipped = 0
         
         for exposure in exposures:
-            # Create a unique key
             key = (exposure['tenant_id'], exposure.get('invoice_number'))
             
             if key not in seen:
@@ -170,15 +169,35 @@ async def bulk_insert_exposures(exposures: List[Dict], db: Session) -> int:
         if duplicates_skipped > 0:
             print(f"⚠️  Skipped {duplicates_skipped} duplicate invoices within CSV")
         
-        # Convert to APExposure models
-        exposure_objects = [APExposure(**exposure) for exposure in unique_exposures]
+        # Use bulk_insert_mappings for much faster insertion
+        from sqlalchemy import insert
         
-        # Bulk insert
-        db.bulk_save_objects(exposure_objects)
-        db.commit()
+        # Insert in batches of 500 to avoid overwhelming the database
+        batch_size = 500
+        inserted_count = 0
         
-        print(f"✅ Inserted {len(exposure_objects)} unique records")
-        return len(exposure_objects)
+        for i in range(0, len(unique_exposures), batch_size):
+            batch = unique_exposures[i:i + batch_size]
+            
+            try:
+                # Use insert().on_conflict_do_nothing() for PostgreSQL
+                stmt = insert(APExposure).values(batch)
+                # Skip duplicates that exist in database
+                stmt = stmt.on_conflict_do_nothing(
+                    index_elements=['tenant_id', 'invoice_number']
+                )
+                db.execute(stmt)
+                db.commit()
+                inserted_count += len(batch)
+                print(f"📦 Inserted batch {i//batch_size + 1} ({len(batch)} records)")
+                
+            except Exception as e:
+                db.rollback()
+                print(f"⚠️  Error in batch {i//batch_size + 1}: {str(e)}")
+                continue
+        
+        print(f"✅ Successfully inserted {inserted_count} records")
+        return inserted_count
         
     except Exception as e:
         db.rollback()
