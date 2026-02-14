@@ -32,32 +32,25 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const [filterMinAmount, setFilterMinAmount] = useState('')
   const [filterMaxAmount, setFilterMaxAmount] = useState('')
   const [searchText, setSearchText] = useState('')
+  const [policy, setPolicy] = useState(null)
 
   useEffect(() => {
     fetchCompanies()
   }, [])
 
   useEffect(() => {
-    // Use exposures from parent (App.jsx) if provided
     if (propsExposures && propsExposures.length > 0) {
       setExposures(propsExposures)
-      console.log('📊 Dashboard using exposures from App.jsx')
     } else if (selectedCompany) {
-      // Fallback: fetch if not provided from parent
       fetchExposures(selectedCompany.id)
     }
   }, [selectedCompany, propsExposures])
 
-// Auto-refresh exposures every 60 seconds
-useEffect(() => {
-  if (!selectedCompany) return;
-  
-  const intervalId = setInterval(() => {
-    fetchExposures(selectedCompany.id);
-  }, 10000); // 10 seconds
-  
-  return () => clearInterval(intervalId); // Cleanup
-}, [selectedCompany]);
+  useEffect(() => {
+    if (selectedCompany) {
+      fetchPolicy(selectedCompany.id)
+    }
+  }, [selectedCompany])
 
   const fetchCompanies = async () => {
     try {
@@ -85,6 +78,18 @@ useEffect(() => {
       setError('Failed to fetch exposures')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchPolicy = async (companyId) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/policies/${companyId}`)
+      const data = await response.json()
+      if (data.success && data.policy) {
+        setPolicy(data.policy)
+      }
+    } catch (err) {
+      console.error('Failed to fetch policy:', err)
     }
   }
 
@@ -243,6 +248,17 @@ useEffect(() => {
               <div>
                 <h2 className="text-2xl font-bold text-gray-800">Portfolio Overview</h2>
                 <p className="text-gray-600 mt-1">{selectedCompany?.name} - Real-time P&L monitoring</p>
+                
+                {policy && (
+                  <div className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                    <span className="text-sm font-medium text-blue-800">
+                      📋 Active Policy: <strong>{policy.name}</strong>
+                    </span>
+                    <span className="text-xs text-blue-600">
+                      ({(policy.hedge_ratio_large * 100).toFixed(0)}% hedge for large exposures)
+                    </span>
+                  </div>
+                )}
               </div>
               {lastUpdated && (
                 <div className="text-sm text-gray-500">
@@ -252,7 +268,6 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Charts Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-6">
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
@@ -314,7 +329,6 @@ useEffect(() => {
         </>
       )}
 
-      {/* Controls */}
       <div className="bg-white rounded-lg shadow p-4 mb-6 flex items-center justify-between">
         <div className="flex gap-3">
           <button
@@ -329,7 +343,7 @@ useEffect(() => {
             disabled={refreshing}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
-            {refreshing ? 'Refreshing...' : '🔄 Refresh Dashboard'}
+            {refreshing ? 'Refreshing...' : '🔄 Refresh Rates'}
           </button>
         </div>
       </div>
@@ -347,7 +361,6 @@ useEffect(() => {
         </div>
       ) : (
         <>
-          {/* Filter Panel */}
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Filter Exposures</h3>
@@ -387,7 +400,6 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Portfolio Summary */}
           <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border border-indigo-200">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">📊 Portfolio Summary</h3>
             {lastRateUpdate && (
@@ -438,7 +450,6 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Exposures Table */}
           <div className="bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -521,7 +532,6 @@ useEffect(() => {
         </>
       )}
 
-      {/* Edit Modal */}
       {showEditModal && editingExposure && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-8 max-w-2xl w-full mx-4">
@@ -564,7 +574,6 @@ useEffect(() => {
         </div>
       )}
 
-      {/* Delete Confirmation */}
       {showDeleteConfirm && deletingExposure && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4">
