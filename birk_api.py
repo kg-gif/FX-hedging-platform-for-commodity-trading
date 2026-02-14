@@ -1,160 +1,42 @@
 """
-BIRK FX Risk Management Platform - Enhanced Backend API
-
-Enhancements in this version:
-1. Proper rate change percentage calculation using initial_rate
-2. Dynamic risk level assessment
-3. Improved error handling
-4. Rate change indicators (positive/negative)
+BIRK FX Risk Management Platform - Main API
+Backend service for FX exposure management and hedging recommendations
 """
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict
+from typing import Optional, List
+from datetime import datetime, date
 import os
-import asyncio
-import httpx
-from functools import lru_cache
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, Session
+import requests
 
-# Import models and database utilities
-from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
-from database import SessionLocal, get_live_fx_rate, calculate_risk_level, engine
+# Database configuration
+DATABASE_URL = os.getenv(
+    'DATABASE_URL',
+    'postgresql://birk_user:XbCWbLZ70FhdgPrho9J3rlNO1AVhohvN@dpg-d4sl43qli9vc73eiem90-a.frankfurt-postgres.render.com/birk_db?sslmode=require'
+)
 
-# Import Phase 2B FastAPI routers
-from routes.hedging_routes_fastapi import router as hedging_router
-from routes.data_import_routes_fastapi import router as data_import_router
-from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
-
-# Create tables if they don't exist
-Base.metadata.create_all(bind=engine)
-print("✅ Database ready")
-
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(bind=engine)
 
 # FastAPI app
-app = FastAPI(title="BIRK FX Risk Management API", version="2.0.0")
+app = FastAPI(
+    title="BIRK FX Risk Management API",
+    description="AI-powered FX hedging advisor for mid-market corporates",
+    version="3.0.0"
+)
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "https://birk-dashboard.onrender.com",
-        "https://birk-fx-api.onrender.com"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ============================================
-# HELPER FUNCTIONS FOR P&L CALCULATIONS
-# ============================================
-
-def get_mock_current_rate(from_currency, to_currency):
-    """
-    Mock current FX rates for demonstration.
-    In production, replace with real FX API (e.g., exchangerate-api.com)
-    """
-    mock_rates = {
-        "EUR/USD": 1.0722,
-        "USD/EUR": 0.9327,
-        "GBP/USD": 1.2654,
-        "USD/GBP": 0.7903,
-        "CNY/USD": 0.1434,
-        "USD/CNY": 6.9735,
-        "MXN/USD": 0.0587,
-        "USD/MXN": 17.0358,
-        "JPY/USD": 0.0067,
-        "USD/JPY": 149.25,
-    }
-    
-    pair = f"{from_currency}/{to_currency}"
-    return mock_rates.get(pair, 1.0)  # Default to 1.0 if pair not found
-
-
-def calculate_pnl_and_status(exposure, current_rate):
-    """
-    Calculate P&L and determine breach status for an exposure.
-    Returns dict with calculated values.
-    """
-    if not exposure.budget_rate or not current_rate:
-        return {
-            "current_pnl": None,
-            "hedged_amount": None,
-            "unhedged_amount": None,
-            "pnl_status": "NO_DATA"
-        }
-    
-    # Calculate P&L: (current_rate - budget_rate) × amount
-    pnl = (current_rate - exposure.budget_rate) * exposure.amount
-    
-    # Calculate hedged/unhedged amounts
-    hedge_ratio = exposure.hedge_ratio_policy if exposure.hedge_ratio_policy else 1.0
-    hedged_amt = exposure.amount * hedge_ratio
-    unhedged_amt = exposure.amount * (1 - hedge_ratio)
-    
-    # Determine status
-    status = "OK"
-    
-    # Check for breach (loss exceeds limit)
-    if exposure.max_loss_limit is not None and pnl < exposure.max_loss_limit:
-        status = "BREACH"
-    # Check for warning (within 10% of limit)
-    elif exposure.max_loss_limit is not None and pnl < (exposure.max_loss_limit * 1.1):
-        status = "WARNING"
-    # Check if target profit achieved
-    elif exposure.target_profit is not None and pnl >= exposure.target_profit:
-        status = "TARGET_MET"
-    
-    return {
-        "current_pnl": round(pnl, 2),
-        "hedged_amount": round(hedged_amt, 2),
-        "unhedged_amount": round(unhedged_amt, 2),
-        "pnl_status": status
-    }
-
-# Include Phase 2B routers
-app.include_router(hedging_router)
-app.include_router(data_import_router)
-app.include_router(monte_carlo_router)
-
-# Pydantic Models
-class CompanyResponse(BaseModel):
-    id: int
-    name: str
-    base_currency: str
-    company_type: str
-    trading_volume_monthly: float
-    
-    class Config:
-        from_attributes = True
-
-class ExposureResponse(BaseModel):
-    id: int
-    company_id: int
-    from_currency: str
-    to_currency: str
-    amount: float
-    initial_rate: Optional[float]
-    current_rate: float
-    rate_change_pct: Optional[float]  # Calculated field
-    rate_change_direction: Optional[str]  # "up", "down", or "neutral"
-    current_value_usd: float
-    settlement_period: int
-    risk_level: str
-    description: str
-    updated_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-class RefreshResponse(BaseModel):
-    message: str
-    updated_count: int
-    timestamp: datetime
 
 # Dependency
 def get_db():
@@ -164,414 +46,229 @@ def get_db():
     finally:
         db.close()
 
-# FX Rate Functions
-@lru_cache(maxsize=100)
-def get_cached_fx_rate(from_currency: str, to_currency: str, cache_key: str):
-    """
-    Cached FX rate fetching with cache_key based on time
-    cache_key format: "YYYY-MM-DD-HH" to cache for 1 hour
-    """
-    return get_live_fx_rate(from_currency, to_currency)
+# ============================================
+# PYDANTIC MODELS
+# ============================================
 
+class ExposureCreate(BaseModel):
+    company_id: int
+    reference: Optional[str] = None
+    from_currency: str
+    to_currency: str
+    amount: float
+    instrument_type: Optional[str] = "Spot"
+    exposure_type: Optional[str] = "payable"
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    budget_rate: Optional[float] = None
+    max_loss_limit: Optional[float] = None
+    target_profit: Optional[float] = None
+    hedge_ratio_policy: Optional[float] = 1.0
+    description: Optional[str] = None
 
-# --- Live FX fetching via ExchangeRate-API ---
-EXCHANGERATE_API_KEY = os.getenv("EXCHANGERATE_API_KEY")
-EXCHANGERATE_BASE_URL = os.getenv("EXCHANGERATE_BASE_URL", "https://v6.exchangerate-api.com/v6")
-
-# Setup logging
-import logging
-logger = logging.getLogger(__name__)
-
-async def fetch_fx_rate(base_currency: str, target_currency: str) -> Optional[float]:
-    """Fetch live FX rate from ExchangeRate-API.com"""
-    api_key = os.getenv("EXCHANGERATE_API_KEY")
-    if not api_key:
-        logger.error("EXCHANGERATE_API_KEY not set")
-        return None
-    
-    try:
-        # ExchangeRate-API.com format: get rates with base_currency as base
-        url = f"https://v6.exchangerate-api.com/v6/{api_key}/latest/{base_currency}"
-        
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url)
-            
-            if response.status_code != 200:
-                logger.error(f"ExchangeRate-API error: {response.text}")
-                return None
-            
-            data = response.json()
-            
-            if data.get("result") != "success":
-                logger.error(f"ExchangeRate-API returned error: {data}")
-                return None
-            
-            rates = data["conversion_rates"]
-            return rates.get(target_currency)
-                
-    except Exception as e:
-        logger.error(f"Error fetching FX rate: {str(e)}")
-        return None
-
-
-async def get_current_rates(currency_pairs: List[str]) -> Dict[str, Dict]:
-    """Fetch multiple currency pairs concurrently.
-
-    currency_pairs: list like ["EUR/USD", "GBP/USD"]
-    Returns mapping pair -> {rate, timestamp, source}
-    """
-    tasks = []
-    for pair in currency_pairs:
-        parts = pair.split("/")
-        if len(parts) != 2:
-            continue
-        base, target = parts[0].strip(), parts[1].strip()
-        tasks.append(fetch_fx_rate(base, target))
-
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    out = {}
-    idx = 0
-    for pair in currency_pairs:
-        parts = pair.split("/")
-        if len(parts) != 2:
-            continue
-        res = results[idx]
-        idx += 1
-        if isinstance(res, Exception) or res is None:
-            out[pair] = None
-        else:
-            from datetime import datetime, timezone
-            out[pair] = {
-                "rate": res,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": "exchangerate-api.com"
-            }
-
-    return out
-
-def calculate_rate_change(initial_rate: Optional[float], current_rate: float) -> tuple[Optional[float], str]:
-    """
-    Calculate percentage change and direction
-    
-    Returns: (percentage_change, direction)
-    direction: "up", "down", or "neutral"
-    """
-    if initial_rate is None or initial_rate == 0:
-        return None, "neutral"
-    
-    change_pct = ((current_rate - initial_rate) / initial_rate) * 100
-    
-    if abs(change_pct) < 0.01:  # Less than 0.01% change
-        direction = "neutral"
-    elif change_pct > 0:
-        direction = "up"
-    else:
-        direction = "down"
-    
-    return round(change_pct, 2), direction
-
-# API Endpoints
+# ============================================
+# HEALTH CHECK
+# ============================================
 
 @app.get("/")
-def read_root():
+def health_check():
     return {
-        "service": "BIRK FX Risk Management API",
-        "version": "2.0.0",
-        "status": "running",
-        "features": [
-            "Live FX rates with 1-hour caching",
-            "Rate change tracking",
-            "Dynamic risk assessment",
-            "Multi-company support"
-        ]
+        "status": "alive",
+        "version": "3.0.0",
+        "message": "BIRK FX Risk Management API"
     }
 
-@app.get("/companies", response_model=List[CompanyResponse])
+# ============================================
+# COMPANY ENDPOINTS
+# ============================================
+
+@app.get("/companies")
 def get_companies(db: Session = Depends(get_db)):
     """Get all companies"""
-    companies = db.query(Company).all()
+    result = db.execute(text("SELECT id, name, base_currency FROM companies")).fetchall()
+    companies = [{"id": r[0], "name": r[1], "base_currency": r[2]} for r in result]
     return companies
 
-@app.get("/companies/{company_id}/exposures", response_model=List[ExposureResponse])
-def get_company_exposures(company_id: int, db: Session = Depends(get_db)):
-    """Get all exposures for a company with calculated rate changes"""
-    exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
-    
-    if not exposures:
-        raise HTTPException(status_code=404, detail="No exposures found for this company")
-    
-    # Enhance exposures with calculated fields
-    result = []
-    for exp in exposures:
-        rate_change_pct, direction = calculate_rate_change(exp.initial_rate, exp.current_rate)
+@app.post("/companies/{company_id}/refresh-rates")
+def refresh_rates(company_id: int, db: Session = Depends(get_db)):
+    """Refresh FX rates for all exposures of a company"""
+    try:
+        # Get all exposures for this company
+        exposures = db.execute(
+            text("SELECT id, from_currency, to_currency FROM exposures WHERE company_id = :company_id"),
+            {"company_id": company_id}
+        ).fetchall()
         
-        exp_dict = {
-            "id": exp.id,
-            "company_id": exp.company_id,
-            "from_currency": exp.from_currency,
-            "to_currency": exp.to_currency,
-            "amount": exp.amount,
-            "initial_rate": exp.initial_rate,
-            "current_rate": exp.current_rate,
-            "rate_change_pct": rate_change_pct,
-            "rate_change_direction": direction,
-            "current_value_usd": exp.current_value_usd,
-            "settlement_period": exp.settlement_period,
-            "risk_level": exp.risk_level.value if exp.risk_level else "Unknown",
-            "description": exp.description,
-            "updated_at": exp.updated_at
+        # Fetch rates from exchangerate-api.com (free tier)
+        updated_count = 0
+        for exp in exposures:
+            exp_id, from_curr, to_curr = exp[0], exp[1], exp[2]
+            
+            try:
+                # Free API: https://www.exchangerate-api.com/
+                url = f"https://api.exchangerate-api.com/v4/latest/{from_curr}"
+                response = requests.get(url, timeout=5)
+                data = response.json()
+                
+                if "rates" in data and to_curr in data["rates"]:
+                    rate = data["rates"][to_curr]
+                    
+                    # Update exposure with new rate
+                    db.execute(
+                        text("""
+                            UPDATE exposures 
+                            SET current_rate = :rate
+                            WHERE id = :id
+                        """),
+                        {"rate": rate, "id": exp_id}
+                    )
+                    updated_count += 1
+            except Exception as e:
+                print(f"Error fetching rate for {from_curr}/{to_curr}: {e}")
+                continue
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "updated": updated_count,
+            "timestamp": datetime.now().isoformat()
         }
-        result.append(exp_dict)
-    
-    return result
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/companies/{company_id}/refresh-rates", response_model=RefreshResponse)
-async def refresh_company_rates(company_id: int, db: Session = Depends(get_db)):
-    """Refresh FX rates for all company exposures using live rates and persist them."""
-    exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
-
-    if not exposures:
-        raise HTTPException(status_code=404, detail="No exposures found for this company")
-
-    # Build unique pairs list
-    pairs = [f"{e.from_currency}/{e.to_currency}" for e in exposures]
-    # Fetch current rates concurrently
-    rates_map = await get_current_rates(pairs)
-
-    updated_count = 0
-    for exposure in exposures:
-        pair = f"{exposure.from_currency}/{exposure.to_currency}"
-        rate_info = rates_map.get(pair)
-        if not rate_info:
-            continue
-
-        try:
-            new_rate = rate_info["rate"]
-            exposure.current_rate = new_rate
-            exposure.current_value_usd = exposure.amount * new_rate
-
-            if exposure.initial_rate is None:
-                exposure.initial_rate = new_rate
-
-            exposure.risk_level = calculate_risk_level(
-                exposure.current_value_usd,
-                exposure.settlement_period
-            )
-
-            exposure.updated_at = datetime.utcnow()
-
-            # Persist FXRate record
-            fx = FXRate(
-                currency_pair=pair,
-                rate=new_rate,
-                timestamp=rate_info.get("timestamp", datetime.utcnow()),
-                source=rate_info.get("source", "ExchangeRate-API")
-            )
-            db.add(fx)
-
-            updated_count += 1
-        except Exception as e:
-            print(f"Error updating exposure {exposure.id}: {e}")
-            continue
-
-    db.commit()
-
-    return RefreshResponse(
-        message=f"Successfully refreshed rates for {updated_count} exposures",
-        updated_count=updated_count,
-        timestamp=datetime.utcnow()
-    )
-
-
-@app.get("/api/fx-rates")
-async def api_get_fx_rates(pairs: str, company_id: Optional[int] = None, db: Session = Depends(get_db)):
-    """Fetch live FX rates for comma-separated pairs, persist them, and return results."""
-    pair_list = [p.strip() for p in pairs.split(",") if p.strip()]
-    rates_map = await get_current_rates(pair_list)
-
-    response = []
-    for pair in pair_list:
-        info = rates_map.get(pair)
-        if not info:
-            response.append({"currency_pair": pair, "rate": None, "timestamp": None, "source": None})
-            continue
-
-        # Persist
-        fx = FXRate(
-            currency_pair=pair,
-            rate=info["rate"],
-            timestamp=info.get("timestamp", datetime.utcnow()),
-            source=info.get("source", "ExchangeRate-API")
-        )
-        db.add(fx)
-
-        response.append({
-            "currency_pair": pair,
-            "rate": info["rate"],
-            "timestamp": info.get("timestamp"),
-            "source": info.get("source")
-        })
-
-    db.commit()
-    return {"rates": response, "timestamp": datetime.utcnow()}
-
-
-@app.get("/api/fx-rates/history")
-def api_get_fx_history(currency_pair: str, days: int = 30, db: Session = Depends(get_db)):
-    """Return historical FX rates for a currency pair over the last N days."""
-    since = datetime.utcnow() - timedelta(days=days)
-    rows = db.query(FXRate).filter(
-        FXRate.currency_pair == currency_pair,
-        FXRate.timestamp >= since
-    ).order_by(FXRate.timestamp.desc()).all()
-
-    result = [
-        {"currency_pair": r.currency_pair, "rate": r.rate, "timestamp": r.timestamp, "source": r.source}
-        for r in rows
-    ]
-
-    return {"currency_pair": currency_pair, "history": result}
+# ============================================
+# EXPOSURE ENDPOINTS
+# ============================================
 
 @app.get("/exposures")
-async def get_exposures(company_id: int, db: Session = Depends(get_db)):
-    """Get all exposures for a company with calculated P&L data (uses live FX rates)."""
-    exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
-
-    # Build pairs and fetch live rates
-    pairs = [f"{e.from_currency}/{e.to_currency}" for e in exposures]
-    unique_pairs = list(dict.fromkeys(pairs))
-    rates_map = await get_current_rates(unique_pairs)
-
-    enriched_exposures = []
-    for exp in exposures:
-        pair = f"{exp.from_currency}/{exp.to_currency}"
-        rate_info = rates_map.get(pair)
-
-        if rate_info and rate_info.get("rate"):
-            current_rate = rate_info["rate"]
-        else:
-            current_rate = get_mock_current_rate(exp.from_currency, exp.to_currency)
-
-        # Calculate P&L and status
-        pnl_data = calculate_pnl_and_status(exp, current_rate)
-
-        # Convert exposure to dict and add calculated fields
-        exp_dict = {
-            "id": exp.id,
-            "company_id": exp.company_id,
-            "from_currency": exp.from_currency,
-            "to_currency": exp.to_currency,
-            "amount": exp.amount,
-            "instrument_type": getattr(exp, 'instrument_type', 'Spot'),
-            "exposure_type": exp.exposure_type if hasattr(exp, 'exposure_type') else "payable",
-            "start_date": exp.start_date.isoformat() if hasattr(exp, 'start_date') and exp.start_date else None,
-            "end_date": exp.end_date.isoformat() if hasattr(exp, 'end_date') and exp.end_date else None,
-            "reference": exp.reference if hasattr(exp, 'reference') else None,
-            "description": exp.description,
-            "budget_rate": exp.budget_rate if hasattr(exp, 'budget_rate') else None,
-            "max_loss_limit": exp.max_loss_limit if hasattr(exp, 'max_loss_limit') else None,
-            "target_profit": exp.target_profit if hasattr(exp, 'target_profit') else None,
-            "hedge_ratio_policy": exp.hedge_ratio_policy if hasattr(exp, 'hedge_ratio_policy') else 1.0,
-            # Add calculated fields
-            "current_rate": current_rate,
-            "current_pnl": pnl_data["current_pnl"],
-            "hedged_amount": pnl_data["hedged_amount"],
-            "unhedged_amount": pnl_data["unhedged_amount"],
-            "pnl_status": pnl_data["pnl_status"]
-        }
-
-        enriched_exposures.append(exp_dict)
-
-    return enriched_exposures
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database with demo data if empty, or update existing"""
-    db = SessionLocal()
+def get_exposures(company_id: int, db: Session = Depends(get_db)):
+    """Get all exposures for a company"""
+    result = db.execute(
+        text("SELECT * FROM exposures WHERE company_id = :company_id ORDER BY id DESC"),
+        {"company_id": company_id}
+    ).fetchall()
     
+    exposures = []
+    for r in result:
+        exposures.append({
+            "id": r[0],
+            "company_id": r[1],
+            "from_currency": r[2],
+            "to_currency": r[3],
+            "amount": float(r[4]) if r[4] else 0,
+            "instrument_type": r[5],
+            "exposure_type": r[6],
+            "start_date": r[7].isoformat() if r[7] else None,
+            "end_date": r[8].isoformat() if r[8] else None,
+            "reference": r[9],
+            "description": r[10],
+            "budget_rate": float(r[11]) if r[11] else None,
+            "current_rate": float(r[12]) if r[12] else None,
+            "max_loss_limit": float(r[13]) if r[13] else None,
+            "target_profit": float(r[14]) if r[14] else None,
+            "hedge_ratio_policy": float(r[15]) if r[15] else 1.0,
+            "current_pnl": float(r[16]) if r[16] else None,
+            "hedged_amount": float(r[17]) if r[17] else None,
+            "unhedged_amount": float(r[18]) if r[18] else None,
+            "pnl_status": r[19],
+        })
+    
+    return exposures
+
+@app.post("/api/exposure-data/manual")
+def create_manual_exposure(exposure: ExposureCreate, db: Session = Depends(get_db)):
+    """Create a new exposure manually"""
     try:
-        # Check if we have any companies
-        company_count = db.query(Company).count()
-        
-        if company_count == 0:
-            # Create new demo company
-            demo_company = Company(
-                name="BIRK Commodities A/S",
-                base_currency="USD",
-                company_type=CompanyType.COMMODITY_TRADER,
-                trading_volume_monthly=150_000_000
+        db.execute(text("""
+            INSERT INTO exposures (
+                company_id, reference, from_currency, to_currency, amount,
+                instrument_type, exposure_type, start_date, end_date,
+                budget_rate, max_loss_limit, target_profit, 
+                hedge_ratio_policy, description
+            ) VALUES (
+                :company_id, :reference, :from_currency, :to_currency, :amount,
+                :instrument_type, :exposure_type, :start_date, :end_date,
+                :budget_rate, :max_loss_limit, :target_profit,
+                :hedge_ratio_policy, :description
             )
-            db.add(demo_company)
-            db.flush()
-            
-            # Create demo exposures
-            exposures_data = [
-                {"from": "EUR", "to": "USD", "amount": 8_500_000, "period": 60, "desc": "European wheat procurement"},
-                {"from": "CNY", "to": "USD", "amount": 45_000_000, "period": 90, "desc": "Chinese steel imports"},
-                {"from": "MXN", "to": "USD", "amount": 85_000_000, "period": 45, "desc": "Mexican corn exports"},
-                {"from": "CAD", "to": "USD", "amount": 6_200_000, "period": 30, "desc": "Canadian canola oil"},
-                {"from": "BRL", "to": "USD", "amount": 28_000_000, "period": 75, "desc": "Brazilian soybean contracts"},
-                {"from": "AUD", "to": "USD", "amount": 4_800_000, "period": 60, "desc": "Australian wool shipments"},
-                {"from": "ZAR", "to": "USD", "amount": 95_000_000, "period": 90, "desc": "South African gold hedging"},
-                {"from": "INR", "to": "USD", "amount": 320_000_000, "period": 120, "desc": "Indian textile imports"}
-            ]
-            
-            for exp_data in exposures_data:
-                # Get initial rate
-                rate = get_live_fx_rate(exp_data["from"], exp_data["to"])
-                usd_value = exp_data["amount"] * rate
-                risk = calculate_risk_level(usd_value, exp_data["period"])
-                
-                exposure = Exposure(
-                    company_id=demo_company.id,
-                    from_currency=exp_data["from"],
-                    to_currency=exp_data["to"],
-                    amount=exp_data["amount"],
-                    initial_rate=rate,
-                    current_rate=rate,
-                    current_value_usd=usd_value,
-                    settlement_period=exp_data["period"],
-                    risk_level=risk,
-                    description=exp_data["desc"]
-                )
-                db.add(exposure)
-            
-            db.commit()
-            print("✅ Database seeded successfully!")
-        else:
-            # UPDATE EXISTING COMPANY NAME
-            print(f"ℹ️ Database already contains {company_count} companies")
-            
-            # Find and update the first company
-            first_company = db.query(Company).first()
-            if first_company and first_company.name != "BIRK Commodities A/S":
-                old_name = first_company.name
-                first_company.name = "BIRK Commodities A/S"
-                first_company.updated_at = datetime.utcnow()
-                db.commit()
-                print(f"✅ Updated company name from '{old_name}' to 'BIRK Commodities A/S'")
-            else:
-                print(f"✅ Company name is already correct: {first_company.name if first_company else 'No company found'}")
-            
+        """), {
+            "company_id": exposure.company_id,
+            "reference": exposure.reference,
+            "from_currency": exposure.from_currency,
+            "to_currency": exposure.to_currency,
+            "amount": exposure.amount,
+            "instrument_type": exposure.instrument_type,
+            "exposure_type": exposure.exposure_type,
+            "start_date": exposure.start_date,
+            "end_date": exposure.end_date,
+            "budget_rate": exposure.budget_rate,
+            "max_loss_limit": exposure.max_loss_limit,
+            "target_profit": exposure.target_profit,
+            "hedge_ratio_policy": exposure.hedge_ratio_policy,
+            "description": exposure.description
+        })
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Exposure {exposure.reference} created successfully"
+        }
+        
     except Exception as e:
-        print(f"✗ Error during startup: {e}")
         db.rollback()
-    finally:
-        db.close()
+        raise HTTPException(status_code=500, detail=str(e))
 
+@app.put("/api/exposure-data/exposures/{exposure_id}")
+def update_exposure(exposure_id: int, exposure: ExposureCreate, db: Session = Depends(get_db)):
+    """Update an existing exposure"""
+    try:
+        db.execute(text("""
+            UPDATE exposures SET
+                amount = :amount,
+                description = :description,
+                budget_rate = :budget_rate,
+                hedge_ratio_policy = :hedge_ratio_policy
+            WHERE id = :id
+        """), {
+            "id": exposure_id,
+            "amount": exposure.amount,
+            "description": exposure.description,
+            "budget_rate": exposure.budget_rate,
+            "hedge_ratio_policy": exposure.hedge_ratio_policy
+        })
+        
+        db.commit()
+        return {"success": True, "message": "Exposure updated"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.delete("/api/exposure-data/exposures/{exposure_id}")
+def delete_exposure(exposure_id: int, db: Session = Depends(get_db)):
+    """Delete an exposure"""
+    try:
+        db.execute(text("DELETE FROM exposures WHERE id = :id"), {"id": exposure_id})
+        db.commit()
+        return {"success": True, "message": "Exposure deleted"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
-  @app.get("/setup/create-policy-table")
+# ============================================
+# POLICY ENDPOINTS (NEW)
+# ============================================
+
+@app.get("/setup/create-policy-table")
 async def setup_policy_table():
     """One-time setup: Creates policy table and inserts Conservative policy"""
-    from sqlalchemy import text
     db = SessionLocal()
     try:
-        # Create table
         db.execute(text("""
             CREATE TABLE IF NOT EXISTS hedging_policies (
                 id SERIAL PRIMARY KEY,
@@ -591,7 +288,6 @@ async def setup_policy_table():
             )
         """))
         
-        # Insert Conservative policy
         db.execute(text("""
             INSERT INTO hedging_policies (company_id, policy_name, policy_type) 
             VALUES (1, 'Conservative', 'CONSERVATIVE')
@@ -599,8 +295,6 @@ async def setup_policy_table():
         """))
         
         db.commit()
-        
-        # Verify
         result = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = 1")).fetchone()
         
         return {
@@ -616,25 +310,89 @@ async def setup_policy_table():
         
     except Exception as e:
         db.rollback()
-        return {
-            "success": False,
-            "message": f"Error: {str(e)}"
-        }
+        return {"success": False, "message": f"Error: {str(e)}"}
     finally:
         db.close()
-```
 
-**F. Now it should look like this:**
-```
-Line 560:     finally:
-Line 561:         db.close()
-Line 562: 
-Line 563: 
-Line 564: @app.get("/setup/create-policy-table")
-Line 565: async def setup_policy_table():
-...
-Line 619:         db.close()
-Line 620:
-Line 621: if __name__ == "__main__":
-Line 622:     import uvicorn
-Line 623:     uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.get("/api/policies/{company_id}")
+async def get_policy(company_id: int):
+    """Get active hedging policy for a company"""
+    db = SessionLocal()
+    try:
+        result = db.execute(
+            text("SELECT * FROM hedging_policies WHERE company_id = :id AND is_active = TRUE"),
+            {"id": company_id}
+        ).fetchone()
+        
+        if result:
+            return {
+                "success": True,
+                "policy": {
+                    "id": result[0],
+                    "company_id": result[1],
+                    "name": result[2],
+                    "type": result[3],
+                    "hedge_ratio_large": float(result[4]),
+                    "hedge_ratio_medium": float(result[5]),
+                    "hedge_ratio_small": float(result[6])
+                }
+            }
+        
+        return {"success": False, "policy": None}
+        
+    except Exception as e:
+        return {"success": False, "message": f"Error: {str(e)}", "policy": None}
+    finally:
+        db.close()
+
+# ============================================
+# STARTUP EVENT
+# ============================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database and seed demo data on startup"""
+    db = SessionLocal()
+    try:
+        # Check if companies table exists and has data
+        result = db.execute(text("SELECT COUNT(*) FROM companies")).fetchone()
+        company_count = result[0] if result else 0
+        
+        if company_count == 0:
+            # Create default company
+            db.execute(text("""
+                INSERT INTO companies (id, name, base_currency)
+                VALUES (1, 'BIRK Commodities A/S', 'USD')
+                ON CONFLICT (id) DO NOTHING
+            """))
+            db.commit()
+            print("✅ Default company created")
+        else:
+            print(f"ℹ️ Database already contains {company_count} companies")
+        
+        # Verify company name
+        result = db.execute(text("SELECT name FROM companies WHERE id = 1")).fetchone()
+        if result and result[0] != "BIRK Commodities A/S":
+            db.execute(text("""
+                UPDATE companies 
+                SET name = 'BIRK Commodities A/S'
+                WHERE id = 1
+            """))
+            db.commit()
+            print("✅ Company name updated")
+        else:
+            print("✅ Company name is already correct: BIRK Commodities A/S")
+            
+    except Exception as e:
+        print(f"❌ Error during startup: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+# ============================================
+# MAIN
+# ============================================
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
