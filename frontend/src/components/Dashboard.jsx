@@ -48,15 +48,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     }
   }, [selectedCompany, propsExposures])
 
-// Auto-refresh exposures every 60 seconds
-useEffect(() => {
-  if (!selectedCompany) return;
-  
-  const intervalId = setInterval(() => {
-    fetchExposures(selectedCompany.id);
-  }, 10000); // 15 minutes
-  
-  return () => clearInterval(intervalId); // Cleanup
 }, [selectedCompany]);
 
   const fetchCompanies = async () => {
