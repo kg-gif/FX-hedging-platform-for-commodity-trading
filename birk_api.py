@@ -560,7 +560,27 @@ async def startup_event():
     finally:
         db.close()
 
-
+@app.get("/api/policies/{policy_id}")
+def get_policy(policy_id: int, db: Session = Depends(get_db)):
+    try:
+        from sqlalchemy import text
+        result = db.execute(text("SELECT * FROM hedging_policies WHERE id = :id"), {"id": policy_id}).fetchone()
+        if not result:
+            raise HTTPException(status_code=404, detail="Policy not found")
+        return {
+            "id": result[0],
+            "company_id": result[1],
+            "policy_name": result[2],
+            "policy_type": result[3],
+            "hedge_ratio_over_5m": result[4],
+            "hedge_ratio_1m_to_5m": result[5],
+            "hedge_ratio_under_1m": result[6],
+            "is_active": result[11]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
