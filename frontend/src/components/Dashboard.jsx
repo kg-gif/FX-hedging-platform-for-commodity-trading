@@ -47,8 +47,8 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
       // Fallback: fetch if not provided from parent
       fetchExposures(selectedCompany.id)
       fetchExposures()
-fetchPolicy();
     }
+    fetchPolicy();
   }, [selectedCompany, propsExposures])
 
 
