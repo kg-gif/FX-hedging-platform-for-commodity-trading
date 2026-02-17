@@ -51,7 +51,6 @@ fetchPolicy();
     }
   }, [selectedCompany, propsExposures])
 
-}, [selectedCompany]);
 
   const fetchCompanies = async () => {
     try {
