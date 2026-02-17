@@ -66,15 +66,17 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     }
   }
 
-const fetchPolicy = async () => {
+ const fetchPolicy = async () => {
   try {
     const response = await fetch(`${API_BASE}/api/policies/1`);
-    const data = await response.json();
-    setPolicy(data);
+    if (response.ok) {
+      const data = await response.json();
+      setPolicy(data);
+    }
   } catch (err) {
     console.error('Failed to fetch policy:', err);
   }
-};  
+};
 
   const fetchExposures = async (companyId) => {
     setLoading(true)
