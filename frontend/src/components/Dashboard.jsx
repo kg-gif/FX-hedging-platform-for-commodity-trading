@@ -22,6 +22,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const [lastUpdated, setLastUpdated] = useState(null)
   const [lastRateUpdate, setLastRateUpdate] = useState(null)
   const [error, setError] = useState(null)
+  const [policy, setPolicy] = useState(null);
   const [editingExposure, setEditingExposure] = useState(null)
   const [deletingExposure, setDeletingExposure] = useState(null)
   const [showEditModal, setShowEditModal] = useState(false)
@@ -45,6 +46,8 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     } else if (selectedCompany) {
       // Fallback: fetch if not provided from parent
       fetchExposures(selectedCompany.id)
+      fetchExposures()
+fetchPolicy();
     }
   }, [selectedCompany, propsExposures])
 
@@ -63,6 +66,16 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
       setError('Failed to fetch companies')
     }
   }
+
+const fetchPolicy = async () => {
+  try {
+    const response = await fetch(`${API_BASE}/api/policies/1`);
+    const data = await response.json();
+    setPolicy(data);
+  } catch (err) {
+    console.error('Failed to fetch policy:', err);
+  }
+};  
 
   const fetchExposures = async (companyId) => {
     setLoading(true)
@@ -234,6 +247,11 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
               <div>
                 <h2 className="text-2xl font-bold text-gray-800">Portfolio Overview</h2>
                 <p className="text-gray-600 mt-1">{selectedCompany?.name} - Real-time P&L monitoring</p>
+               {policy && (
+  <span className="inline-block mt-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+    📋 Active Policy: {policy.policy_name} ({Math.round(policy.hedge_ratio_over_5m * 100)}% hedge)
+  </span>
+)}
               </div>
               {lastUpdated && (
                 <div className="text-sm text-gray-500">
