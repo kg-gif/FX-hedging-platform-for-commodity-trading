@@ -54,7 +54,7 @@ useEffect(() => {
   
   const intervalId = setInterval(() => {
     fetchExposures(selectedCompany.id);
-  }, 10000); // 10 seconds
+  }, 10000); // 15 minutes
   
   return () => clearInterval(intervalId); // Cleanup
 }, [selectedCompany]);
