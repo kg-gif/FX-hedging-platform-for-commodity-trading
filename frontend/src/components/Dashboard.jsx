@@ -84,7 +84,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     try {
       const response = await fetch(`${API_BASE}/exposures?company_id=${companyId}`)
       const data = await response.json()
-      setExposures(data)
+      setExposures(Array.isArray(data) ? data : [])
       setLastUpdated(new Date())
     } catch (err) {
       setError('Failed to fetch exposures')
