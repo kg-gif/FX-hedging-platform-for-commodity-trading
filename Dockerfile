@@ -32,4 +32,4 @@ HEALTHCHECK --interval=30s --timeout=3s \
     CMD python -c "import requests; requests.get('http://localhost:8000/')" || exit 1
 
 # Run the application
-CMD ["python", "birk_api.py"]
+CMD ["uvicorn", "birk_api:app", "--host", "0.0.0.0", "--port", "8000"]
