@@ -583,7 +583,7 @@ def get_policy(policy_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
     @app.get("/setup/create-policies")   
     def create_policies(db: Session = Depends(get_db)):
-    try:
+        try:
         from sqlalchemy import text
         
         # Check if policies already exist
