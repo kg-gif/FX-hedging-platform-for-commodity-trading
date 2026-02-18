@@ -581,6 +581,9 @@ def get_policy(policy_id: int, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    @app.get("/test")
+def test():
+    return {"status": "ok"}
 @app.get("/setup/create-policies")
 def create_policies(db: Session = Depends(get_db)):
     try:
