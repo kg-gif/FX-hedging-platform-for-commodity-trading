@@ -655,9 +655,60 @@ def create_policies(db: Session = Depends(get_db)):
                  :budget_breach_threshold_pct, :opportunistic_trigger_threshold, :trailing_stop_trigger, :is_active)
             """), p)
         
+
         db.commit()
         return {"message": "Created 3 policy templates", "policies": ["Conservative (active)", "Balanced", "Opportunistic"]}
-        
+
     except Exception as e:
         db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- Recommendations endpoint ---
+from fastapi import Depends, HTTPException
+from sqlalchemy.orm import Session
+
+@app.get("/api/recommendations")
+def get_recommendations(company_id: int, db: Session = Depends(get_db)):
+    try:
+        from sqlalchemy import text
+        # Get active policy
+        policy = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"), {"cid": company_id}).fetchone()
+        if not policy:
+            return {"recommendations": [], "error": "No active policy"}
+        # Get exposures
+        exposures = db.execute(text("SELECT * FROM exposures WHERE company_id = :cid"), {"cid": company_id}).fetchall()
+        recommendations = []
+        for exp in exposures:
+            amount = exp[3]  # amount column
+            from_currency = exp[1]
+            to_currency = exp[2]
+            unhedged = exp[14] if len(exp) > 14 else amount  # unhedged_amount
+            # Skip if fully hedged
+            if unhedged <= 0:
+                continue
+            # Determine target hedge ratio based on exposure size
+            if amount >= 5000000:
+                target_ratio = policy[4]  # hedge_ratio_over_5m
+            elif amount >= 1000000:
+                target_ratio = policy[5]  # hedge_ratio_1m_to_5m
+            else:
+                target_ratio = policy[6]  # hedge_ratio_under_1m
+            # Calculate recommended hedge amount
+            recommended_amount = amount * target_ratio - (amount - unhedged)
+            if recommended_amount > 100000:  # Only recommend if material
+                recommendations.append({
+                    "exposure_id": exp[0],
+                    "currency_pair": f"{from_currency}/{to_currency}",
+                    "action": f"Hedge {from_currency} {int(recommended_amount):,}",
+                    "target_ratio": f"{int(target_ratio * 100)}%",
+                    "instrument": "Forward",
+                    "urgency": "HIGH" if unhedged > amount * 0.5 else "MEDIUM",
+                    "reason": f"Policy target: {int(target_ratio * 100)}% hedge for exposures {'>$5M' if amount >= 5000000 else '$1-5M' if amount >= 1000000 else '<$1M'}"
+                })
+        return {
+            "company_id": company_id,
+            "policy": policy[2],  # policy_name
+            "recommendations": recommendations
+        }
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
