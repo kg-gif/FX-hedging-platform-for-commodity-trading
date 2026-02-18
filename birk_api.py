@@ -671,33 +671,30 @@ from sqlalchemy.orm import Session
 def get_recommendations(company_id: int, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
-        # Get active policy
         policy = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"), {"cid": company_id}).fetchone()
         if not policy:
             return {"recommendations": [], "error": "No active policy"}
-        # Get exposures
         exposures = db.execute(text("SELECT * FROM exposures WHERE company_id = :cid"), {"cid": company_id}).fetchall()
         recommendations = []
         for exp in exposures:
-            amount = exp[3]  # amount column
-            from_currency = exp[1]
-            to_currency = exp[2]
-            unhedged = exp[14] if len(exp) > 14 else amount  # unhedged_amount
-            # Skip if fully hedged
+            exp = exp._mapping
+            amount = float(exp["amount"])
+            from_currency = exp["from_currency"]
+            to_currency = exp["to_currency"]
+            unhedged = float(exp["unhedged_amount"]) if exp["unhedged_amount"] is not None else amount
             if unhedged <= 0:
                 continue
-            # Determine target hedge ratio based on exposure size
+            policy = policy._mapping if hasattr(policy, '_mapping') else policy
             if amount >= 5000000:
-                target_ratio = policy[4]  # hedge_ratio_over_5m
+                target_ratio = float(policy["hedge_ratio_over_5m"])
             elif amount >= 1000000:
-                target_ratio = policy[5]  # hedge_ratio_1m_to_5m
+                target_ratio = float(policy["hedge_ratio_1m_to_5m"])
             else:
-                target_ratio = policy[6]  # hedge_ratio_under_1m
-            # Calculate recommended hedge amount
+                target_ratio = float(policy["hedge_ratio_under_1m"])
             recommended_amount = amount * target_ratio - (amount - unhedged)
-            if recommended_amount > 100000:  # Only recommend if material
+            if recommended_amount > 100000:
                 recommendations.append({
-                    "exposure_id": exp[0],
+                    "exposure_id": exp["id"],
                     "currency_pair": f"{from_currency}/{to_currency}",
                     "action": f"Hedge {from_currency} {int(recommended_amount):,}",
                     "target_ratio": f"{int(target_ratio * 100)}%",
@@ -707,7 +704,7 @@ def get_recommendations(company_id: int, db: Session = Depends(get_db)):
                 })
         return {
             "company_id": company_id,
-            "policy": policy[2],  # policy_name
+            "policy": policy["policy_name"],
             "recommendations": recommendations
         }
     except Exception as e:
