@@ -1,78 +1,63 @@
+import React, { useState, useEffect } from 'react'
 
-import React from 'react'
-
-const DEMO_RECOMMENDATIONS = [
-  {
-    id: 1,
-    currency_pair: "EUR/USD",
-    action: "Hedge EUR 1,750,000",
-    current_hedge: "50%",
-    target_ratio: "85%",
-    instrument: "3-month Forward",
-    urgency: "HIGH",
-    reason: "Policy target: 85% hedge for exposures >$5M",
-    estimated_cost: "$8,750"
-  },
-  {
-    id: 2,
-    currency_pair: "EUR/USD", 
-    action: "Hedge EUR 1,500,000",
-    current_hedge: "20%",
-    target_ratio: "70%",
-    instrument: "3-month Forward",
-    urgency: "HIGH",
-    reason: "Policy target: 70% hedge for exposures $1-5M",
-    estimated_cost: "$7,500"
-  },
-  {
-    id: 3,
-    currency_pair: "GBP/USD",
-    action: "Hedge GBP 750,000",
-    current_hedge: "60%",
-    target_ratio: "85%",
-    instrument: "Forward",
-    urgency: "MEDIUM",
-    reason: "Policy target: 85% hedge for exposures >$5M",
-    estimated_cost: "$4,125"
-  },
-  {
-    id: 4,
-    currency_pair: "CAD/USD",
-    action: "Hedge CAD 750,000",
-    current_hedge: "20%",
-    target_ratio: "70%",
-    instrument: "Forward",
-    urgency: "MEDIUM",
-    reason: "Policy target: 70% hedge for exposures $1-5M",
-    estimated_cost: "$2,850"
-  },
-  {
-    id: 5,
-    currency_pair: "JPY/USD",
-    action: "Hedge JPY 250,000,000",
-    current_hedge: "80%",
-    target_ratio: "85%",
-    instrument: "Forward",
-    urgency: "LOW",
-    reason: "Policy target: 85% hedge for exposures >$5M",
-    estimated_cost: "$1,250"
-  }
-]
+const API_BASE = 'https://birk-fx-api.onrender.com'
 
 function HedgingRecommendations() {
+  const [recommendations, setRecommendations] = useState([])
+  const [policy, setPolicy] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/recommendations?company_id=1`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          setError(data.error)
+        } else {
+          setRecommendations(data.recommendations)
+          setPolicy(data.policy)
+        }
+        setLoading(false)
+      })
+      .catch(err => {
+        setError('Failed to load recommendations')
+        setLoading(false)
+      })
+  }, [])
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <p className="text-gray-500 text-lg">Loading recommendations...</p>
+    </div>
+  )
+
+  if (error) return (
+    <div className="bg-red-50 rounded-lg p-6 border border-red-200">
+      <p className="text-red-700">⚠️ {error}</p>
+    </div>
+  )
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border border-indigo-200">
         <h2 className="text-2xl font-bold text-gray-800 mb-2">📋 Hedge Recommendations</h2>
-        <p className="text-gray-600">Based on your Conservative policy (85% target for large exposures)</p>
+        <p className="text-gray-600">Based on your {policy} policy</p>
       </div>
+
+      {/* Empty state */}
+      {recommendations.length === 0 && (
+        <div className="bg-green-50 rounded-lg p-6 border border-green-200">
+          <p className="text-green-700 font-semibold">✅ All exposures are within policy targets. No action required.</p>
+        </div>
+      )}
 
       {/* Recommendations */}
       <div className="space-y-4">
-        {DEMO_RECOMMENDATIONS.map((rec) => (
-          <div 
-            key={rec.id}
+        {recommendations.map((rec) => (
+          <div
+            key={rec.exposure_id}
             className="bg-white rounded-lg shadow-md p-6 border-l-4 hover:shadow-lg transition-shadow"
             style={{
               borderLeftColor: rec.urgency === 'HIGH' ? '#ef4444' : rec.urgency === 'MEDIUM' ? '#f59e0b' : '#10b981'
@@ -91,14 +76,10 @@ function HedgingRecommendations() {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
                   <div>
                     <p className="text-sm text-gray-600">Currency Pair</p>
                     <p className="font-semibold text-gray-800">{rec.currency_pair}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Current Hedge</p>
-                    <p className="font-semibold text-gray-800">{rec.current_hedge}</p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-600">Target Hedge</p>
@@ -114,13 +95,9 @@ function HedgingRecommendations() {
                   <p className="text-sm text-gray-700">{rec.reason}</p>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600">Estimated Cost</p>
-                    <p className="text-lg font-bold text-gray-800">{rec.estimated_cost}</p>
-                  </div>
-                  <a 
-                    href={`https://wise.com/send/`}
+                <div className="flex items-center justify-end">
+                  
+                    href="https://wise.com/send/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
@@ -134,10 +111,9 @@ function HedgingRecommendations() {
         ))}
       </div>
 
-      {/* Footer Note */}
       <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
         <p className="text-sm text-gray-700">
-          💡 <strong>Note:</strong> These recommendations are based on your active Conservative policy. 
+          💡 <strong>Note:</strong> These recommendations are based on your active {policy} policy.
           Actual execution should be confirmed with your bank or FX provider.
         </p>
       </div>
