@@ -732,7 +732,8 @@ async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    @app.get("/api/alerts/send-daily")
+    
+@app.get("/api/alerts/send-daily")
 async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
