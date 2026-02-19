@@ -695,14 +695,24 @@ def debug_breaches(company_id: int = 1, db: Session = Depends(get_db)):
 async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
-        exposures = db.execute(text("""
-    SELECT from_currency, to_currency, amount, current_pnl
+all_exposures = db.execute(text("""
+    SELECT from_currency, to_currency, amount, budget_rate, current_rate
     FROM exposures
     WHERE company_id = :cid
-    AND max_loss_limit IS NOT NULL
-    AND current_pnl IS NOT NULL
-    AND CAST(current_pnl AS FLOAT) < CAST(max_loss_limit AS FLOAT)
+    AND budget_rate IS NOT NULL
+    AND current_rate IS NOT NULL
 """), {"cid": company_id}).fetchall()
+exposures = []
+for row in all_exposures:
+    r = row._mapping
+    pnl = (float(r["current_rate"]) - float(r["budget_rate"])) * float(r["amount"])
+    if pnl < -50000:
+        exposures.append({
+            "from_currency": r["from_currency"],
+            "to_currency": r["to_currency"],
+            "amount": r["amount"],
+            "current_pnl": pnl
+        })
         if not exposures:
             return {"message": "No alerts to send - all exposures within policy"}
         breach_lines = ""
