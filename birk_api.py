@@ -679,6 +679,18 @@ def get_recommendations(company_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
     import os
 
+@app.get("/api/debug/breaches")
+def debug_breaches(company_id: int = 1, db: Session = Depends(get_db)):
+    from sqlalchemy import text
+    rows = db.execute(text("""
+        SELECT from_currency, to_currency, current_pnl, max_loss_limit
+        FROM exposures
+        WHERE company_id = :cid
+        AND max_loss_limit IS NOT NULL
+        AND current_pnl IS NOT NULL
+    """), {"cid": company_id}).fetchall()
+    return [{"pair": r[0]+"/"+r[1], "pnl": r[2], "limit": r[3], "is_breach": r[2] < r[3]} for r in rows]
+
 @app.get("/api/alerts/send-daily")
 async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     try:
