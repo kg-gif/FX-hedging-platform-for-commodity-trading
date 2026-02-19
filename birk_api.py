@@ -700,7 +700,7 @@ exposures = db.execute(text("""
             pair = f"{e['from_currency']}/{e['to_currency']}"
             amount = f"{int(e['amount']):,}"
             pnl = f"${int(e['current_pnl']):,}" if e['current_pnl'] else "N/A"
-            breach_lines += f"<li>BREACH: <strong>{pair}</strong> - {amount} - P&L: {pnl}</li>"
+                        breach_lines += f"<li>BREACH: <strong>{pair}</strong> - {amount} - P&L: {pnl}</li>"
         html_content = f"""
         <h2>BIRK FX Daily Alert</h2>
         <p>Daily exposure monitoring report for BIRK Commodities A/S</p>
