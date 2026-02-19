@@ -689,7 +689,7 @@ async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     WHERE company_id = :cid
     AND max_loss_limit IS NOT NULL
     AND current_pnl IS NOT NULL
-    AND current_pnl < max_loss_limit
+    AND CAST(current_pnl AS FLOAT) < CAST(max_loss_limit AS FLOAT)
 """), {"cid": company_id}).fetchall()
         if not exposures:
             return {"message": "No alerts to send - all exposures within policy"}
