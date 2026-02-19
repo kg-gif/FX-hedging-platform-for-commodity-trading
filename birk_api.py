@@ -567,19 +567,53 @@ def get_policy(policy_id: int, db: Session = Depends(get_db)):
         result = db.execute(text("SELECT * FROM hedging_policies WHERE id = :id"), {"id": policy_id}).fetchone()
         if not result:
             raise HTTPException(status_code=404, detail="Policy not found")
+        r = result._mapping
         return {
-            "id": result[0],
-            "company_id": result[1],
-            "policy_name": result[2],
-            "policy_type": result[3],
-            "hedge_ratio_over_5m": result[4],
-            "hedge_ratio_1m_to_5m": result[5],
-            "hedge_ratio_under_1m": result[6],
-            "is_active": result[11]
+            "id": r["id"],
+            "company_id": r["company_id"],
+            "policy_name": r["policy_name"],
+            "policy_type": r["policy_type"],
+            "hedge_ratio_over_5m": r["hedge_ratio_over_5m"],
+            "hedge_ratio_1m_to_5m": r["hedge_ratio_1m_to_5m"],
+            "hedge_ratio_under_1m": r["hedge_ratio_under_1m"],
+            "is_active": r["is_active"]
         }
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/policies")
+def get_all_policies(company_id: int, db: Session = Depends(get_db)):
+    try:
+        from sqlalchemy import text
+        results = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid"), {"cid": company_id}).fetchall()
+        policies = []
+        for result in results:
+            r = result._mapping
+            policies.append({
+                "id": r["id"],
+                "policy_name": r["policy_name"],
+                "policy_type": r["policy_type"],
+                "hedge_ratio_over_5m": r["hedge_ratio_over_5m"],
+                "hedge_ratio_1m_to_5m": r["hedge_ratio_1m_to_5m"],
+                "hedge_ratio_under_1m": r["hedge_ratio_under_1m"],
+                "is_active": r["is_active"]
+            })
+        return {"policies": policies}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/policies/{policy_id}/activate")
+def activate_policy(policy_id: int, company_id: int, db: Session = Depends(get_db)):
+    try:
+        from sqlalchemy import text
+        db.execute(text("UPDATE hedging_policies SET is_active = false WHERE company_id = :cid"), {"cid": company_id})
+        db.execute(text("UPDATE hedging_policies SET is_active = true WHERE id = :id"), {"id": policy_id})
+        db.commit()
+        return {"message": "Policy activated", "policy_id": policy_id}
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     @app.get("/test")
     def test():
