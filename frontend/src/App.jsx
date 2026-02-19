@@ -4,6 +4,7 @@ import { useCompany } from './contexts/CompanyContext'
 import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
 import HedgingRecommendations from './components/HedgingRecommendations'
+import PolicySelector from './components/PolicySelector'
 import ScenarioAnalysis from './components/ScenarioAnalysis'
 import HedgeTracker from './components/HedgeTracker'
 import DataImportDashboard from './components/DataImportDashboard'
@@ -14,49 +15,39 @@ function AppContent() {
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [exposures, setExposures] = useState([])
   const [loadingExposures, setLoadingExposures] = useState(true)
-  
-  useEffect(() => {
-    const fetchExposures = async () => {
-      try {
-        const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
-        const response = await fetch(`${API_URL}/exposures?company_id=${selectedCompanyId}`)
-        
-        if (!response.ok) throw new Error('Failed to fetch exposures')
-        
-        const data = await response.json()
-        
-        // Transform data: combine from_currency + to_currency into currency_pair
-        const transformedExposures = data.map(exp => ({
-          ...exp,
-          currency_pair: `${exp.from_currency} → ${exp.to_currency}`
-        }))
-        
-        setExposures(transformedExposures)
-        console.log('Transformed exposures:', transformedExposures)
-      } catch (error) {
-        console.error('❌ Error fetching exposures:', error)
-      } finally {
-        setLoadingExposures(false)
-      }
-    }
 
+  const fetchExposures = async () => {
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
+      const response = await fetch(`${API_URL}/exposures?company_id=${selectedCompanyId}`)
+      if (!response.ok) throw new Error('Failed to fetch exposures')
+      const data = await response.json()
+      const transformedExposures = data.map(exp => ({
+        ...exp,
+        currency_pair: `${exp.from_currency} → ${exp.to_currency}`
+      }))
+      setExposures(transformedExposures)
+    } catch (error) {
+      console.error('Error fetching exposures:', error)
+    } finally {
+      setLoadingExposures(false)
+    }
+  }
+
+  useEffect(() => {
     if (selectedCompanyId) {
       fetchExposures()
     }
   }, [selectedCompanyId])
-  
+
   const navigation = [
     { id: 'dashboard', name: 'Dashboard', icon: '📊' },
     { id: 'monte-carlo', name: 'Monte Carlo', icon: '🎲' },
     { id: 'hedging', name: 'Hedging', icon: '🛡️' },
+    { id: 'policy', name: 'Policy', icon: '⚙️' },
     { id: 'data-import', name: 'Data Import', icon: '📥' }
   ]
-const handleExposureCreated = () => {
-  // Trigger Dashboard refresh
-  // You can pass this function to ManualEntry as a prop
-  fetchExposures(); // Or however you're fetching in App
-};
-  
+
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
@@ -71,16 +62,17 @@ const handleExposureCreated = () => {
             <HedgeTracker />
           </div>
         )
+      case 'policy':
+        return <PolicySelector onPolicyChange={() => {}} />
       case 'data-import':
         return <DataImportDashboard />
       default:
         return <Dashboard />
     }
   }
-  
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Header */}
       <div className="bg-white shadow-lg">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
@@ -88,13 +80,9 @@ const handleExposureCreated = () => {
               <h1 className="text-3xl font-bold text-gray-800">BIRK FX Risk Management</h1>
               <p className="text-gray-600 mt-1">Real-time currency exposure monitoring & hedging</p>
             </div>
-            
-            {/* Global Company Selector */}
             <CompanySelector />
           </div>
         </div>
-        
-        {/* Navigation Tabs */}
         <div className="border-t border-gray-200">
           <div className="container mx-auto px-4">
             <nav className="flex space-x-8">
@@ -118,8 +106,6 @@ const handleExposureCreated = () => {
           </div>
         </div>
       </div>
-      
-      {/* Page Content */}
       <div className="container mx-auto px-4 py-8">
         {renderPage()}
       </div>
