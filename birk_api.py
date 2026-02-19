@@ -705,25 +705,44 @@ from sqlalchemy.orm import Session
 def get_recommendations(company_id: int, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
-        policy = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"), {"cid": company_id}).fetchone()
-        # If multiple active policies are possible, filter by policy_id if needed
-        if policy and policy['id'] != policy_id:
-            policy = db.execute(text("SELECT * FROM hedging_policies WHERE id = :id AND company_id = :cid AND is_active = true"), {"id": policy_id, "cid": company_id}).fetchone()
-        if not policy:
+        policy_row = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"), {"cid": company_id}).fetchone()
+        if not policy_row:
             return {"recommendations": [], "error": "No active policy"}
+        p = policy_row._mapping
+        policy_name = p["policy_name"]
+        ratio_over_5m = float(p["hedge_ratio_over_5m"])
+        ratio_1m_to_5m = float(p["hedge_ratio_1m_to_5m"])
+        ratio_under_1m = float(p["hedge_ratio_under_1m"])
         exposures = db.execute(text("SELECT * FROM exposures WHERE company_id = :cid"), {"cid": company_id}).fetchall()
         recommendations = []
-        for exp in exposures:
-            exp = exp._mapping
+        for exp_row in exposures:
+            exp = exp_row._mapping
             amount = float(exp["amount"])
             from_currency = exp["from_currency"]
             to_currency = exp["to_currency"]
             unhedged = float(exp["unhedged_amount"]) if exp["unhedged_amount"] is not None else amount
             if unhedged <= 0:
                 continue
-            policy = policy._mapping if hasattr(policy, '_mapping') else policy
             if amount >= 5000000:
-                target_ratio = float(policy["hedge_ratio_over_5m"])
+                target_ratio = ratio_over_5m
+            elif amount >= 1000000:
+                target_ratio = ratio_1m_to_5m
+            else:
+                target_ratio = ratio_under_1m
+            recommended_amount = amount * target_ratio - (amount - unhedged)
+            if recommended_amount > 100000:
+                recommendations.append({
+                    "exposure_id": exp["id"],
+                    "currency_pair": f"{from_currency}/{to_currency}",
+                    "action": f"Hedge {from_currency} {int(recommended_amount):,}",
+                    "target_ratio": f"{int(target_ratio * 100)}%",
+                    "instrument": "Forward",
+                    "urgency": "HIGH" if unhedged > amount * 0.5 else "MEDIUM",
+                    "reason": f"Policy target: {int(target_ratio * 100)}% hedge for exposures {'>$5M' if amount >= 5000000 else '$1-5M' if amount >= 1000000 else '<$1M'}"
+                })
+        return {"company_id": company_id, "policy": policy_name, "recommendations": recommendations}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
             elif amount >= 1000000:
                 target_ratio = float(policy["hedge_ratio_1m_to_5m"])
             else:
