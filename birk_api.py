@@ -1,74 +1,3 @@
-import os
-import httpx
-
-@app.post("/api/alerts/send-daily")
-async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
-    try:
-        from sqlalchemy import text
-        # Get breached exposures
-        exposures = db.execute(text("""
-            SELECT from_currency, to_currency, amount, current_pnl, pnl_status 
-            FROM exposures 
-            WHERE company_id = :cid AND pnl_status IN ('BREACH', 'WARNING')
-        """), {"cid": company_id}).fetchall()
-
-        if not exposures:
-            return {"message": "No alerts to send - all exposures within policy"}
-
-        # Build email content
-        breach_lines = ""
-        warning_lines = ""
-        for exp in exposures:
-            e = exp._mapping
-            pair = f"{e['from_currency']}/{e['to_currency']}"
-            amount = f"{int(e['amount']):,}"
-            pnl = f"${int(e['current_pnl']):,}" if e['current_pnl'] else "N/A"
-            if e['pnl_status'] == 'BREACH':
-                breach_lines += f"<li>🔴 <strong>{pair}</strong> — {amount} — P&L: {pnl}</li>"
-            else:
-                warning_lines += f"<li>🟡 <strong>{pair}</strong> — {amount} — P&L: {pnl}</li>"
-
-        html_content = f"""
-        <h2>BIRK FX Daily Alert</h2>
-        <p>Daily exposure monitoring report for BIRK Commodities A/S</p>
-        {"<h3>Breaches</h3><ul>" + breach_lines + "</ul>" if breach_lines else ""}
-        {"<h3>Warnings</h3><ul>" + warning_lines + "</ul>" if warning_lines else ""}
-        <p>Log in to review recommendations: <a href=\"https://birk-dashboard.onrender.com\">BIRK Dashboard</a></p>
-        """
-
-        # Send via Resend
-        resend_api_key = os.environ.get("RESEND_API_KEY")
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
-                json={
-                    "from": "BIRK FX Alerts <alerts@sumnohow.com>",
-                    "to": ["kg@sumnohow.com"],
-                    "subject": f"BIRK FX Alert — {len(exposures)} exposure(s) need attention",
-                    "html": html_content
-                }
-            )
-
-        if response.status_code == 200:
-            return {"message": f"Alert sent successfully to kg@sumnohow.com", "exposures_flagged": len(exposures)}
-        else:
-            raise HTTPException(status_code=500, detail=f"Resend error: {response.text}")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-"""
-BIRK FX Risk Management Platform - Enhanced Backend API
-
-Enhancements in this version:
-1. Proper rate change percentage calculation using initial_rate
-2. Dynamic risk level assessment
-3. Improved error handling
-4. Rate change indicators (positive/negative)
-"""
-
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -802,5 +731,60 @@ def get_recommendations(company_id: int, db: Session = Depends(get_db)):
                     "reason": f"Policy target: {int(target_ratio * 100)}% hedge for exposures {'>$5M' if amount >= 5000000 else '$1-5M' if amount >= 1000000 else '<$1M'}"
                 })
         return {"company_id": company_id, "policy": policy_name, "recommendations": recommendations}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    import os
+
+@app.post("/api/alerts/send-daily")
+async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
+    try:
+        from sqlalchemy import text
+        exposures = db.execute(text("""
+            SELECT from_currency, to_currency, amount, current_pnl, pnl_status 
+            FROM exposures 
+            WHERE company_id = :cid AND pnl_status IN ('BREACH', 'WARNING')
+        """), {"cid": company_id}).fetchall()
+
+        if not exposures:
+            return {"message": "No alerts to send - all exposures within policy"}
+
+        breach_lines = ""
+        warning_lines = ""
+        for exp in exposures:
+            e = exp._mapping
+            pair = f"{e['from_currency']}/{e['to_currency']}"
+            amount = f"{int(e['amount']):,}"
+            pnl = f"${int(e['current_pnl']):,}" if e['current_pnl'] else "N/A"
+            if e['pnl_status'] == 'BREACH':
+                breach_lines += f"<li>BREACH: <strong>{pair}</strong> - {amount} - P&L: {pnl}</li>"
+            else:
+                warning_lines += f"<li>WARNING: <strong>{pair}</strong> - {amount} - P&L: {pnl}</li>"
+
+        html_content = f"""
+        <h2>BIRK FX Daily Alert</h2>
+        <p>Daily exposure monitoring report for BIRK Commodities A/S</p>
+        {"<h3>Breaches</h3><ul>" + breach_lines + "</ul>" if breach_lines else ""}
+        {"<h3>Warnings</h3><ul>" + warning_lines + "</ul>" if warning_lines else ""}
+        <p>Log in to review: <a href="https://birk-dashboard.onrender.com">BIRK Dashboard</a></p>
+        """
+
+        resend_api_key = os.environ.get("RESEND_API_KEY")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
+                json={
+                    "from": "BIRK FX Alerts <alerts@sumnohow.com>",
+                    "to": ["kg@sumnohow.com"],
+                    "subject": f"BIRK FX Alert - {len(exposures)} exposure(s) need attention",
+                    "html": html_content
+                }
+            )
+        if response.status_code == 200:
+            return {"message": "Alert sent successfully", "exposures_flagged": len(exposures)}
+        else:
+            raise HTTPException(status_code=500, detail=f"Resend error: {response.text}")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
