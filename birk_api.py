@@ -605,11 +605,11 @@ def get_all_policies(company_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/policies/{policy_id}/activate")
-def activate_policy(policy_id: int, company_id: int, db: Session = Depends(get_db)):
+def activate_policy(policy_id: int, company_id: int = 1, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
         db.execute(text("UPDATE hedging_policies SET is_active = false WHERE company_id = :cid"), {"cid": company_id})
-        db.execute(text("UPDATE hedging_policies SET is_active = true WHERE id = :id"), {"id": policy_id})
+        db.execute(text("UPDATE hedging_policies SET is_active = true WHERE id = :id AND company_id = :cid"), {"id": policy_id, "cid": company_id})
         db.commit()
         return {"message": "Policy activated", "policy_id": policy_id}
     except Exception as e:
@@ -706,6 +706,9 @@ def get_recommendations(company_id: int, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
         policy = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"), {"cid": company_id}).fetchone()
+        # If multiple active policies are possible, filter by policy_id if needed
+        if policy and policy['id'] != policy_id:
+            policy = db.execute(text("SELECT * FROM hedging_policies WHERE id = :id AND company_id = :cid AND is_active = true"), {"id": policy_id, "cid": company_id}).fetchone()
         if not policy:
             return {"recommendations": [], "error": "No active policy"}
         exposures = db.execute(text("SELECT * FROM exposures WHERE company_id = :cid"), {"cid": company_id}).fetchall()
