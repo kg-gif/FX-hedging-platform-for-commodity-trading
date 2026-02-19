@@ -743,25 +743,3 @@ def get_recommendations(company_id: int, db: Session = Depends(get_db)):
         return {"company_id": company_id, "policy": policy_name, "recommendations": recommendations}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-            elif amount >= 1000000:
-                target_ratio = float(policy["hedge_ratio_1m_to_5m"])
-            else:
-                target_ratio = float(policy["hedge_ratio_under_1m"])
-            recommended_amount = amount * target_ratio - (amount - unhedged)
-            if recommended_amount > 100000:
-                recommendations.append({
-                    "exposure_id": exp["id"],
-                    "currency_pair": f"{from_currency}/{to_currency}",
-                    "action": f"Hedge {from_currency} {int(recommended_amount):,}",
-                    "target_ratio": f"{int(target_ratio * 100)}%",
-                    "instrument": "Forward",
-                    "urgency": "HIGH" if unhedged > amount * 0.5 else "MEDIUM",
-                    "reason": f"Policy target: {int(target_ratio * 100)}% hedge for exposures {'>$5M' if amount >= 5000000 else '$1-5M' if amount >= 1000000 else '<$1M'}"
-                })
-        return {
-            "company_id": company_id,
-            "policy": policy["policy_name"],
-            "recommendations": recommendations
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
