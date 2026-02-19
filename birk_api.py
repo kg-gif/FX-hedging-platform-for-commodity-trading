@@ -684,12 +684,13 @@ async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
         exposures = db.execute(text("""
-            SELECT from_currency, to_currency, amount, current_pnl
-            FROM exposures
-            WHERE company_id = :cid
-            AND budget_rate IS NOT NULL
-            AND current_pnl < max_loss_limit
-        """), {"cid": company_id}).fetchall()
+    SELECT from_currency, to_currency, amount, current_pnl
+    FROM exposures
+    WHERE company_id = :cid
+    AND max_loss_limit IS NOT NULL
+    AND current_pnl IS NOT NULL
+    AND current_pnl < max_loss_limit
+"""), {"cid": company_id}).fetchall()
         if not exposures:
             return {"message": "No alerts to send - all exposures within policy"}
         breach_lines = ""
