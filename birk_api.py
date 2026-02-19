@@ -316,62 +316,6 @@ def get_company_exposures(company_id: int, db: Session = Depends(get_db)):
     
     return result
 
-@app.get("/api/alerts/send-daily")
-async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
-    """Refresh FX rates for all company exposures using live rates and persist them."""
-    exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
-
-    if not exposures:
-        raise HTTPException(status_code=404, detail="No exposures found for this company")
-
-    # Build unique pairs list
-    pairs = [f"{e.from_currency}/{e.to_currency}" for e in exposures]
-    # Fetch current rates concurrently
-    rates_map = await get_current_rates(pairs)
-
-    updated_count = 0
-    for exposure in exposures:
-        pair = f"{exposure.from_currency}/{exposure.to_currency}"
-        rate_info = rates_map.get(pair)
-        if not rate_info:
-            continue
-
-        try:
-            new_rate = rate_info["rate"]
-            exposure.current_rate = new_rate
-            exposure.current_value_usd = exposure.amount * new_rate
-
-            if exposure.initial_rate is None:
-                exposure.initial_rate = new_rate
-
-            exposure.risk_level = calculate_risk_level(
-                exposure.current_value_usd,
-                exposure.settlement_period
-            )
-
-            exposure.updated_at = datetime.utcnow()
-
-            # Persist FXRate record
-            fx = FXRate(
-                currency_pair=pair,
-                rate=new_rate,
-                timestamp=rate_info.get("timestamp", datetime.utcnow()),
-                source=rate_info.get("source", "ExchangeRate-API")
-            )
-            db.add(fx)
-
-            updated_count += 1
-        except Exception as e:
-            print(f"Error updating exposure {exposure.id}: {e}")
-            continue
-
-    db.commit()
-
-    return RefreshResponse(
-        message=f"Successfully refreshed rates for {updated_count} exposures",
-        updated_count=updated_count,
-        timestamp=datetime.utcnow()
-    )
 
 
 @app.get("/api/fx-rates")
@@ -736,6 +680,59 @@ def get_recommendations(company_id: int, db: Session = Depends(get_db)):
     import os
 
 @app.post("/api/alerts/send-daily")
+async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
+    try:
+        from sqlalchemy import text
+        exposures = db.execute(text("""
+            SELECT from_currency, to_currency, amount, current_pnl, pnl_status 
+            FROM exposures 
+            WHERE company_id = :cid AND pnl_status IN ('BREACH', 'WARNING')
+        """), {"cid": company_id}).fetchall()
+
+        if not exposures:
+            return {"message": "No alerts to send - all exposures within policy"}
+
+        breach_lines = ""
+        warning_lines = ""
+        for exp in exposures:
+            e = exp._mapping
+            pair = f"{e['from_currency']}/{e['to_currency']}"
+            amount = f"{int(e['amount']):,}"
+            pnl = f"${int(e['current_pnl']):,}" if e['current_pnl'] else "N/A"
+            if e['pnl_status'] == 'BREACH':
+                breach_lines += f"<li>BREACH: <strong>{pair}</strong> - {amount} - P&L: {pnl}</li>"
+            else:
+                warning_lines += f"<li>WARNING: <strong>{pair}</strong> - {amount} - P&L: {pnl}</li>"
+
+        html_content = f"""
+        <h2>BIRK FX Daily Alert</h2>
+        <p>Daily exposure monitoring report for BIRK Commodities A/S</p>
+        {"<h3>Breaches</h3><ul>" + breach_lines + "</ul>" if breach_lines else ""}
+        {"<h3>Warnings</h3><ul>" + warning_lines + "</ul>" if warning_lines else ""}
+        <p>Log in to review: <a href="https://birk-dashboard.onrender.com">BIRK Dashboard</a></p>
+        """
+
+        resend_api_key = os.environ.get("RESEND_API_KEY")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
+                json={
+                    "from": "BIRK FX Alerts <alerts@sumnohow.com>",
+                    "to": ["kg@sumnohow.com"],
+                    "subject": f"BIRK FX Alert - {len(exposures)} exposure(s) need attention",
+                    "html": html_content
+                }
+            )
+        if response.status_code == 200:
+            return {"message": "Alert sent successfully", "exposures_flagged": len(exposures)}
+        else:
+            raise HTTPException(status_code=500, detail=f"Resend error: {response.text}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    @app.get("/api/alerts/send-daily")
 async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
