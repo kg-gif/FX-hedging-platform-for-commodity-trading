@@ -316,8 +316,8 @@ def get_company_exposures(company_id: int, db: Session = Depends(get_db)):
     
     return result
 
-@app.post("/companies/{company_id}/refresh-rates", response_model=RefreshResponse)
-async def refresh_company_rates(company_id: int, db: Session = Depends(get_db)):
+@app.get("/api/alerts/send-daily")
+async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     """Refresh FX rates for all company exposures using live rates and persist them."""
     exposures = db.query(Exposure).filter(Exposure.company_id == company_id).all()
 
