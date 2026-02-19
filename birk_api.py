@@ -683,34 +683,30 @@ def get_recommendations(company_id: int, db: Session = Depends(get_db)):
 async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
-        exposures = db.execute(text("""
-            SELECT from_currency, to_currency, amount, current_pnl, pnl_status 
-            FROM exposures 
-            WHERE company_id = :cid AND pnl_status IN ('BREACH', 'WARNING')
-        """), {"cid": company_id}).fetchall()
+exposures = db.execute(text("""
+    SELECT from_currency, to_currency, amount, current_pnl
+    FROM exposures 
+    WHERE company_id = :cid 
+    AND budget_rate IS NOT NULL
+    AND current_pnl < max_loss_limit
+"""), {"cid": company_id}).fetchall()
 
         if not exposures:
             return {"message": "No alerts to send - all exposures within policy"}
 
         breach_lines = ""
-        warning_lines = ""
         for exp in exposures:
             e = exp._mapping
             pair = f"{e['from_currency']}/{e['to_currency']}"
             amount = f"{int(e['amount']):,}"
             pnl = f"${int(e['current_pnl']):,}" if e['current_pnl'] else "N/A"
-            if e['pnl_status'] == 'BREACH':
-                breach_lines += f"<li>BREACH: <strong>{pair}</strong> - {amount} - P&L: {pnl}</li>"
-            else:
-                warning_lines += f"<li>WARNING: <strong>{pair}</strong> - {amount} - P&L: {pnl}</li>"
-
+            breach_lines += f"<li>BREACH: <strong>{pair}</strong> - {amount} - P&L:
         html_content = f"""
         <h2>BIRK FX Daily Alert</h2>
         <p>Daily exposure monitoring report for BIRK Commodities A/S</p>
         {"<h3>Breaches</h3><ul>" + breach_lines + "</ul>" if breach_lines else ""}
         {"<h3>Warnings</h3><ul>" + warning_lines + "</ul>" if warning_lines else ""}
         <p>Log in to review: <a href="https://birk-dashboard.onrender.com">BIRK Dashboard</a></p>
-        """
 
         resend_api_key = os.environ.get("RESEND_API_KEY")
         async with httpx.AsyncClient() as client:
