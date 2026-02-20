@@ -7,6 +7,7 @@ function HedgingRecommendations() {
   const [policy, setPolicy] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     fetch(`${API_BASE}/api/recommendations?company_id=1`)
@@ -26,6 +27,27 @@ function HedgingRecommendations() {
       })
   }, [])
 
+  const handleDownloadPDF = async () => {
+    setDownloading(true)
+    try {
+      const response = await fetch(`${API_BASE}/api/reports/currency-plan?company_id=1`)
+      if (!response.ok) throw new Error('Failed to generate report')
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `currency-plan-${new Date().toISOString().split('T')[0]}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Failed to generate report. Please try again.')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <p className="text-gray-500 text-lg">Loading recommendations...</p>
@@ -41,8 +63,31 @@ function HedgingRecommendations() {
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border border-indigo-200">
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">Hedge Recommendations</h2>
-        <p className="text-gray-600">Based on your {policy} policy</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Hedge Recommendations</h2>
+            <p className="text-gray-600">Based on your {policy} policy</p>
+          </div>
+          <button
+            onClick={handleDownloadPDF}
+            disabled={downloading}
+            className="px-6 py-3 bg-indigo-700 text-white rounded-lg hover:bg-indigo-800 transition-colors font-semibold flex items-center gap-2 disabled:opacity-60"
+          >
+            {downloading ? (
+              <>
+                <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                </svg>
+                Generating...
+              </>
+            ) : (
+              <>
+                Download Currency Plan
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {recommendations.length === 0 && (
