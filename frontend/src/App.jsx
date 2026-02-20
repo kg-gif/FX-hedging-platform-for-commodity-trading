@@ -42,16 +42,16 @@ function AppContent() {
 
   // CFO-facing navigation
   const cfoNav = [
-    { id: 'dashboard', name: 'Dashboard', icon: '📊' },
-    { id: 'hedging',   name: 'Hedging',   icon: '🛡️' },
-    { id: 'reports',   name: 'Reports',   icon: '📄' },
+    { id: 'dashboard', name: 'Dashboard' },
+    { id: 'hedging',   name: 'Hedging'   },
+    { id: 'reports',   name: 'Reports'   },
   ]
 
   // Advanced / analyst navigation
   const advancedNav = [
-    { id: 'policy',      name: 'Policy',      icon: '⚙️' },
-    { id: 'monte-carlo', name: 'Risk Sim',     icon: '📈' },
-    { id: 'data-import', name: 'Data Import',  icon: '📥' },
+    { id: 'policy',      name: 'Policy'      },
+    { id: 'monte-carlo', name: 'Risk Sim'    },
+    { id: 'data-import', name: 'Data Import' },
   ]
 
   const renderPage = () => {
@@ -150,7 +150,6 @@ function AppContent() {
                       background:   'transparent',
                     }}
                   >
-                    <span className="mr-2">{item.icon}</span>
                     {item.name}
                   </button>
                 )
@@ -172,7 +171,7 @@ function AppContent() {
                 border: '1px solid rgba(255,255,255,0.15)'
               }}
             >
-              {showAdvanced ? 'Hide Advanced' : 'Advanced ⚙️'}
+              {showAdvanced ? 'Hide Advanced' : 'Advanced'}
             </button>
           </div>
         </div>
@@ -195,11 +194,3 @@ function App() {
 }
 
 export default App
-```
-
-Key changes from the brief:
-- Tagline live: "Know your FX position. Before it costs you."
-- BIRK FX gone from UI entirely
-- CFO sees 3 tabs: Dashboard, Hedging, Reports
-- Advanced toggle reveals Policy, Risk Sim, Data Import
-- Reports tab now has the Currency Plan download — cleaner than burying it in Hedging
