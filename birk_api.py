@@ -710,7 +710,7 @@ async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
         html_content += "</ul><p><a href='https://birk-dashboard.onrender.com'>View Dashboard</a></p>"
         resend_api_key = os.environ.get("RESEND_API_KEY")
         async with httpx.AsyncClient() as client:
-            response = await client.post("https://api.resend.com/emails", headers={"Authorization": "Bearer " + resend_api_key, "Content-Type": "application/json"}, json={"from": "BIRK FX Alerts <alerts@sumnohow.com>", "to": ["kg@sumnohow.com"], "subject": "BIRK FX Alert - " + str(len(breach_list)) + " breach(es) detected", "html": html_content})
+            response = await client.post("https://api.resend.com/emails", headers={"Authorization": "Bearer " + resend_api_key, "Content-Type": "application/json"}, json={"from": "BIRK FX Alerts <alerts@updates.sumnohow.com>", "to": ["kg@sumnohow.com"], "subject": "BIRK FX Alert - " + str(len(breach_list)) + " breach(es) detected", "html": html_content})
         if response.status_code == 200:
             return {"message": "Alert sent", "breaches": len(breach_list)}
         else:
