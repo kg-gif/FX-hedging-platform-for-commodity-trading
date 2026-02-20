@@ -513,10 +513,10 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       </p>
     </div>
     
-    {/* Hedge Ratio Policy */}
+    {/* Current Hedge Coverage */}
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-2">
-        Hedge Ratio Policy (%)
+        Current Hedge Coverage (%)
       </label>
       <input
         type="number"
@@ -533,7 +533,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
         className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
       />
       <p className="text-xs text-gray-500 mt-1">
-        % of exposure to hedge (default: 100%)
+        How much of this exposure is already hedged (e.g., 30 = 30% hedged)
       </p>
     </div>
     
