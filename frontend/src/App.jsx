@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { CompanyProvider } from './contexts/CompanyContext'
-import { useCompany } from './contexts/CompanyContext'
+import { CompanyProvider, useCompany } from './contexts/CompanyContext'
 import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
 import HedgingRecommendations from './components/HedgingRecommendations'
@@ -10,9 +9,13 @@ import HedgeTracker from './components/HedgeTracker'
 import DataImportDashboard from './components/DataImportDashboard'
 import MonteCarloTab from './components/MonteCarloTab'
 
+const NAVY = '#1A2744'
+const GOLD = '#C9A86C'
+
 function AppContent() {
   const { selectedCompanyId } = useCompany()
   const [currentPage, setCurrentPage] = useState('dashboard')
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [exposures, setExposures] = useState([])
   const [loadingExposures, setLoadingExposures] = useState(true)
 
@@ -20,13 +23,12 @@ function AppContent() {
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
       const response = await fetch(`${API_URL}/exposures?company_id=${selectedCompanyId}`)
-      if (!response.ok) throw new Error('Failed to fetch exposures')
+      if (!response.ok) throw new Error('Failed to fetch')
       const data = await response.json()
-      const transformedExposures = data.map(exp => ({
+      setExposures(data.map(exp => ({
         ...exp,
-        currency_pair: `${exp.from_currency} → ${exp.to_currency}`
-      }))
-      setExposures(transformedExposures)
+        currency_pair: `${exp.from_currency} / ${exp.to_currency}`
+      })))
     } catch (error) {
       console.error('Error fetching exposures:', error)
     } finally {
@@ -35,25 +37,27 @@ function AppContent() {
   }
 
   useEffect(() => {
-    if (selectedCompanyId) {
-      fetchExposures()
-    }
+    if (selectedCompanyId) fetchExposures()
   }, [selectedCompanyId])
 
-  const navigation = [
+  // CFO-facing navigation
+  const cfoNav = [
     { id: 'dashboard', name: 'Dashboard', icon: '📊' },
-    { id: 'monte-carlo', name: 'Monte Carlo', icon: '🎲' },
-    { id: 'hedging', name: 'Hedging', icon: '🛡️' },
-    { id: 'policy', name: 'Policy', icon: '⚙️' },
-    { id: 'data-import', name: 'Data Import', icon: '📥' }
+    { id: 'hedging',   name: 'Hedging',   icon: '🛡️' },
+    { id: 'reports',   name: 'Reports',   icon: '📄' },
+  ]
+
+  // Advanced / analyst navigation
+  const advancedNav = [
+    { id: 'policy',      name: 'Policy',      icon: '⚙️' },
+    { id: 'monte-carlo', name: 'Risk Sim',     icon: '📈' },
+    { id: 'data-import', name: 'Data Import',  icon: '📥' },
   ]
 
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard exposures={exposures} loading={loadingExposures} />
-      case 'monte-carlo':
-        return <MonteCarloTab exposures={exposures} loading={loadingExposures} />
       case 'hedging':
         return (
           <div className="space-y-6">
@@ -62,51 +66,120 @@ function AppContent() {
             <HedgeTracker />
           </div>
         )
+      case 'reports':
+        return (
+          <div className="bg-white rounded-xl shadow-md p-12 text-center">
+            <p className="text-4xl mb-4">📄</p>
+            <h2 className="text-xl font-bold mb-2" style={{ color: NAVY }}>Reports</h2>
+            <p className="text-gray-500 mb-6">
+              Download your Automated Currency Plan or view historical reports.
+            </p>
+            <button
+              onClick={() => {
+                window.open('https://birk-fx-api.onrender.com/api/reports/currency-plan?company_id=1', '_blank')
+              }}
+              className="px-8 py-3 text-white rounded-lg font-semibold"
+              style={{ background: NAVY }}
+            >
+              Download Currency Plan
+            </button>
+          </div>
+        )
       case 'policy':
         return <PolicySelector onPolicyChange={() => {}} />
+      case 'monte-carlo':
+        return <MonteCarloTab exposures={exposures} loading={loadingExposures} />
       case 'data-import':
         return <DataImportDashboard />
       default:
-        return <Dashboard />
+        return <Dashboard exposures={exposures} loading={loadingExposures} />
     }
   }
 
+  const allNav = showAdvanced ? [...cfoNav, ...advancedNav] : cfoNav
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="bg-white shadow-lg">
-        <div className="container mx-auto px-4 py-4">
+    <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
+
+      {/* ── HEADER ────────────────────────────────────────────────── */}
+      <div style={{ background: NAVY }} className="shadow-xl">
+        <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">BIRK FX Risk Management</h1>
-              <p className="text-gray-600 mt-1">Real-time currency exposure monitoring & hedging</p>
+
+            {/* Logo + brand */}
+            <div className="flex items-center gap-4">
+              <img
+                src="/logo.png.jpg"
+                alt="Sumnohow"
+                className="h-12 w-auto object-contain"
+                onError={(e) => { e.target.style.display = 'none' }}
+              />
+              <div>
+                <span
+                  className="text-2xl font-bold tracking-widest uppercase block"
+                  style={{ color: GOLD, letterSpacing: '0.15em' }}
+                >
+                  sumnohow
+                </span>
+                <p className="text-xs mt-0.5 italic" style={{ color: '#8DA4C4' }}>
+                  Know your FX position. Before it costs you.
+                </p>
+              </div>
             </div>
-            <CompanySelector />
+
+            <div className="flex items-center gap-4">
+              <CompanySelector />
+            </div>
           </div>
         </div>
-        <div className="border-t border-gray-200">
-          <div className="container mx-auto px-4">
-            <nav className="flex space-x-8">
-              {navigation.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setCurrentPage(item.id)}
-                  className={`
-                    flex items-center px-3 py-4 text-sm font-medium border-b-2 transition-colors
-                    ${currentPage === item.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }
-                  `}
-                >
-                  <span className="text-xl mr-2">{item.icon}</span>
-                  {item.name}
-                </button>
-              ))}
+
+        {/* ── NAV ───────────────────────────────────────────────── */}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="container mx-auto px-6 flex items-center justify-between">
+            <nav className="flex space-x-1">
+              {allNav.map((item) => {
+                const active = currentPage === item.id
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setCurrentPage(item.id)}
+                    className="flex items-center px-4 py-4 text-sm font-medium transition-all"
+                    style={{
+                      color:        active ? GOLD : '#8DA4C4',
+                      borderBottom: active ? `2px solid ${GOLD}` : '2px solid transparent',
+                      background:   'transparent',
+                    }}
+                  >
+                    <span className="mr-2">{item.icon}</span>
+                    {item.name}
+                  </button>
+                )
+              })}
             </nav>
+
+            {/* Advanced toggle */}
+            <button
+              onClick={() => {
+                setShowAdvanced(!showAdvanced)
+                if (showAdvanced && advancedNav.find(n => n.id === currentPage)) {
+                  setCurrentPage('dashboard')
+                }
+              }}
+              className="text-xs px-3 py-1 rounded-full transition-all"
+              style={{
+                color:   showAdvanced ? NAVY : '#8DA4C4',
+                background: showAdvanced ? GOLD : 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.15)'
+              }}
+            >
+              {showAdvanced ? 'Hide Advanced' : 'Advanced ⚙️'}
+            </button>
           </div>
         </div>
       </div>
-      <div className="container mx-auto px-4 py-8">
+
+      {/* ── CONTENT ───────────────────────────────────────────────── */}
+      <div className="container mx-auto px-6 py-8">
         {renderPage()}
       </div>
     </div>
@@ -122,3 +195,11 @@ function App() {
 }
 
 export default App
+```
+
+Key changes from the brief:
+- Tagline live: "Know your FX position. Before it costs you."
+- BIRK FX gone from UI entirely
+- CFO sees 3 tabs: Dashboard, Hedging, Reports
+- Advanced toggle reveals Policy, Risk Sim, Data Import
+- Reports tab now has the Currency Plan download — cleaner than burying it in Hedging
