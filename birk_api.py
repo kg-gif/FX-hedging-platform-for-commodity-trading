@@ -8,6 +8,7 @@ import os
 import asyncio
 import httpx
 from functools import lru_cache
+from routes.pdf_routes import router as pdf_router
 
 # Import models and database utilities
 from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
@@ -110,6 +111,7 @@ def calculate_pnl_and_status(exposure, current_rate):
 app.include_router(hedging_router)
 app.include_router(data_import_router)
 app.include_router(monte_carlo_router)
+app.include_router(pdf_router)
 
 # Pydantic Models
 class CompanyResponse(BaseModel):
