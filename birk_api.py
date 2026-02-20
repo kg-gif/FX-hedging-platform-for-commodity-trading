@@ -695,51 +695,24 @@ def debug_breaches(company_id: int = 1, db: Session = Depends(get_db)):
 async def send_daily_alerts(company_id: int = 1, db: Session = Depends(get_db)):
     try:
         from sqlalchemy import text
-all_exposures = db.execute(text("""
-    SELECT from_currency, to_currency, amount, budget_rate, current_rate
-    FROM exposures
-    WHERE company_id = :cid
-    AND budget_rate IS NOT NULL
-    AND current_rate IS NOT NULL
-"""), {"cid": company_id}).fetchall()
-    exposures = []
-    for row in all_exposures:
-        r = row._mapping
-        pnl = (float(r["current_rate"]) - float(r["budget_rate"])) * float(r["amount"])
-        if pnl < -50000:
-            exposures.append({
-                "from_currency": r["from_currency"],
-                "to_currency": r["to_currency"],
-                "amount": r["amount"],
-                "current_pnl": pnl
-            })
-        if not exposures:
+        all_rows = db.execute(text("SELECT from_currency, to_currency, amount, budget_rate, current_rate FROM exposures WHERE company_id = :cid AND budget_rate IS NOT NULL AND current_rate IS NOT NULL"), {"cid": company_id}).fetchall()
+        breach_list = []
+        for row in all_rows:
+            r = row._mapping
+            pnl = (float(r["current_rate"]) - float(r["budget_rate"])) * float(r["amount"])
+            if pnl < -50000:
+                breach_list.append(str(r["from_currency"]) + "/" + str(r["to_currency"]) + " P&L: $" + str(int(pnl)))
+        if not breach_list:
             return {"message": "No alerts to send - all exposures within policy"}
-        breach_lines = ""
-        for exp in exposures:
-            e = exp._mapping
-            pair = str(e["from_currency"]) + "/" + str(e["to_currency"])
-            amount = str(int(e["amount"]))
-            pnl = str(int(e["current_pnl"])) if e["current_pnl"] else "N/A"
-            breach_lines += "<li>BREACH: " + pair + " - " + amount + " - P&L: " + pnl + "</li>"
-        html_content = "<h2>BIRK FX Daily Alert</h2>"
-        html_content += "<p>Daily exposure monitoring report for BIRK Commodities A/S</p>"
-        html_content += "<h3>Breaches</h3><ul>" + breach_lines + "</ul>"
-        html_content += "<p>Log in to review: <a href='https://birk-dashboard.onrender.com'>BIRK Dashboard</a></p>"
+        html_content = "<h2>BIRK FX Daily Alert</h2><ul>"
+        for item in breach_list:
+            html_content += "<li>" + item + "</li>"
+        html_content += "</ul><p><a href='https://birk-dashboard.onrender.com'>View Dashboard</a></p>"
         resend_api_key = os.environ.get("RESEND_API_KEY")
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.resend.com/emails",
-                headers={"Authorization": "Bearer " + resend_api_key, "Content-Type": "application/json"},
-                json={
-                    "from": "BIRK FX Alerts <alerts@sumnohow.com>",
-                    "to": ["kg@sumnohow.com"],
-                    "subject": "BIRK FX Alert - " + str(len(exposures)) + " exposure(s) need attention",
-                    "html": html_content
-                }
-            )
+            response = await client.post("https://api.resend.com/emails", headers={"Authorization": "Bearer " + resend_api_key, "Content-Type": "application/json"}, json={"from": "BIRK FX Alerts <alerts@sumnohow.com>", "to": ["kg@sumnohow.com"], "subject": "BIRK FX Alert - " + str(len(breach_list)) + " breach(es) detected", "html": html_content})
         if response.status_code == 200:
-            return {"message": "Alert sent successfully", "exposures_flagged": len(exposures)}
+            return {"message": "Alert sent", "breaches": len(breach_list)}
         else:
             raise HTTPException(status_code=500, detail="Resend error: " + response.text)
     except HTTPException:
