@@ -112,7 +112,9 @@ function AppContent() {
                 style={{ border: `1px solid ${GOLD}`, background: 'rgba(201,168,108,0.08)' }}>
                 <span className="text-xs font-bold leading-tight text-center"
                   style={{ color: GOLD, letterSpacing: '0.05em' }}>
-                  sum<br/>no<br/>how
+                  sum +<br/>
+                  no &nbsp;−<br/>
+                  how =
                 </span>
               </div>
               <div>
