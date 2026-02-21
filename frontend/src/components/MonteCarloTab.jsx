@@ -4,45 +4,37 @@ import { monteCarloService } from '../services/monteCarloService';
 import RiskMetricsCard from './RiskMetricsCard';
 import PnLHistogram from './PnLHistogram';
 
+const NAVY = '#1A2744';
+const GOLD = '#C9A86C';
+
 export default function MonteCarloTab({ exposures, loading }) {
   const [selectedExposureId, setSelectedExposureId] = useState(null);
-  const [horizonDays, setHorizonDays] = useState(90);
-  const [simulationLoading, setSimulationLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [simulationResult, setSimulationResult] = useState(null);
+  const [horizonDays, setHorizonDays]               = useState(90);
+  const [simulationLoading, setSimulationLoading]   = useState(false);
+  const [error, setError]                           = useState(null);
+  const [simulationResult, setSimulationResult]     = useState(null);
 
   useEffect(() => {
     console.log('MonteCarloTab received exposures:', exposures)
   }, [exposures])
 
-  // Early return AFTER all hooks
   if (!exposures || exposures.length === 0) {
     return (
       <div className="p-6">
-        <h2 className="text-2xl font-bold mb-4">Risk Analysis</h2>
-        <p>Loading exposures...</p>
+        <h2 className="text-xl font-bold mb-4" style={{ color: NAVY }}>Risk Analysis</h2>
+        <p className="text-gray-400">Loading exposures...</p>
       </div>
     );
   }
 
   const handleRunSimulation = async () => {
-    if (!selectedExposureId) {
-      setError('Please select an exposure first');
-      return;
-    }
-
+    if (!selectedExposureId) { setError('Please select an exposure first'); return; }
     setSimulationLoading(true);
     setError(null);
-
     try {
-      const result = await monteCarloService.runSimulation(
-        selectedExposureId,
-        horizonDays
-      );
-      console.log('Simulation result:', result);
+      const result = await monteCarloService.runSimulation(selectedExposureId, horizonDays);
       setSimulationResult(result);
     } catch (err) {
-      console.error('Simulation error:', err);
       setError(err.message);
     } finally {
       setSimulationLoading(false);
@@ -50,35 +42,37 @@ export default function MonteCarloTab({ exposures, loading }) {
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-2 flex items-center">
-          <TrendingUp className="mr-2" />
-          Risk Analysis - Monte Carlo Simulation
-        </h2>
-        <p className="text-gray-600">
-          Project future P&L scenarios and understand your downside risk
-        </p>
+    <div className="space-y-6">
+
+      {/* Header */}
+      <div className="rounded-xl shadow-md p-6" style={{ background: NAVY }}>
+        <div className="flex items-center gap-3">
+          <TrendingUp className="text-white" size={24} />
+          <div>
+            <h2 className="text-2xl font-bold text-white">Risk Simulation</h2>
+            <p className="text-sm mt-0.5" style={{ color: '#8DA4C4' }}>
+              Project future P&L scenarios and understand your downside risk
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Controls */}
-      <div className="bg-white p-6 rounded-lg shadow mb-6 border border-gray-200">
+      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          {/* Exposure Selector */}
+
+          {/* Exposure selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Exposure
-            </label>
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-2"
+              style={{ color: NAVY }}>Select Exposure</label>
             <select
               value={selectedExposureId || ''}
               onChange={(e) => setSelectedExposureId(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               disabled={loading}
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none"
             >
-              <option value="">
-                {loading ? '⏳ Loading exposures...' : 'Choose exposure...'}
-              </option>
-              {exposures && exposures.map(exp => (
+              <option value="">{loading ? 'Loading...' : 'Choose exposure...'}</option>
+              {exposures.map(exp => (
                 <option key={exp.id} value={exp.id}>
                   {exp.currency_pair} - {exp.amount?.toLocaleString()} @ {exp.current_rate}
                 </option>
@@ -86,21 +80,20 @@ export default function MonteCarloTab({ exposures, loading }) {
             </select>
           </div>
 
-          {/* Time Horizon */}
+          {/* Time horizon */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Time Horizon
-            </label>
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-2"
+              style={{ color: NAVY }}>Time Horizon</label>
             <div className="flex gap-2">
               {[30, 60, 90].map(days => (
                 <button
                   key={days}
                   onClick={() => setHorizonDays(days)}
-                  className={`flex-1 px-4 py-2 rounded-md font-medium transition-colors ${
-                    horizonDays === days
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                  className="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+                  style={{
+                    background: horizonDays === days ? NAVY : '#F4F6FA',
+                    color:      horizonDays === days ? 'white' : '#6B7280',
+                  }}
                 >
                   {days}d
                 </button>
@@ -108,121 +101,94 @@ export default function MonteCarloTab({ exposures, loading }) {
             </div>
           </div>
 
-          {/* Run Button */}
+          {/* Run button */}
           <div className="flex items-end">
             <button
               onClick={handleRunSimulation}
               disabled={simulationLoading || !selectedExposureId}
-              className="w-full bg-blue-600 text-white px-6 py-2 rounded-md font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center"
+              className="w-full py-2 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              style={{ background: GOLD, color: NAVY }}
             >
               {simulationLoading ? (
-                <>
-                  <RefreshCw className="mr-2 w-5 h-5 animate-spin" />
-                  Running...
-                </>
+                <><RefreshCw size={16} className="animate-spin" /> Running...</>
               ) : (
-                <>
-                  <Play className="mr-2 w-5 h-5" />
-                  Run Monte Carlo
-                </>
+                <><Play size={16} /> Run Simulation</>
               )}
             </button>
           </div>
         </div>
 
         {error && (
-          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-700">
-            <strong>Error:</strong> {typeof error === 'string' ? error : error.message || JSON.stringify(error)}
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            {typeof error === 'string' ? error : error.message || JSON.stringify(error)}
           </div>
         )}
       </div>
 
-      {/* Results - WITH DOUBLE NULL CHECK */}
+      {/* Results */}
       {simulationResult && simulationResult.simulation && (
         <>
-          {/* Exposure Info */}
-          <div className="bg-blue-50 p-4 rounded-lg mb-6 border border-blue-200">
+          <div className="rounded-xl p-4 border"
+            style={{ background: 'rgba(26,39,68,0.04)', borderColor: 'rgba(26,39,68,0.1)' }}>
             <div className="flex justify-between items-center">
               <div>
-                <h3 className="font-semibold text-lg">
+                <h3 className="font-semibold" style={{ color: NAVY }}>
                   {simulationResult.currency_pair || 'N/A'}
                 </h3>
-                <p className="text-sm text-gray-600">
-                  Exposure: {simulationResult.amount?.toLocaleString() || 'N/A'} units @{' '}
-                  {simulationResult.current_rate || 'N/A'}
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {simulationResult.amount?.toLocaleString()} units @ {simulationResult.current_rate}
                 </p>
               </div>
-              <div className="text-right">
-                <p className="text-sm text-gray-600">
-                  {simulationResult.simulation?.simulation_params?.num_scenarios?.toLocaleString() || 'N/A'} scenarios
-                </p>
-                <p className="text-sm text-gray-600">
-                  {horizonDays}-day projection
-                </p>
+              <div className="text-right text-sm text-gray-500">
+                <p>{simulationResult.simulation?.simulation_params?.num_scenarios?.toLocaleString()} scenarios</p>
+                <p>{horizonDays}-day projection</p>
               </div>
             </div>
           </div>
 
-          {/* Risk Metrics */}
           {simulationResult.simulation?.risk_metrics && (
             <RiskMetricsCard metrics={simulationResult.simulation.risk_metrics} />
           )}
 
-          {/* Histogram */}
           {simulationResult.simulation?.outcomes?.simulated_pnl && (
-            <PnLHistogram 
+            <PnLHistogram
               pnlData={simulationResult.simulation.outcomes.simulated_pnl}
               riskMetrics={simulationResult.simulation.risk_metrics}
             />
           )}
 
-          {/* Summary Stats */}
-          <div className="mt-6 bg-white p-6 rounded-lg shadow border border-gray-200">
-            <h3 className="text-lg font-semibold mb-4">Simulation Summary</h3>
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <h3 className="text-base font-semibold mb-4" style={{ color: NAVY }}>Simulation Summary</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <p className="text-sm text-gray-600">Volatility Used</p>
-                <p className="text-lg font-semibold">
-                  {simulationResult.simulation?.simulation_params?.volatility 
-                    ? (simulationResult.simulation.simulation_params.volatility * 100).toFixed(1) + '%'
-                    : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Max Loss</p>
-                <p className="text-lg font-semibold text-red-600">
-                  {simulationResult.simulation?.risk_metrics?.max_loss 
-                    ? '$' + Math.abs(simulationResult.simulation.risk_metrics.max_loss).toLocaleString()
-                    : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Max Gain</p>
-                <p className="text-lg font-semibold text-green-600">
-                  {simulationResult.simulation?.risk_metrics?.max_gain 
-                    ? '$' + simulationResult.simulation.risk_metrics.max_gain.toLocaleString()
-                    : 'N/A'}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Simulation ID</p>
-                <p className="text-lg font-semibold">
-                  #{simulationResult.simulation_id || 'N/A'}
-                </p>
-              </div>
+              {[
+                { label: 'Volatility', value: simulationResult.simulation?.simulation_params?.volatility
+                    ? (simulationResult.simulation.simulation_params.volatility * 100).toFixed(1) + '%' : 'N/A',
+                  color: NAVY },
+                { label: 'Max Loss', value: simulationResult.simulation?.risk_metrics?.max_loss
+                    ? '$' + Math.abs(simulationResult.simulation.risk_metrics.max_loss).toLocaleString() : 'N/A',
+                  color: '#EF4444' },
+                { label: 'Max Gain', value: simulationResult.simulation?.risk_metrics?.max_gain
+                    ? '$' + simulationResult.simulation.risk_metrics.max_gain.toLocaleString() : 'N/A',
+                  color: '#10B981' },
+                { label: 'Simulation ID', value: '#' + (simulationResult.simulation_id || 'N/A'),
+                  color: NAVY },
+              ].map(({ label, value, color }) => (
+                <div key={label}>
+                  <p className="text-xs text-gray-500 mb-1">{label}</p>
+                  <p className="text-lg font-semibold" style={{ color }}>{value}</p>
+                </div>
+              ))}
             </div>
           </div>
         </>
       )}
 
-      {/* Empty State - NO .simulation ACCESS */}
+      {/* Empty state */}
       {!simulationResult && !simulationLoading && (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-          <TrendingUp className="mx-auto w-12 h-12 text-gray-400 mb-4" />
-          <p className="text-gray-600 mb-2">No simulation results yet</p>
-          <p className="text-sm text-gray-500">
-            Select an exposure and run a simulation to see risk projections
-          </p>
+        <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-gray-200">
+          <TrendingUp className="mx-auto mb-4 text-gray-300" size={40} />
+          <p className="text-gray-500 font-medium">No simulation results yet</p>
+          <p className="text-sm text-gray-400 mt-1">Select an exposure and run a simulation</p>
         </div>
       )}
     </div>

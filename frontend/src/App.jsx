@@ -112,6 +112,10 @@ function AppContent() {
                 src="/logo.png.jpg"
                 alt="Sumnohow"
                 className="h-12 w-auto object-contain"
+                style={{
+                  mixBlendMode: 'screen',
+                  filter: 'brightness(0.9)'
+                }}
                 onError={(e) => { e.target.style.display = 'none' }}
               />
               <div>
