@@ -107,22 +107,17 @@ function AppContent() {
           <div className="flex items-center justify-between">
 
             {/* Logo + brand */}
-            <div className="flex items-center gap-4">
-              <img
-                src="/logo.png.jpg"
-                alt="Sumnohow"
-                className="h-12 w-auto object-contain"
-                style={{
-                  mixBlendMode: 'screen',
-                  filter: 'brightness(0.9)'
-                }}
-                onError={(e) => { e.target.style.display = 'none' }}
-              />
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded flex items-center justify-center"
+                style={{ border: `1px solid ${GOLD}`, background: 'rgba(201,168,108,0.08)' }}>
+                <span className="text-xs font-bold leading-tight text-center"
+                  style={{ color: GOLD, letterSpacing: '0.05em' }}>
+                  sum<br/>no<br/>how
+                </span>
+              </div>
               <div>
-                <span
-                  className="text-2xl font-bold tracking-widest uppercase block"
-                  style={{ color: GOLD, letterSpacing: '0.15em' }}
-                >
+                <span className="text-2xl font-bold tracking-widest uppercase block"
+                  style={{ color: GOLD, letterSpacing: '0.15em' }}>
                   sumnohow
                 </span>
                 <p className="text-xs mt-0.5 italic" style={{ color: '#8DA4C4' }}>
