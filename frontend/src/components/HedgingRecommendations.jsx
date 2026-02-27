@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react'
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+})
 
 function HedgingRecommendations() {
   const [recommendations, setRecommendations] = useState([])
@@ -12,7 +16,7 @@ function HedgingRecommendations() {
   const [downloading, setDownloading]         = useState(false)
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/recommendations?company_id=1`)
+    fetch(`${API_BASE}/api/recommendations?company_id=1`, { headers: authHeaders() })
       .then(res => res.json())
       .then(data => {
         if (data.error) { setError(data.error) }
@@ -25,7 +29,7 @@ function HedgingRecommendations() {
   const handleDownloadPDF = async () => {
     setDownloading(true)
     try {
-      const response = await fetch(`${API_BASE}/api/reports/currency-plan?company_id=1`)
+      const response = await fetch(`${API_BASE}/api/reports/currency-plan?company_id=1`, { headers: authHeaders() })
       if (!response.ok) throw new Error('Failed to generate report')
       const blob = await response.blob()
       const url  = window.URL.createObjectURL(blob)

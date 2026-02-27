@@ -4,6 +4,10 @@ import { Save, Building2, Landmark, Bell, ShieldCheck, History, AlertTriangle, C
 import { NAVY, GOLD, DANGER, SUCCESS, WARNING } from '../brand'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+})
 
 const Section = ({ icon: Icon, title, children }) => (
   <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
@@ -52,9 +56,9 @@ export default function Settings() {
     setLoading(true)
     try {
       const [sRes, pRes, aRes] = await Promise.all([
-        fetch(`${API_BASE}/api/settings/${companyId}`).then(r => r.json()),
-        fetch(`${API_BASE}/api/policies?company_id=${companyId}`).then(r => r.json()),
-        fetch(`${API_BASE}/api/settings/${companyId}/audit`).then(r => r.json())
+        fetch(`${API_BASE}/api/settings/${companyId}`, { headers: authHeaders() }).then(r => r.json()),
+        fetch(`${API_BASE}/api/policies?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json()),
+        fetch(`${API_BASE}/api/settings/${companyId}/audit`, { headers: authHeaders() }).then(r => r.json())
       ])
 
       setSettings(sRes)
@@ -91,7 +95,7 @@ export default function Settings() {
     try {
       const r = await fetch(`${API_BASE}/api/settings/${companyId}/${section}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify(payload)
       })
       const data = await r.json()
@@ -112,7 +116,7 @@ export default function Settings() {
     try {
       const r = await fetch(`${API_BASE}/api/settings/policy/cascade/preview`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ policy_id: policyId, company_id: companyId })
       })
       const preview = await r.json()
@@ -128,7 +132,7 @@ export default function Settings() {
     try {
       const r = await fetch(`${API_BASE}/api/settings/policy/cascade`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({ policy_id: pendingPolicyId, company_id: companyId, changed_by: 'admin' })
       })
       const data = await r.json()

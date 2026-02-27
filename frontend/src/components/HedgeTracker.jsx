@@ -11,6 +11,11 @@ import {
   RefreshCw
 } from 'lucide-react';
 
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+});
+
 const HedgeTracker = ({ companyId }) => {
   const [hedges, setHedges] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,7 +31,8 @@ const HedgeTracker = ({ companyId }) => {
     setLoading(true);
     try {
       const response = await fetch(
-        `/api/hedging/active-hedges/${companyId}?status=${filter}`
+        `/api/hedging/active-hedges/${companyId}?status=${filter}`,
+        { headers: authHeaders() }
       );
       const data = await response.json();
       setHedges(data.hedges || []);
@@ -94,7 +100,7 @@ const HedgeTracker = ({ companyId }) => {
 
   const handleRollover = async (hedgeId) => {
     try {
-      const response = await fetch(`/api/hedging/rollover-recommendation/${hedgeId}`);
+      const response = await fetch(`/api/hedging/rollover-recommendation/${hedgeId}`, { headers: authHeaders() });
       const data = await response.json();
       alert(`Recommendation: ${data.recommendation}\nAction: ${data.action}`);
     } catch (error) {

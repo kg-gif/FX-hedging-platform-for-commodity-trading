@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react'
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+})
 
 const POLICY_DESCRIPTIONS = {
   CONSERVATIVE:  'Maximum protection. Hedge 85% of large exposures. Best for tight margin businesses.',
@@ -19,7 +23,7 @@ function PolicySelector({ onPolicyChange }) {
   useEffect(() => { loadPolicies() }, [])
 
   function loadPolicies() {
-    fetch(`${API_BASE}/api/policies?company_id=1`)
+    fetch(`${API_BASE}/api/policies?company_id=1`, { headers: authHeaders() })
       .then(res => res.json())
       .then(data => { setPolicies(data.policies); setLoading(false) })
       .catch(() => { setError('Failed to load policies'); setLoading(false) })
@@ -27,7 +31,7 @@ function PolicySelector({ onPolicyChange }) {
 
   function activatePolicy(policyId) {
     setActivating(policyId)
-    fetch(`${API_BASE}/api/policies/${policyId}/activate?company_id=1`, { method: 'POST' })
+    fetch(`${API_BASE}/api/policies/${policyId}/activate?company_id=1`, { method: 'POST', headers: authHeaders() })
       .then(res => res.json())
       .then(() => {
         loadPolicies()

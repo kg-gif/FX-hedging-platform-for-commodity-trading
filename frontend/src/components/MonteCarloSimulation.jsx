@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { useCompany } from '../contexts/CompanyContext'
 import { TrendingUp, TrendingDown, AlertTriangle, Target, RefreshCw, BarChart3, Activity } from 'lucide-react'
 
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+})
+
 const MonteCarloSimulation = () => {
   const { selectedCompanyId, API_BASE_URL, getSelectedCompany } = useCompany()
   
@@ -25,7 +30,7 @@ const MonteCarloSimulation = () => {
 
   const fetchExposures = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/companies/${selectedCompanyId}/exposures`)
+      const response = await fetch(`${API_BASE_URL}/companies/${selectedCompanyId}/exposures`, { headers: authHeaders() })
       const data = await response.json()
       setExposures(data)
       
@@ -45,7 +50,7 @@ const MonteCarloSimulation = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/monte-carlo/simulate/exposure`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({
           exposure_id: selectedExposure.id,
           time_horizon_days: timeHorizon,
@@ -74,7 +79,7 @@ const MonteCarloSimulation = () => {
     
     const response = await fetch(`${API_BASE_URL}/api/monte-carlo/simulate/portfolio`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({
         company_id: selectedCompanyId,
         time_horizon_days: timeHorizon,

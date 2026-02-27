@@ -17,6 +17,10 @@ export const CompanyProvider = ({ children }) => {
   const [error, setError] = useState(null)
 
   const API_BASE_URL = 'https://birk-fx-api.onrender.com'
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+  })
 
   useEffect(() => {
     fetchCompanies()
@@ -25,7 +29,7 @@ export const CompanyProvider = ({ children }) => {
   const fetchCompanies = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/companies`)
+      const response = await fetch(`${API_BASE_URL}/companies`, { headers: authHeaders() })
       
       if (!response.ok) {
         throw new Error('Failed to fetch companies')

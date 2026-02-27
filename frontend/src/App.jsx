@@ -30,6 +30,11 @@ function clearAuth() {
   localStorage.removeItem('auth_user')
 }
 
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+})
+
 function AppContent({ authUser, onLogout }) {
   const { selectedCompanyId } = useCompany()
   const [currentPage, setCurrentPage] = useState('dashboard')
@@ -41,7 +46,7 @@ function AppContent({ authUser, onLogout }) {
 
   const fetchExposures = async () => {
     try {
-      const response = await fetch(`${API_URL}/exposures?company_id=${selectedCompanyId}`)
+      const response = await fetch(`${API_URL}/exposures?company_id=${selectedCompanyId}`, { headers: authHeaders() })
       if (!response.ok) throw new Error('Failed to fetch')
       const data = await response.json()
       setExposures(data.map(exp => ({

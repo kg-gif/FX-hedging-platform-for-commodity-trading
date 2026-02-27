@@ -4,6 +4,10 @@ import { Plus, Save, X, CheckCircle, AlertCircle, AlertTriangle, Calendar, Dolla
 import { NAVY, GOLD, WARNING } from '../brand';
 
 const API_BASE_URL = 'https://birk-fx-api.onrender.com';
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+});
 
 const EMPTY_FORM = {
   reference_number: '',
@@ -74,7 +78,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       setMessage(null);
       const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify(buildPayload(formData))
       });
       const data = await response.json();
@@ -129,7 +133,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authHeaders(),
           body: JSON.stringify(buildPayload(entry))
         });
         const data = await response.json();

@@ -5,6 +5,10 @@ import FileUpload from './FileUpload.jsx';
 import ManualEntry from './ManualEntry.jsx';
 
 const API_BASE = 'https://birk-fx-api.onrender.com';
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+});
 const NAVY = '#1A2744';
 const GOLD = '#C9A86C';
 
@@ -22,7 +26,7 @@ const DataImportDashboard = () => {
     if (!selectedCompany) return;
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${selectedCompany.id}`);
+      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${selectedCompany.id}`, { headers: authHeaders() });
       const data = await response.json();
       if (data.success) setExposures(data.exposures || []);
     } catch {
@@ -61,7 +65,7 @@ const DataImportDashboard = () => {
       setLoading(true);
       const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${editingExposure.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({
           currency_pair: editForm.currency_pair,
           amount: parseFloat(editForm.amount),
@@ -89,7 +93,7 @@ const DataImportDashboard = () => {
   const confirmDelete = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, { method: 'DELETE', headers: authHeaders() });
       const data = await response.json();
       if (data.success) {
         setMessage({ type: 'success', text: 'Exposure deleted successfully!' });

@@ -4,6 +4,10 @@ import { Edit2, Trash2, AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, Re
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
+})
 
 const CURRENCY_FLAGS = {
   'EUR':'🇪🇺','USD':'🇺🇸','GBP':'🇬🇧','JPY':'🇯🇵','CHF':'🇨🇭',
@@ -40,7 +44,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
 
   const fetchCompanies = async () => {
     try {
-      const data = await fetch(`${API_BASE}/companies`).then(r => r.json())
+      const data = await fetch(`${API_BASE}/companies`, { headers: authHeaders() }).then(r => r.json())
       setCompanies(data)
       if (data.length > 0) setSelectedCompany(data[0])
     } catch { setError('Failed to fetch companies') }
@@ -48,7 +52,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
 
   const fetchPolicy = async () => {
     try {
-      const r = await fetch(`${API_BASE}/api/policies/1`)
+      const r = await fetch(`${API_BASE}/api/policies/1`, { headers: authHeaders() })
       if (r.ok) setPolicy(await r.json())
     } catch {}
   }
@@ -56,7 +60,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const fetchExposures = async (companyId) => {
     setLoading(true)
     try {
-      const data = await fetch(`${API_BASE}/exposures?company_id=${companyId}`).then(r => r.json())
+      const data = await fetch(`${API_BASE}/exposures?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json())
       setExposures(Array.isArray(data) ? data : [])
       setLastUpdated(new Date())
     } catch { setError('Failed to fetch exposures') }
@@ -67,7 +71,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     if (!selectedCompany) return
     setRefreshing(true)
     try {
-      await fetch(`${API_BASE}/companies/${selectedCompany.id}/refresh-rates`, { method: 'POST' })
+      await fetch(`${API_BASE}/companies/${selectedCompany.id}/refresh-rates`, { method: 'POST', headers: authHeaders() })
       await fetchExposures(selectedCompany.id)
     } catch { setError('Failed to refresh rates') }
     finally { setRefreshing(false) }
@@ -76,7 +80,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const handleEditSave = async (updated) => {
     try {
       const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${updated.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated)
+        method: 'PUT', headers: authHeaders(), body: JSON.stringify(updated)
       })
       if (r.ok) { setShowEditModal(false); setEditingExposure(null); fetchExposures(selectedCompany.id) }
       else alert('Failed to update')
@@ -85,7 +89,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
 
   const handleDeleteConfirm = async () => {
     try {
-      const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, { method: 'DELETE' })
+      const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, { method: 'DELETE', headers: authHeaders() })
       if (r.ok) { setShowDeleteConfirm(false); setDeletingExposure(null); fetchExposures(selectedCompany.id) }
       else alert('Failed to delete')
     } catch { alert('Error deleting') }
