@@ -17,5 +17,5 @@ scipy>=1.10.0
 alembic==1.13.1
 reportlab==4.4.10
 anthropic
-passlib[bcrypt]
+bcrypt==4.0.1
 python-jose[cryptography]

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import os
 import logging
 
-from passlib.context import CryptContext
+import bcrypt
 from jose import JWTError, jwt
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,6 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-r
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 
@@ -55,10 +54,10 @@ def get_db():
         db.close()
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
