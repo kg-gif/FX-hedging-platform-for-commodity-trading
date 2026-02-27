@@ -152,7 +152,7 @@ async def create_manual_exposure(
             budget_rate=request.budget_rate,
             max_loss_limit=request.max_loss_limit,
             target_profit=request.target_profit,
-            hedge_ratio_policy=request.hedge_ratio_policy if request.hedge_ratio_policy else 1.0
+            hedge_ratio_policy=request.hedge_ratio_policy if request.hedge_ratio_policy else 1.0,
             instrument_type=request.instrument_type or 'Spot'
         )
         
