@@ -195,3 +195,51 @@ def change_password(
     })
     db.commit()
     return {"message": "Password updated successfully"}
+
+
+@router.get("/users")
+def list_users(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all users — admin only."""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    result = db.execute(text("""
+        SELECT u.id, u.email, u.role, u.created_at, c.name as company_name
+        FROM users u
+        LEFT JOIN companies c ON u.company_id = c.id
+        ORDER BY u.created_at DESC
+    """)).fetchall()
+
+    return {
+        "users": [
+            {
+                "id": r._mapping["id"],
+                "email": r._mapping["email"],
+                "role": r._mapping["role"],
+                "created_at": r._mapping["created_at"],
+                "company_name": r._mapping["company_name"]
+            }
+            for r in result
+        ]
+    }
+
+
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a user — admin only. Cannot delete yourself."""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    if current_user["user_id"] == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+    db.commit()
+    return {"message": "User deleted"}

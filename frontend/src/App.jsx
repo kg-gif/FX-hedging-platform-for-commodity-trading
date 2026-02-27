@@ -9,13 +9,13 @@ import HedgeTracker from './components/HedgeTracker'
 import DataImportDashboard from './components/DataImportDashboard'
 import MonteCarloTab from './components/MonteCarloTab'
 import Settings from './components/Settings'
+import Admin from './components/Admin'
 import Login from './components/Login'
 
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
 const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 
-// ── Auth helpers ─────────────────────────────────────────────────
 function getStoredAuth() {
   try {
     const token = localStorage.getItem('auth_token')
@@ -30,14 +30,14 @@ function clearAuth() {
   localStorage.removeItem('auth_user')
 }
 
-
-// ── Main app (shown after login) ─────────────────────────────────
 function AppContent({ authUser, onLogout }) {
   const { selectedCompanyId } = useCompany()
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [exposures, setExposures] = useState([])
   const [loadingExposures, setLoadingExposures] = useState(true)
+
+  const isAdmin = authUser?.role === 'admin'
 
   const fetchExposures = async () => {
     try {
@@ -59,15 +59,14 @@ function AppContent({ authUser, onLogout }) {
     if (selectedCompanyId) fetchExposures()
   }, [selectedCompanyId])
 
-  // CFO-facing navigation
   const cfoNav = [
     { id: 'dashboard', name: 'Dashboard' },
     { id: 'hedging',   name: 'Hedging'   },
     { id: 'reports',   name: 'Reports'   },
     { id: 'settings',  name: 'Settings'  },
+    ...(isAdmin ? [{ id: 'admin', name: '⚙ Admin' }] : [])
   ]
 
-  // Advanced / analyst navigation
   const advancedNav = [
     { id: 'policy',      name: 'Policy'      },
     { id: 'monte-carlo', name: 'Risk Sim'    },
@@ -95,9 +94,7 @@ function AppContent({ authUser, onLogout }) {
               Download your Automated Currency Plan or view historical reports.
             </p>
             <button
-              onClick={() => {
-                window.open(`${API_URL}/api/reports/currency-plan?company_id=1`, '_blank')
-              }}
+              onClick={() => window.open(`${API_URL}/api/reports/currency-plan?company_id=1`, '_blank')}
               className="px-8 py-3 text-white rounded-lg font-semibold"
               style={{ background: NAVY }}
             >
@@ -113,6 +110,8 @@ function AppContent({ authUser, onLogout }) {
         return <DataImportDashboard />
       case 'settings':
         return <Settings />
+      case 'admin':
+        return isAdmin ? <Admin authUser={authUser} /> : <Dashboard exposures={exposures} loading={loadingExposures} />
       default:
         return <Dashboard exposures={exposures} loading={loadingExposures} />
     }
@@ -122,39 +121,28 @@ function AppContent({ authUser, onLogout }) {
 
   return (
     <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
-
-      {/* ── HEADER ────────────────────────────────────────────────── */}
       <div style={{ background: NAVY }} className="shadow-xl">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
-
-            {/* Logo + brand */}
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded flex items-center justify-center"
                 style={{ border: `1px solid ${GOLD}`, background: 'rgba(201,168,108,0.08)' }}>
                 <span className="text-xs font-bold leading-tight text-center"
                   style={{ color: GOLD, letterSpacing: '0.05em' }}>
-                  sum +<br/>
-                  no &nbsp;−<br/>
-                  how =
+                  sum +<br/>no &nbsp;−<br/>how =
                 </span>
               </div>
               <div>
                 <span className="text-2xl font-bold tracking-widest uppercase block"
-                  style={{ color: GOLD, letterSpacing: '0.15em' }}>
-                  sumnohow
-                </span>
+                  style={{ color: GOLD, letterSpacing: '0.15em' }}>sumnohow</span>
                 <p className="text-xs mt-0.5 italic" style={{ color: '#8DA4C4' }}>
                   Know your FX position. Before it costs you.
                 </p>
               </div>
             </div>
 
-            {/* Right side: company selector + user info + logout */}
             <div className="flex items-center gap-4">
               <CompanySelector />
-
-              {/* Logged-in user */}
               <div className="flex items-center gap-3 pl-4"
                 style={{ borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
                 <div className="text-right hidden sm:block">
@@ -164,11 +152,7 @@ function AppContent({ authUser, onLogout }) {
                 <button
                   onClick={onLogout}
                   className="text-xs px-3 py-1.5 rounded-lg transition-all"
-                  style={{
-                    color: '#8DA4C4',
-                    border: '1px solid rgba(255,255,255,0.15)',
-                    background: 'transparent'
-                  }}
+                  style={{ color: '#8DA4C4', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent' }}
                   onMouseEnter={e => { e.target.style.color = 'white'; e.target.style.borderColor = 'rgba(255,255,255,0.4)' }}
                   onMouseLeave={e => { e.target.style.color = '#8DA4C4'; e.target.style.borderColor = 'rgba(255,255,255,0.15)' }}
                 >
@@ -179,51 +163,41 @@ function AppContent({ authUser, onLogout }) {
           </div>
         </div>
 
-        {/* ── NAV ───────────────────────────────────────────────── */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="container mx-auto px-6 flex items-center justify-between">
             <nav className="flex space-x-1">
               {allNav.map((item) => {
                 const active = currentPage === item.id
                 return (
-                  <button
-                    key={item.id}
-                    onClick={() => setCurrentPage(item.id)}
+                  <button key={item.id} onClick={() => setCurrentPage(item.id)}
                     className="flex items-center px-4 py-4 text-sm font-medium transition-all"
                     style={{
-                      color:        active ? GOLD : '#8DA4C4',
+                      color: active ? GOLD : '#8DA4C4',
                       borderBottom: active ? `2px solid ${GOLD}` : '2px solid transparent',
-                      background:   'transparent',
-                    }}
-                  >
+                      background: 'transparent',
+                    }}>
                     {item.name}
                   </button>
                 )
               })}
             </nav>
-
-            {/* Advanced toggle */}
             <button
               onClick={() => {
                 setShowAdvanced(!showAdvanced)
-                if (showAdvanced && advancedNav.find(n => n.id === currentPage)) {
-                  setCurrentPage('dashboard')
-                }
+                if (showAdvanced && advancedNav.find(n => n.id === currentPage)) setCurrentPage('dashboard')
               }}
               className="text-xs px-3 py-1 rounded-full transition-all"
               style={{
-                color:   showAdvanced ? NAVY : '#8DA4C4',
+                color: showAdvanced ? NAVY : '#8DA4C4',
                 background: showAdvanced ? GOLD : 'rgba(255,255,255,0.08)',
                 border: '1px solid rgba(255,255,255,0.15)'
-              }}
-            >
+              }}>
               {showAdvanced ? 'Hide Advanced' : 'Advanced'}
             </button>
           </div>
         </div>
       </div>
 
-      {/* ── CONTENT ───────────────────────────────────────────────── */}
       <div className="container mx-auto px-6 py-8">
         {renderPage()}
       </div>
@@ -231,31 +205,18 @@ function AppContent({ authUser, onLogout }) {
   )
 }
 
-
-// ── Root app — handles auth gate ─────────────────────────────────
 function App() {
   const [authData, setAuthData] = useState(null)
   const [checking, setChecking] = useState(true)
 
-  // On first load — check if we already have a valid stored token
   useEffect(() => {
     const stored = getStoredAuth()
     if (stored) {
-      // Verify token is still valid with backend
       fetch(`${API_URL}/api/auth/me`, {
         headers: { Authorization: `Bearer ${stored.token}` }
       })
-        .then(r => {
-          if (r.ok) {
-            setAuthData(stored)
-          } else {
-            clearAuth()
-          }
-        })
-        .catch(() => {
-          // If backend is unreachable, trust stored token for now
-          setAuthData(stored)
-        })
+        .then(r => { if (r.ok) setAuthData(stored); else clearAuth() })
+        .catch(() => setAuthData(stored))
         .finally(() => setChecking(false))
     } else {
       setChecking(false)
@@ -265,37 +226,20 @@ function App() {
   const handleLoginSuccess = (data) => {
     setAuthData({
       token: data.access_token,
-      user: {
-        user_id: data.user_id,
-        email: data.email,
-        company_id: data.company_id,
-        role: data.role
-      }
+      user: { user_id: data.user_id, email: data.email, company_id: data.company_id, role: data.role }
     })
   }
 
-  const handleLogout = () => {
-    clearAuth()
-    setAuthData(null)
-  }
+  const handleLogout = () => { clearAuth(); setAuthData(null) }
 
-  // Brief loading state while verifying stored token
-  if (checking) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: NAVY }}>
-        <div className="text-center">
-          <p className="text-sm" style={{ color: '#8DA4C4' }}>Loading…</p>
-        </div>
-      </div>
-    )
-  }
+  if (checking) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: NAVY }}>
+      <p className="text-sm" style={{ color: '#8DA4C4' }}>Loading…</p>
+    </div>
+  )
 
-  // Not logged in — show login page
-  if (!authData) {
-    return <Login onLoginSuccess={handleLoginSuccess} />
-  }
+  if (!authData) return <Login onLoginSuccess={handleLoginSuccess} />
 
-  // Logged in — show the app
   return (
     <CompanyProvider>
       <AppContent authUser={authData.user} onLogout={handleLogout} />
