@@ -71,7 +71,7 @@ def create_company(request: CreateCompanyRequest, admin: dict = Depends(require_
     existing = db.execute(text("SELECT id FROM companies WHERE name = :name"), {"name": request.name}).fetchone()
     if existing:
         raise HTTPException(status_code=400, detail="A company with this name already exists")
-    result = db.execute(text("INSERT INTO companies (name, base_currency, trading_volume_monthly, company_type, created_at, updated_at) VALUES (:name, :base_currency, :volume, 'IMPORTER_EXPORTER', NOW(), NOW()) RETURNING id, name"), {"name": request.name, "base_currency": request.base_currency, "volume": request.trading_volume_monthly})
+    result = db.execute(text("INSERT INTO companies (name, base_currency, trading_volume_monthly, company_type, created_at, updated_at) VALUES (:name, :base_currency, :volume, 'COMMODITY_TRADER', NOW(), NOW()) RETURNING id, name"), {"name": request.name, "base_currency": request.base_currency, "volume": request.trading_volume_monthly})
     db.commit()
     row = result.fetchone()
     return {"message": "Company created", "id": row._mapping["id"], "name": row._mapping["name"]}
