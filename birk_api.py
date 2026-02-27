@@ -207,6 +207,88 @@ async def fetch_fx_rate(base_currency: str, target_currency: str) -> Optional[fl
 
 
 async def get_current_rates(currency_pairs: List[str]) -> Dict[str, Dict]:
+    """Fetch rates from DB cache first. Only call live API if cache is stale (4 hours)."""
+    db = SessionLocal()
+    out = {}
+    pairs_needing_refresh = []
+
+    try:
+        for pair in currency_pairs:
+            if len(pair.split("/")) != 2:
+                continue
+
+            # Check database cache
+            cached = db.query(FXRate)\
+                .filter(FXRate.currency_pair == pair)\
+                .order_by(FXRate.timestamp.desc())\
+                .first()
+
+            if cached and cached.timestamp:
+                age = datetime.utcnow() - cached.timestamp.replace(tzinfo=None)
+                if age < timedelta(hours=4):
+                    # Cache is fresh — use it
+                    out[pair] = {
+                        "rate": cached.rate,
+                        "timestamp": cached.timestamp.isoformat(),
+                        "source": "cache"
+                    }
+                    continue
+
+            # Cache is stale or missing — needs refresh
+            pairs_needing_refresh.append(pair)
+
+        # Only call live API for stale pairs
+        if pairs_needing_refresh:
+            logger.info(f"Fetching live rates for {len(pairs_needing_refresh)} pairs: {pairs_needing_refresh}")
+            tasks = []
+            for pair in pairs_needing_refresh:
+                base, target = pair.split("/")
+                tasks.append(fetch_fx_rate(base.strip(), target.strip()))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for i, pair in enumerate(pairs_needing_refresh):
+                res = results[i]
+                if isinstance(res, Exception) or res is None:
+                    # Fall back to last known rate
+                    cached = db.query(FXRate)\
+                        .filter(FXRate.currency_pair == pair)\
+                        .order_by(FXRate.timestamp.desc())\
+                        .first()
+                    if cached:
+                        out[pair] = {
+                            "rate": cached.rate,
+                            "timestamp": cached.timestamp.isoformat(),
+                            "source": "cache_fallback"
+                        }
+                    else:
+                        out[pair] = None
+                else:
+                    # Save fresh rate to DB
+                    fx = FXRate(
+                        currency_pair=pair,
+                        rate=res,
+                        timestamp=datetime.utcnow(),
+                        source="exchangerate-api.com"
+                    )
+                    db.add(fx)
+                    out[pair] = {
+                        "rate": res,
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "source": "live"
+                    }
+
+            db.commit()
+        else:
+            logger.info("All rates served from cache — no API calls made")
+
+    except Exception as e:
+        logger.error(f"Error in get_current_rates: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+    return out
     """Fetch multiple currency pairs concurrently.
 
     currency_pairs: list like ["EUR/USD", "GBP/USD"]
@@ -322,34 +404,18 @@ def get_company_exposures(company_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/fx-rates")
 async def api_get_fx_rates(pairs: str, company_id: Optional[int] = None, db: Session = Depends(get_db)):
-    """Fetch live FX rates for comma-separated pairs, persist them, and return results."""
+    """Fetch FX rates using 4-hour cache."""
     pair_list = [p.strip() for p in pairs.split(",") if p.strip()]
     rates_map = await get_current_rates(pair_list)
-
     response = []
     for pair in pair_list:
         info = rates_map.get(pair)
-        if not info:
-            response.append({"currency_pair": pair, "rate": None, "timestamp": None, "source": None})
-            continue
-
-        # Persist
-        fx = FXRate(
-            currency_pair=pair,
-            rate=info["rate"],
-            timestamp=info.get("timestamp", datetime.utcnow()),
-            source=info.get("source", "ExchangeRate-API")
-        )
-        db.add(fx)
-
         response.append({
             "currency_pair": pair,
-            "rate": info["rate"],
-            "timestamp": info.get("timestamp"),
-            "source": info.get("source")
+            "rate": info["rate"] if info else None,
+            "timestamp": info["timestamp"] if info else None,
+            "source": info["source"] if info else None
         })
-
-    db.commit()
     return {"rates": response, "timestamp": datetime.utcnow()}
 
 
