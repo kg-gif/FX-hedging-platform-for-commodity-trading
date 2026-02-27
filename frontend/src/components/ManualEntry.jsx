@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCompany } from '../contexts/CompanyContext';
-import { Plus, Save, X, CheckCircle, AlertCircle, Calendar, DollarSign, FileText, Hash } from 'lucide-react';
-import { NAVY, GOLD } from '../brand';
+import { Plus, Save, X, CheckCircle, AlertCircle, AlertTriangle, Calendar, DollarSign, FileText, Hash } from 'lucide-react';
+import { NAVY, GOLD, WARNING } from '../brand';
 
 const API_BASE_URL = 'https://birk-fx-api.onrender.com';
 
@@ -28,6 +28,8 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
   const [errors, setErrors]       = useState({});
   const [message, setMessage]     = useState(null);
   const [loading, setLoading]     = useState(false);
+  const [showOverrideConfirm, setShowOverrideConfirm] = useState(false);
+  const [pendingSave, setPendingSave] = useState(false);
 
   useEffect(() => {
     console.log('Company ID in ManualEntry:', selectedCompanyId);
@@ -64,11 +66,9 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     instrument_type:    data.instrument_type || 'Spot'
   });
 
-  const handleSave = async (e) => {
-    e.preventDefault();
-    if (!validateForm()) { setMessage({ type: 'error', text: 'Please fix the errors above' }); return; }
-    if (!selectedCompanyId) { setMessage({ type: 'error', text: 'Please select a company first' }); return; }
-
+  const doSave = async () => {
+    setPendingSave(false);
+    setShowOverrideConfirm(false);
     try {
       setLoading(true);
       setMessage(null);
@@ -81,7 +81,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
 
       if (response.ok && data.success) {
         setMessage({ type: 'success', text: data.message || 'Exposure saved successfully!' });
-        setFormData(EMPTY_FORM);  // Full reset — preserves instrument_type default
+        setFormData(EMPTY_FORM);
         setErrors({});
         if (onSaveSuccess) onSaveSuccess();
       } else {
@@ -92,6 +92,21 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) { setMessage({ type: 'error', text: 'Please fix the errors above' }); return; }
+    if (!selectedCompanyId) { setMessage({ type: 'error', text: 'Please select a company first' }); return; }
+
+    // If hedge ratio differs from 100% default, confirm override intent
+    const ratio = parseFloat(formData.hedge_ratio_policy);
+    if (ratio !== 1.0 && !pendingSave) {
+      setShowOverrideConfirm(true);
+      return;
+    }
+
+    await doSave();
   };
 
   const handleAddToBatch = (e) => {
@@ -405,6 +420,44 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
                   className="text-red-400 hover:text-red-600"><X size={16} /></button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {showOverrideConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <AlertTriangle size={20} color={WARNING} />
+              <h2 className="text-lg font-bold" style={{ color: NAVY }}>Set Manual Override?</h2>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              You are setting a target hedge of <strong>{(parseFloat(formData.hedge_ratio_policy) * 100).toFixed(0)}%</strong> on this exposure.
+            </p>
+            <p className="text-sm text-gray-600 mb-5">
+              This creates a <strong>manual override</strong>. If you change the company hedging policy later,
+              this exposure will <strong>not</strong> be automatically updated.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowOverrideConfirm(false)}
+                className="px-5 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">
+                Cancel
+              </button>
+              <button
+                onClick={() => { setPendingSave(true); doSave(); }}
+                className="px-5 py-2 text-white rounded-lg text-sm font-semibold"
+                style={{ background: NAVY }}>
+                Yes, Set Override
+              </button>
+              <button
+                onClick={() => {
+                  setFormData({ ...formData, hedge_ratio_policy: '1.0' });
+                  setShowOverrideConfirm(false);
+                }}
+                className="px-5 py-2 rounded-lg text-sm font-semibold"
+                style={{ background: GOLD, color: NAVY }}>
+                Keep Policy Default
+              </button>
+            </div>
           </div>
         </div>
       )}

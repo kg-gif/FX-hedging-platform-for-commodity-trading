@@ -9,6 +9,7 @@ import asyncio
 import httpx
 from functools import lru_cache
 from routes.pdf_routes import router as pdf_router
+from routes.settings_routes import router as settings_router
 
 # Import models and database utilities
 from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
@@ -112,6 +113,7 @@ app.include_router(hedging_router)
 app.include_router(data_import_router)
 app.include_router(monte_carlo_router)
 app.include_router(pdf_router)
+app.include_router(settings_router)
 
 # Pydantic Models
 class CompanyResponse(BaseModel):
@@ -558,6 +560,39 @@ async def startup_event():
             
     except Exception as e:
         print(f"✗ Error during startup: {e}")
+        db.rollback()
+
+    # Auto-migrate new columns if they don't exist
+    try:
+        from sqlalchemy import text as _text
+        migrations = [
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bank_name VARCHAR(255)",
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bank_contact_name VARCHAR(255)",
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bank_email VARCHAR(255)",
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS alert_email VARCHAR(255)",
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS daily_digest BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS hedge_override BOOLEAN DEFAULT FALSE",
+            """CREATE TABLE IF NOT EXISTS policy_audit_log (
+                id SERIAL PRIMARY KEY,
+                company_id INTEGER REFERENCES companies(id),
+                policy_id INTEGER NOT NULL,
+                policy_name VARCHAR(100) NOT NULL,
+                changed_by VARCHAR(255) DEFAULT 'admin',
+                exposures_updated INTEGER DEFAULT 0,
+                exposures_skipped INTEGER DEFAULT 0,
+                timestamp TIMESTAMP DEFAULT NOW(),
+                notes TEXT
+            )"""
+        ]
+        for sql in migrations:
+            try:
+                db.execute(_text(sql))
+            except Exception as e:
+                print(f"Migration note: {e}")
+        db.commit()
+        print("Database migrations complete")
+    except Exception as e:
+        print(f"Migration error: {e}")
         db.rollback()
     finally:
         db.close()

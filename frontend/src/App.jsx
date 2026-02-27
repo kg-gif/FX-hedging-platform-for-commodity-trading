@@ -8,6 +8,7 @@ import ScenarioAnalysis from './components/ScenarioAnalysis'
 import HedgeTracker from './components/HedgeTracker'
 import DataImportDashboard from './components/DataImportDashboard'
 import MonteCarloTab from './components/MonteCarloTab'
+import Settings from './components/Settings'
 
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
@@ -45,6 +46,7 @@ function AppContent() {
     { id: 'dashboard', name: 'Dashboard' },
     { id: 'hedging',   name: 'Hedging'   },
     { id: 'reports',   name: 'Reports'   },
+    { id: 'settings',  name: 'Settings'  },
   ]
 
   // Advanced / analyst navigation
@@ -91,6 +93,8 @@ function AppContent() {
         return <MonteCarloTab exposures={exposures} loading={loadingExposures} />
       case 'data-import':
         return <DataImportDashboard />
+      case 'settings':
+        return <Settings />
       default:
         return <Dashboard exposures={exposures} loading={loadingExposures} />
     }

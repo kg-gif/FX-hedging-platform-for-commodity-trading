@@ -35,6 +35,11 @@ class Company(Base):
     trading_volume_monthly = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    bank_name = Column(String(255), nullable=True)
+    bank_contact_name = Column(String(255), nullable=True)
+    bank_email = Column(String(255), nullable=True)
+    alert_email = Column(String(255), nullable=True)
+    daily_digest = Column(Boolean, default=True)
 
 class Exposure(Base):
     __tablename__ = "exposures"
@@ -63,6 +68,7 @@ class Exposure(Base):
     hedged_amount = Column(Float, nullable=True)
     unhedged_amount = Column(Float, nullable=True)
     instrument_type = Column(String(20), default="Spot")  # Spot, Forward, Option, Swap
+    hedge_override = Column(Boolean, default=False)
     
     # Relationship to SimulationResult
     simulations = relationship("SimulationResult", back_populates="exposure")
@@ -165,3 +171,18 @@ class HedgeStrategy(Base):
     hedge_ratio = Column(Numeric(3, 2), nullable=False)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     created_by = Column(String(255))
+
+
+class PolicyAuditLog(Base):
+    """Audit trail for policy changes — compliance requirement"""
+    __tablename__ = "policy_audit_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    policy_id = Column(Integer, nullable=False)
+    policy_name = Column(String(100), nullable=False)
+    changed_by = Column(String(255), default="admin")
+    exposures_updated = Column(Integer, default=0)
+    exposures_skipped = Column(Integer, default=0)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    notes = Column(Text, nullable=True)
