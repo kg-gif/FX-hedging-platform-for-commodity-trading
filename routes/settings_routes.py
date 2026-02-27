@@ -1,6 +1,7 @@
 """
 Settings Routes — Company, Bank, Policy, Notifications
-Includes policy cascade with audit log
+Includes policy cascade with audit log.
+All endpoints require a valid JWT. Viewers are restricted to their own company.
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -12,19 +13,16 @@ from datetime import datetime
 
 from models import Company, Exposure, PolicyAuditLog
 from database import SessionLocal
+from auth_utils import get_token_payload, resolve_company_id
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
 
 # ── Currency whitelist ──────────────────────────────────────────────────────
 APPROVED_PAIRS = {
-    # Majors
     "EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","USD/CAD","NZD/USD",
-    # Minors
     "EUR/GBP","EUR/JPY","EUR/CHF","EUR/AUD","EUR/CAD",
     "GBP/JPY","GBP/CHF","AUD/JPY","CHF/JPY","AUD/NZD",
-    # NOK/SEK crosses
     "EUR/NOK","EUR/SEK","GBP/NOK","GBP/SEK","NOK/SEK",
-    # Liquid exotics
     "USD/MXN","USD/CNY","USD/BRL","USD/ZAR",
     "USD/INR","USD/TRY","USD/NOK","USD/SEK"
 }
@@ -65,16 +63,19 @@ class HedgeOverrideRequest(BaseModel):
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 @router.get("/{company_id}")
-def get_settings(company_id: int, db: Session = Depends(get_db)):
-    """Get all settings for a company"""
-    company = db.query(Company).filter(Company.id == company_id).first()
+def get_settings(
+    company_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    safe_id = resolve_company_id(company_id, payload)
+    company = db.query(Company).filter(Company.id == safe_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    # Get active policy
     policy = db.execute(
         text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"),
-        {"cid": company_id}
+        {"cid": safe_id}
     ).fetchone()
 
     return {
@@ -102,9 +103,11 @@ def get_settings(company_id: int, db: Session = Depends(get_db)):
 def update_company_settings(
     company_id: int,
     request: CompanySettingsRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
 ):
-    company = db.query(Company).filter(Company.id == company_id).first()
+    safe_id = resolve_company_id(company_id, payload)
+    company = db.query(Company).filter(Company.id == safe_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
@@ -112,7 +115,6 @@ def update_company_settings(
     if request.base_currency: company.base_currency = request.base_currency.upper()
     if request.trading_volume_monthly: company.trading_volume_monthly = request.trading_volume_monthly
     company.updated_at = datetime.utcnow()
-
     db.commit()
     return {"success": True, "message": "Company settings updated"}
 
@@ -121,9 +123,11 @@ def update_company_settings(
 def update_bank_settings(
     company_id: int,
     request: BankSettingsRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
 ):
-    company = db.query(Company).filter(Company.id == company_id).first()
+    safe_id = resolve_company_id(company_id, payload)
+    company = db.query(Company).filter(Company.id == safe_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
@@ -131,7 +135,6 @@ def update_bank_settings(
     if request.bank_contact_name is not None: company.bank_contact_name = request.bank_contact_name
     if request.bank_email is not None: company.bank_email = request.bank_email
     company.updated_at = datetime.utcnow()
-
     db.commit()
     return {"success": True, "message": "Bank settings updated"}
 
@@ -140,40 +143,39 @@ def update_bank_settings(
 def update_notification_settings(
     company_id: int,
     request: NotificationSettingsRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
 ):
-    company = db.query(Company).filter(Company.id == company_id).first()
+    safe_id = resolve_company_id(company_id, payload)
+    company = db.query(Company).filter(Company.id == safe_id).first()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
 
     if request.alert_email is not None: company.alert_email = request.alert_email
     if request.daily_digest is not None: company.daily_digest = request.daily_digest
     company.updated_at = datetime.utcnow()
-
     db.commit()
     return {"success": True, "message": "Notification settings updated"}
 
 
 @router.post("/policy/cascade")
-def cascade_policy(request: PolicyCascadeRequest, db: Session = Depends(get_db)):
-    """
-    Activate a policy and cascade hedge ratios to all non-overridden exposures.
-    """
-    # Get new policy
+def cascade_policy(
+    request: PolicyCascadeRequest,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    safe_id = resolve_company_id(request.company_id, payload)
+
     policy = db.execute(
         text("SELECT * FROM hedging_policies WHERE id = :id AND company_id = :cid"),
-        {"id": request.policy_id, "cid": request.company_id}
+        {"id": request.policy_id, "cid": safe_id}
     ).fetchone()
 
     if not policy:
         raise HTTPException(status_code=404, detail="Policy not found")
 
     p = policy._mapping
-
-    # Get all exposures for company
-    exposures = db.query(Exposure).filter(
-        Exposure.company_id == request.company_id
-    ).all()
+    exposures = db.query(Exposure).filter(Exposure.company_id == safe_id).all()
 
     updated = 0
     skipped = 0
@@ -182,8 +184,6 @@ def cascade_policy(request: PolicyCascadeRequest, db: Session = Depends(get_db))
         if getattr(exp, 'hedge_override', False):
             skipped += 1
             continue
-
-        # Apply correct ratio based on exposure size
         amount_usd = exp.amount * (exp.current_rate or 1)
         if amount_usd >= 5_000_000:
             new_ratio = float(p["hedge_ratio_over_5m"])
@@ -191,24 +191,15 @@ def cascade_policy(request: PolicyCascadeRequest, db: Session = Depends(get_db))
             new_ratio = float(p["hedge_ratio_1m_to_5m"])
         else:
             new_ratio = float(p["hedge_ratio_under_1m"])
-
         exp.hedge_ratio_policy = new_ratio
         exp.updated_at = datetime.utcnow()
         updated += 1
 
-    # Deactivate all policies, activate selected
-    db.execute(
-        text("UPDATE hedging_policies SET is_active = false WHERE company_id = :cid"),
-        {"cid": request.company_id}
-    )
-    db.execute(
-        text("UPDATE hedging_policies SET is_active = true WHERE id = :id"),
-        {"id": request.policy_id}
-    )
+    db.execute(text("UPDATE hedging_policies SET is_active = false WHERE company_id = :cid"), {"cid": safe_id})
+    db.execute(text("UPDATE hedging_policies SET is_active = true WHERE id = :id"), {"id": request.policy_id})
 
-    # Write audit log
     audit = PolicyAuditLog(
-        company_id=request.company_id,
+        company_id=safe_id,
         policy_id=request.policy_id,
         policy_name=p["policy_name"],
         changed_by=request.changed_by,
@@ -229,20 +220,22 @@ def cascade_policy(request: PolicyCascadeRequest, db: Session = Depends(get_db))
 
 
 @router.post("/policy/cascade/preview")
-def preview_cascade(request: PolicyCascadeRequest, db: Session = Depends(get_db)):
-    """Dry run — returns counts without making any changes"""
+def preview_cascade(
+    request: PolicyCascadeRequest,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    safe_id = resolve_company_id(request.company_id, payload)
+
     policy = db.execute(
         text("SELECT * FROM hedging_policies WHERE id = :id AND company_id = :cid"),
-        {"id": request.policy_id, "cid": request.company_id}
+        {"id": request.policy_id, "cid": safe_id}
     ).fetchone()
 
     if not policy:
         raise HTTPException(status_code=404, detail="Policy not found")
 
-    exposures = db.query(Exposure).filter(
-        Exposure.company_id == request.company_id
-    ).all()
-
+    exposures = db.query(Exposure).filter(Exposure.company_id == safe_id).all()
     will_update = sum(1 for e in exposures if not getattr(e, 'hedge_override', False))
     will_skip   = sum(1 for e in exposures if getattr(e, 'hedge_override', False))
 
@@ -256,14 +249,22 @@ def preview_cascade(request: PolicyCascadeRequest, db: Session = Depends(get_db)
 
 
 @router.post("/exposure/override")
-def set_hedge_override(request: HedgeOverrideRequest, db: Session = Depends(get_db)):
-    """Set a manual hedge override on a specific exposure"""
+def set_hedge_override(
+    request: HedgeOverrideRequest,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
     if not 0 <= request.hedge_ratio <= 1:
         raise HTTPException(status_code=400, detail="Hedge ratio must be between 0 and 1")
 
     exp = db.query(Exposure).filter(Exposure.id == request.exposure_id).first()
     if not exp:
         raise HTTPException(status_code=404, detail="Exposure not found")
+
+    # Ensure the exposure belongs to this user's company
+    safe_id = resolve_company_id(exp.company_id, payload)
+    if exp.company_id != safe_id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     exp.hedge_ratio_policy = request.hedge_ratio
     exp.hedge_override = True
@@ -279,24 +280,35 @@ def set_hedge_override(request: HedgeOverrideRequest, db: Session = Depends(get_
 
 
 @router.delete("/exposure/{exposure_id}/override")
-def clear_hedge_override(exposure_id: int, db: Session = Depends(get_db)):
-    """Remove manual override — exposure returns to policy control"""
+def clear_hedge_override(
+    exposure_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
     exp = db.query(Exposure).filter(Exposure.id == exposure_id).first()
     if not exp:
         raise HTTPException(status_code=404, detail="Exposure not found")
 
+    safe_id = resolve_company_id(exp.company_id, payload)
+    if exp.company_id != safe_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     exp.hedge_override = False
     exp.updated_at = datetime.utcnow()
     db.commit()
-
     return {"success": True, "message": "Override removed. Exposure now follows active policy."}
 
 
 @router.get("/{company_id}/audit")
-def get_audit_log(company_id: int, db: Session = Depends(get_db)):
-    """Get policy change audit trail for compliance"""
+def get_audit_log(
+    company_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    safe_id = resolve_company_id(company_id, payload)
+
     logs = db.query(PolicyAuditLog)\
-        .filter(PolicyAuditLog.company_id == company_id)\
+        .filter(PolicyAuditLog.company_id == safe_id)\
         .order_by(PolicyAuditLog.timestamp.desc())\
         .limit(50)\
         .all()
@@ -316,7 +328,7 @@ def get_audit_log(company_id: int, db: Session = Depends(get_db)):
 
 @router.get("/pairs/approved")
 def get_approved_pairs():
-    """Return full list of approved currency pairs"""
+    """Public endpoint — no auth needed, just returns the approved pair list."""
     majors  = sorted([p for p in APPROVED_PAIRS if "USD" in p and "/" in p and len(p) == 7
                       and p not in {"USD/MXN","USD/CNY","USD/BRL","USD/ZAR","USD/INR","USD/TRY","USD/NOK","USD/SEK"}])
     nok_sek = sorted([p for p in APPROVED_PAIRS if "NOK" in p or "SEK" in p])
