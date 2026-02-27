@@ -12,6 +12,8 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from services.hedging_service import HedgingService
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from auth_utils import get_token_payload, resolve_company_id
 
 router = APIRouter(prefix="/api/hedging", tags=["hedging"])

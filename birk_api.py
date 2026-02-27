@@ -16,6 +16,8 @@ from routes.auth_routes import router as auth_router
 
 from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
 from database import SessionLocal, get_live_fx_rate, calculate_risk_level, engine
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from auth_utils import get_token_payload, resolve_company_id
 
 from routes.hedging_routes_fastapi import router as hedging_router
