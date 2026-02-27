@@ -33,6 +33,7 @@ class ManualExposureRequest(BaseModel):
     max_loss_limit: Optional[float] = None
     target_profit: Optional[float] = None
     hedge_ratio_policy: Optional[float] = Field(default=1.0, ge=0, le=1)
+    instrument_type: Optional[str] = "Spot"
 
 
 class UpdateExposureRequest(BaseModel):
@@ -152,6 +153,7 @@ async def create_manual_exposure(
             max_loss_limit=request.max_loss_limit,
             target_profit=request.target_profit,
             hedge_ratio_policy=request.hedge_ratio_policy if request.hedge_ratio_policy else 1.0
+            instrument_type=request.instrument_type or 'Spot'
         )
         
         db.add(db_exposure)
