@@ -1,27 +1,25 @@
 """
 BIRK FX Phase 2B - Hedging Routes (FastAPI Version)
-FastAPI endpoints for hedging recommendations, scenario analysis, and hedge tracking
+All company-specific endpoints require JWT. Viewers restricted to their own company.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 import sys
 import os
 
-# Add services directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from services.hedging_service import HedgingService
+from auth_utils import get_token_payload, resolve_company_id
 
-# Create router
 router = APIRouter(prefix="/api/hedging", tags=["hedging"])
-
-# Initialize hedging service
 hedging_service = HedgingService()
 
 
-# Pydantic models for request/response
+# ── Pydantic models ──────────────────────────────────────────────────────────
+
 class HedgeRecommendationRequest(BaseModel):
     exposure_amount: float = Field(..., gt=0)
     current_rate: float = Field(..., gt=0)
@@ -61,9 +59,11 @@ class StrategyComparisonRequest(BaseModel):
     scenario_type: str = Field(default="moderate", pattern="^(conservative|moderate|aggressive)$")
 
 
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
 @router.get("/health")
 async def health_check():
-    """Simple health check endpoint"""
+    """Public health check — no auth required."""
     return {
         "status": "healthy",
         "service": "hedging",
@@ -72,14 +72,12 @@ async def health_check():
 
 
 @router.post("/recommendations")
-async def get_recommendations(request: HedgeRecommendationRequest):
-    """
-    POST /api/hedging/recommendations
-    
-    Get hedge ratio recommendations for a given exposure
-    """
+async def get_recommendations(
+    request: HedgeRecommendationRequest,
+    payload: dict = Depends(get_token_payload)
+):
+    """Hedge ratio recommendations. Auth required."""
     try:
-        # Get recommendations
         recommendations = hedging_service.calculate_optimal_hedge_ratio(
             exposure_amount=request.exposure_amount,
             current_rate=request.current_rate,
@@ -87,13 +85,9 @@ async def get_recommendations(request: HedgeRecommendationRequest):
             time_horizon_days=request.time_horizon_days,
             risk_tolerance=request.risk_tolerance
         )
-        
-        # Add metadata
         recommendations['currency_pair'] = request.currency_pair
         recommendations['timestamp'] = datetime.now().isoformat()
-        
         return recommendations
-        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid data: {str(e)}")
     except Exception as e:
@@ -105,33 +99,26 @@ async def get_company_scenarios(
     company_id: int,
     currency_pair: str = Query(default="EURUSD"),
     scenario_type: str = Query(default="moderate", pattern="^(conservative|moderate|aggressive)$"),
-    hedge_ratio: float = Query(default=0.5, ge=0, le=1)
+    hedge_ratio: float = Query(default=0.5, ge=0, le=1),
+    payload: dict = Depends(get_token_payload)
 ):
-    """
-    GET /api/hedging/scenarios/{company_id}
-    
-    Get scenario analysis for a company's exposures
-    """
+    """Scenario analysis. Viewers restricted to their own company."""
+    safe_id = resolve_company_id(company_id, payload)
+
     try:
-        # Mock exposure data (replace with DB query in production)
-        exposure_amount = 1000000  # $1M
+        exposure_amount = 1000000
         current_rate = 1.0850
-        
-        # Run scenario analysis
+
         scenarios = hedging_service.run_scenario_analysis(
             exposure_amount=exposure_amount,
             current_rate=current_rate,
             hedge_ratio=hedge_ratio,
             scenario_type=scenario_type
         )
-        
-        # Add metadata
-        scenarios['company_id'] = company_id
+        scenarios['company_id'] = safe_id
         scenarios['currency_pair'] = currency_pair
         scenarios['timestamp'] = datetime.now().isoformat()
-        
         return scenarios
-        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid parameter: {str(e)}")
     except Exception as e:
@@ -139,27 +126,21 @@ async def get_company_scenarios(
 
 
 @router.post("/calculate-pnl")
-async def calculate_pnl(request: PnLCalculationRequest):
-    """
-    POST /api/hedging/calculate-pnl
-    
-    Calculate P&L impact of hedging strategy
-    """
+async def calculate_pnl(
+    request: PnLCalculationRequest,
+    payload: dict = Depends(get_token_payload)
+):
+    """P&L calculation. Auth required."""
     try:
-        # Calculate P&L
         pnl_result = hedging_service.calculate_pnl_impact(
             exposure_amount=request.exposure_amount,
             contract_rate=request.contract_rate,
             current_rate=request.current_rate,
             hedge_ratio=request.hedge_ratio
         )
-        
-        # Add metadata
         pnl_result['currency_pair'] = request.currency_pair
         pnl_result['timestamp'] = datetime.now().isoformat()
-        
         return pnl_result
-        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid data: {str(e)}")
     except Exception as e:
@@ -170,19 +151,17 @@ async def calculate_pnl(request: PnLCalculationRequest):
 async def get_active_hedges(
     company_id: int,
     status: str = Query(default="active"),
-    currency_pair: Optional[str] = Query(default=None)
+    currency_pair: Optional[str] = Query(default=None),
+    payload: dict = Depends(get_token_payload)
 ):
-    """
-    GET /api/hedging/active-hedges/{company_id}
-    
-    Get all active hedges for a company
-    """
+    """Active hedges. Viewers restricted to their own company."""
+    safe_id = resolve_company_id(company_id, payload)
+
     try:
-        # Mock data (replace with DB query in production)
         active_hedges = [
             {
                 'id': 1,
-                'company_id': company_id,
+                'company_id': safe_id,
                 'currency_pair': 'EURUSD',
                 'hedge_type': 'forward',
                 'notional_amount': 500000,
@@ -197,7 +176,7 @@ async def get_active_hedges(
             },
             {
                 'id': 2,
-                'company_id': company_id,
+                'company_id': safe_id,
                 'currency_pair': 'GBPUSD',
                 'hedge_type': 'forward',
                 'notional_amount': 750000,
@@ -211,39 +190,35 @@ async def get_active_hedges(
                 'unrealized_pnl': 3750
             }
         ]
-        
-        # Filter by status and currency pair
+
         filtered_hedges = [
-            hedge for hedge in active_hedges
-            if hedge['status'] == status and
-            (not currency_pair or hedge['currency_pair'] == currency_pair)
+            h for h in active_hedges
+            if h['status'] == status and
+            (not currency_pair or h['currency_pair'] == currency_pair)
         ]
-        
+
         return {
-            'company_id': company_id,
+            'company_id': safe_id,
             'hedges': filtered_hedges,
             'total_count': len(filtered_hedges),
             'timestamp': datetime.now().isoformat()
         }
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @router.post("/create-hedge")
-async def create_hedge(request: HedgeCreationRequest):
-    """
-    POST /api/hedging/create-hedge
-    
-    Create a new hedge contract
-    """
+async def create_hedge(
+    request: HedgeCreationRequest,
+    payload: dict = Depends(get_token_payload)
+):
+    """Create hedge. company_id in body is enforced against token."""
+    safe_id = resolve_company_id(request.company_id, payload)
+
     try:
-        # In production, save to database
-        hedge_id = 123  # Mock ID
-        
         hedge_record = {
-            'id': hedge_id,
-            'company_id': request.company_id,
+            'id': 123,
+            'company_id': safe_id,
             'currency_pair': request.currency_pair,
             'hedge_type': request.hedge_type,
             'notional_amount': request.notional_amount,
@@ -254,12 +229,7 @@ async def create_hedge(request: HedgeCreationRequest):
             'status': 'active',
             'created_at': datetime.now().isoformat()
         }
-        
-        return {
-            'message': 'Hedge created successfully',
-            'hedge': hedge_record
-        }
-        
+        return {'message': 'Hedge created successfully', 'hedge': hedge_record}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid data: {str(e)}")
     except Exception as e:
@@ -267,26 +237,20 @@ async def create_hedge(request: HedgeCreationRequest):
 
 
 @router.put("/update-hedge/{hedge_id}")
-async def update_hedge(hedge_id: int, request: HedgeUpdateRequest):
-    """
-    PUT /api/hedging/update-hedge/{hedge_id}
-    
-    Update an existing hedge
-    """
+async def update_hedge(
+    hedge_id: int,
+    request: HedgeUpdateRequest,
+    payload: dict = Depends(get_token_payload)
+):
+    """Update hedge. Auth required."""
     try:
-        # In production, update database
         updated_hedge = {
             'id': hedge_id,
             'status': request.status or 'active',
             'notes': request.notes or '',
             'updated_at': datetime.now().isoformat()
         }
-        
-        return {
-            'message': 'Hedge updated successfully',
-            'hedge': updated_hedge
-        }
-        
+        return {'message': 'Hedge updated successfully', 'hedge': updated_hedge}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
@@ -294,61 +258,50 @@ async def update_hedge(hedge_id: int, request: HedgeUpdateRequest):
 @router.get("/rollover-recommendation/{hedge_id}")
 async def get_rollover_recommendation(
     hedge_id: int,
-    market_outlook: str = Query(default="neutral", pattern="^(bullish|neutral|bearish)$")
+    market_outlook: str = Query(default="neutral", pattern="^(bullish|neutral|bearish)$"),
+    payload: dict = Depends(get_token_payload)
 ):
-    """
-    GET /api/hedging/rollover-recommendation/{hedge_id}
-    
-    Get recommendation on whether to roll over an expiring hedge
-    """
+    """Rollover recommendation. Auth required."""
     try:
-        # Mock hedge data (replace with DB query)
         maturity_date = datetime(2025, 4, 1)
         current_exposure = 500000
-        
+
         recommendation = hedging_service.recommend_rollover(
             maturity_date=maturity_date,
             current_exposure=current_exposure,
             market_outlook=market_outlook
         )
-        
         recommendation['hedge_id'] = hedge_id
         recommendation['timestamp'] = datetime.now().isoformat()
-        
         return recommendation
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @router.post("/compare-strategies")
-async def compare_strategies(request: StrategyComparisonRequest):
-    """
-    POST /api/hedging/compare-strategies
-    
-    Compare multiple hedging strategies side-by-side
-    """
+async def compare_strategies(
+    request: StrategyComparisonRequest,
+    payload: dict = Depends(get_token_payload)
+):
+    """Strategy comparison. Auth required."""
     try:
         comparison = []
-        
         for strategy in request.strategies:
             hedge_ratio = float(strategy['hedge_ratio'])
             label = strategy.get('label', f"{hedge_ratio*100:.0f}% Hedge")
-            
             scenarios = hedging_service.run_scenario_analysis(
                 exposure_amount=request.exposure_amount,
                 current_rate=request.current_rate,
                 hedge_ratio=hedge_ratio,
                 scenario_type=request.scenario_type
             )
-            
             comparison.append({
                 'label': label,
                 'hedge_ratio': hedge_ratio,
                 'scenarios': scenarios['scenarios'],
                 'summary': scenarios['summary']
             })
-        
+
         return {
             'exposure_amount': request.exposure_amount,
             'current_rate': request.current_rate,
@@ -356,7 +309,6 @@ async def compare_strategies(request: StrategyComparisonRequest):
             'comparison': comparison,
             'timestamp': datetime.now().isoformat()
         }
-        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid data: {str(e)}")
     except Exception as e:
