@@ -204,8 +204,10 @@ function AppContent({ user, onLogout }) {
 function App() {
   const [user, setUser] = useState(() => {
     const token = localStorage.getItem('auth_token')
-    const email = localStorage.getItem('auth_email')
-    if (token && email) return { access_token: token, email }
+    const stored = localStorage.getItem('auth_user')
+    if (token && stored) {
+      try { return { access_token: token, ...JSON.parse(stored) } } catch { /* fall through */ }
+    }
     return null
   })
 
@@ -213,13 +215,11 @@ function App() {
 
   const handleLogout = () => {
     localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_email')
-    localStorage.removeItem('auth_company_id')
-    localStorage.removeItem('auth_role')
+    localStorage.removeItem('auth_user')
     setUser(null)
   }
 
-  if (!user) return <Login onLogin={handleLogin} />
+  if (!user) return <Login onLoginSuccess={handleLogin} />
 
   return (
     <CompanyProvider>
