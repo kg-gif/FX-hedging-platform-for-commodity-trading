@@ -9,11 +9,12 @@ import HedgeTracker from './components/HedgeTracker'
 import DataImportDashboard from './components/DataImportDashboard'
 import MonteCarloTab from './components/MonteCarloTab'
 import Settings from './components/Settings'
+import Login from './components/Login'
 
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
 
-function AppContent() {
+function AppContent({ user, onLogout }) {
   const { selectedCompanyId } = useCompany()
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -134,6 +135,16 @@ function AppContent() {
 
             <div className="flex items-center gap-4">
               <CompanySelector />
+              <div className="flex items-center gap-3 pl-3" style={{ borderLeft: '1px solid rgba(255,255,255,0.15)' }}>
+                <span className="text-xs" style={{ color: '#8DA4C4' }}>{user.email}</span>
+                <button
+                  onClick={onLogout}
+                  className="text-xs px-3 py-1 rounded-full"
+                  style={{ color: NAVY, background: GOLD }}
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -191,9 +202,28 @@ function AppContent() {
 }
 
 function App() {
+  const [user, setUser] = useState(() => {
+    const token = localStorage.getItem('auth_token')
+    const email = localStorage.getItem('auth_email')
+    if (token && email) return { access_token: token, email }
+    return null
+  })
+
+  const handleLogin = (data) => setUser(data)
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_email')
+    localStorage.removeItem('auth_company_id')
+    localStorage.removeItem('auth_role')
+    setUser(null)
+  }
+
+  if (!user) return <Login onLogin={handleLogin} />
+
   return (
     <CompanyProvider>
-      <AppContent />
+      <AppContent user={user} onLogout={handleLogout} />
     </CompanyProvider>
   )
 }

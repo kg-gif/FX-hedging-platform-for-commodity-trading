@@ -10,6 +10,7 @@ import httpx
 from functools import lru_cache
 from routes.pdf_routes import router as pdf_router
 from routes.settings_routes import router as settings_router
+from routes.auth_routes import router as auth_router
 
 # Import models and database utilities
 from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
@@ -114,6 +115,7 @@ app.include_router(data_import_router)
 app.include_router(monte_carlo_router)
 app.include_router(pdf_router)
 app.include_router(settings_router)
+app.include_router(auth_router)
 
 # Pydantic Models
 class CompanyResponse(BaseModel):
@@ -582,6 +584,14 @@ async def startup_event():
                 exposures_skipped INTEGER DEFAULT 0,
                 timestamp TIMESTAMP DEFAULT NOW(),
                 notes TEXT
+            )""",
+            """CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                company_id INTEGER REFERENCES companies(id),
+                role VARCHAR(50) DEFAULT 'viewer',
+                created_at TIMESTAMP DEFAULT NOW()
             )"""
         ]
         for sql in migrations:
