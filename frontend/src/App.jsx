@@ -13,8 +13,26 @@ import Login from './components/Login'
 
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
+const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 
-function AppContent({ user, onLogout }) {
+// ── Auth helpers ─────────────────────────────────────────────────
+function getStoredAuth() {
+  try {
+    const token = localStorage.getItem('auth_token')
+    const user = JSON.parse(localStorage.getItem('auth_user') || 'null')
+    if (token && user) return { token, user }
+  } catch (_) {}
+  return null
+}
+
+function clearAuth() {
+  localStorage.removeItem('auth_token')
+  localStorage.removeItem('auth_user')
+}
+
+
+// ── Main app (shown after login) ─────────────────────────────────
+function AppContent({ authUser, onLogout }) {
   const { selectedCompanyId } = useCompany()
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -23,7 +41,6 @@ function AppContent({ user, onLogout }) {
 
   const fetchExposures = async () => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
       const response = await fetch(`${API_URL}/exposures?company_id=${selectedCompanyId}`)
       if (!response.ok) throw new Error('Failed to fetch')
       const data = await response.json()
@@ -79,7 +96,7 @@ function AppContent({ user, onLogout }) {
             </p>
             <button
               onClick={() => {
-                window.open('https://birk-fx-api.onrender.com/api/reports/currency-plan?company_id=1', '_blank')
+                window.open(`${API_URL}/api/reports/currency-plan?company_id=1`, '_blank')
               }}
               className="px-8 py-3 text-white rounded-lg font-semibold"
               style={{ background: NAVY }}
@@ -133,14 +150,27 @@ function AppContent({ user, onLogout }) {
               </div>
             </div>
 
+            {/* Right side: company selector + user info + logout */}
             <div className="flex items-center gap-4">
               <CompanySelector />
-              <div className="flex items-center gap-3 pl-3" style={{ borderLeft: '1px solid rgba(255,255,255,0.15)' }}>
-                <span className="text-xs" style={{ color: '#8DA4C4' }}>{user.email}</span>
+
+              {/* Logged-in user */}
+              <div className="flex items-center gap-3 pl-4"
+                style={{ borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
+                <div className="text-right hidden sm:block">
+                  <p className="text-xs font-medium text-white">{authUser.email}</p>
+                  <p className="text-xs capitalize" style={{ color: '#8DA4C4' }}>{authUser.role}</p>
+                </div>
                 <button
                   onClick={onLogout}
-                  className="text-xs px-3 py-1 rounded-full"
-                  style={{ color: NAVY, background: GOLD }}
+                  className="text-xs px-3 py-1.5 rounded-lg transition-all"
+                  style={{
+                    color: '#8DA4C4',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    background: 'transparent'
+                  }}
+                  onMouseEnter={e => { e.target.style.color = 'white'; e.target.style.borderColor = 'rgba(255,255,255,0.4)' }}
+                  onMouseLeave={e => { e.target.style.color = '#8DA4C4'; e.target.style.borderColor = 'rgba(255,255,255,0.15)' }}
                 >
                   Sign out
                 </button>
@@ -201,29 +231,74 @@ function AppContent({ user, onLogout }) {
   )
 }
 
+
+// ── Root app — handles auth gate ─────────────────────────────────
 function App() {
-  const [user, setUser] = useState(() => {
-    const token = localStorage.getItem('auth_token')
-    const stored = localStorage.getItem('auth_user')
-    if (token && stored) {
-      try { return { access_token: token, ...JSON.parse(stored) } } catch { /* fall through */ }
+  const [authData, setAuthData] = useState(null)
+  const [checking, setChecking] = useState(true)
+
+  // On first load — check if we already have a valid stored token
+  useEffect(() => {
+    const stored = getStoredAuth()
+    if (stored) {
+      // Verify token is still valid with backend
+      fetch(`${API_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${stored.token}` }
+      })
+        .then(r => {
+          if (r.ok) {
+            setAuthData(stored)
+          } else {
+            clearAuth()
+          }
+        })
+        .catch(() => {
+          // If backend is unreachable, trust stored token for now
+          setAuthData(stored)
+        })
+        .finally(() => setChecking(false))
+    } else {
+      setChecking(false)
     }
-    return null
-  })
+  }, [])
 
-  const handleLogin = (data) => setUser(data)
-
-  const handleLogout = () => {
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_user')
-    setUser(null)
+  const handleLoginSuccess = (data) => {
+    setAuthData({
+      token: data.access_token,
+      user: {
+        user_id: data.user_id,
+        email: data.email,
+        company_id: data.company_id,
+        role: data.role
+      }
+    })
   }
 
-  if (!user) return <Login onLoginSuccess={handleLogin} />
+  const handleLogout = () => {
+    clearAuth()
+    setAuthData(null)
+  }
 
+  // Brief loading state while verifying stored token
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: NAVY }}>
+        <div className="text-center">
+          <p className="text-sm" style={{ color: '#8DA4C4' }}>Loading…</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Not logged in — show login page
+  if (!authData) {
+    return <Login onLoginSuccess={handleLoginSuccess} />
+  }
+
+  // Logged in — show the app
   return (
     <CompanyProvider>
-      <AppContent user={user} onLogout={handleLogout} />
+      <AppContent authUser={authData.user} onLogout={handleLogout} />
     </CompanyProvider>
   )
 }
