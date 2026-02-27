@@ -12,7 +12,6 @@ from routes.pdf_routes import router as pdf_router
 from routes.settings_routes import router as settings_router
 from routes.admin_routes import router as admin_router
 from routes.auth_routes import router as auth_router
-from routes.admin_routes import router as admin_router
 
 # Import models and database utilities
 from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
@@ -119,7 +118,6 @@ app.include_router(pdf_router)
 app.include_router(settings_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
-app.include_router(admin_router)
 
 # Pydantic Models
 class CompanyResponse(BaseModel):
