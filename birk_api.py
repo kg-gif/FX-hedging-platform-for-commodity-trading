@@ -354,7 +354,7 @@ def read_root():
         "version": "2.0.0",
         "status": "running",
         "features": [
-            "Live FX rates with 1-hour caching",
+            "Live FX rates with 4-hour caching",
             "Rate change tracking",
             "Dynamic risk assessment",
             "Multi-company support"
