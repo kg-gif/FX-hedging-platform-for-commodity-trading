@@ -1,11 +1,12 @@
 # Sumnohow — Product Backlog
 
 ## 🔴 Next Up (Pilot Critical)
-- [ ] Welcome email — send credentials when admin creates a pilot customer
 - [ ] Daily digest cron job — schedule breach alert emails automatically
+- [ ] Pilot readiness end-to-end test — full customer journey walkthrough
 
 ## 🟡 Post-Pilot / Growth
 - [ ] Get started tutorial — onboarding flow for new customers
+- [ ] Google / SSO login — sign in with Google in addition to password
 - [ ] CSV bulk exposure upload — currently manual entry only
 - [ ] Self-service signup — customers create own accounts
 - [ ] Forgot password on mobile — test and optimise
@@ -23,5 +24,7 @@
 - [x] Multi-tenancy data isolation — viewers restricted to own company
 - [x] Admin page — company, exposure, user management
 - [x] Password reset flow — forgot password email + reset page
+- [x] Welcome email — auto-generated password emailed on user creation
 - [x] Sticky header
 - [x] Resend integration — breach alerts
+- [x] SPA routing fix — reset password link works from email
