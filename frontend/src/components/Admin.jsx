@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   UserPlus, Users, Trash2, CheckCircle, AlertTriangle,
-  Eye, EyeOff, Building2, Plus, ChevronDown, ChevronRight
+  Building2, Plus, ChevronDown, ChevronRight
 } from 'lucide-react'
 import { NAVY, GOLD } from '../brand'
 
@@ -243,13 +243,13 @@ function CompaniesTab({ toast }) {
   )
 }
 
+// ── UsersTab — password removed, system generates it and emails customer ──
 function UsersTab({ authUser, toast }) {
   const [users, setUsers] = useState([])
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [showPassword, setShowPassword] = useState(false)
-  const [form, setForm] = useState({ email: '', password: '', company_id: 1, role: 'viewer' })
+  const [form, setForm] = useState({ email: '', company_id: 1, role: 'viewer' })
 
   useEffect(() => { loadData() }, [])
 
@@ -267,14 +267,20 @@ function UsersTab({ authUser, toast }) {
   }
 
   const createUser = async () => {
-    if (!form.email || !form.password) { toast.show('error', 'Email and password required'); return }
-    if (form.password.length < 8) { toast.show('error', 'Password must be at least 8 characters'); return }
+    if (!form.email) { toast.show('error', 'Email required'); return }
     setSaving(true)
     try {
-      const r = await fetch(`${API_BASE}/api/admin/users`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(form) })
+      const r = await fetch(`${API_BASE}/api/admin/users`, {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify(form)
+      })
       const data = await r.json()
-      if (r.ok) { toast.show('success', `${form.email} created for ${data.company}`); setForm({ email: '', password: '', company_id: companies[0]?.id || 1, role: 'viewer' }); loadData() }
-      else { toast.show('error', data.detail || 'Failed') }
+      if (r.ok) {
+        toast.show('success', `${form.email} created — welcome email sent`)
+        setForm({ email: '', company_id: companies[0]?.id || 1, role: 'viewer' })
+        loadData()
+      } else {
+        toast.show('error', data.detail || 'Failed')
+      }
     } catch { toast.show('error', 'Network error') }
     finally { setSaving(false) }
   }
@@ -293,20 +299,35 @@ function UsersTab({ authUser, toast }) {
   return (
     <div>
       <Section icon={UserPlus} title="Create New User">
+        <p className="text-xs text-gray-400 mb-5">
+          A temporary password will be generated and emailed to the customer automatically.
+          They can set their own password using "Forgot your password?" after first login.
+        </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-          <Field label="Email Address"><input type="email" className={inputClass} value={form.email} placeholder="cfo@clientcompany.com" onChange={e => setForm({ ...form, email: e.target.value })} /></Field>
-          <Field label="Password" hint="Minimum 8 characters">
-            <div className="relative">
-              <input type={showPassword ? 'text' : 'password'} className={inputClass} value={form.password} placeholder="••••••••" onChange={e => setForm({ ...form, password: e.target.value })} />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-2 text-gray-400">{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-            </div>
+          <Field label="Email Address">
+            <input type="email" className={inputClass} value={form.email}
+              placeholder="cfo@clientcompany.com"
+              onChange={e => setForm({ ...form, email: e.target.value })} />
           </Field>
-          <Field label="Company"><select className={inputClass} value={form.company_id} onChange={e => setForm({ ...form, company_id: parseInt(e.target.value) })}>{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
-          <Field label="Role"><select className={inputClass} value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}><option value="viewer">Viewer — dashboard only</option><option value="admin">Admin — full access</option></select></Field>
+          <Field label="Company">
+            <select className={inputClass} value={form.company_id}
+              onChange={e => setForm({ ...form, company_id: parseInt(e.target.value) })}>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Role">
+            <select className={inputClass} value={form.role}
+              onChange={e => setForm({ ...form, role: e.target.value })}>
+              <option value="viewer">Viewer — dashboard only</option>
+              <option value="admin">Admin — full access</option>
+            </select>
+          </Field>
         </div>
         <div className="flex justify-end">
-          <button onClick={createUser} disabled={saving} className="flex items-center gap-2 px-5 py-2 text-white rounded-lg text-sm font-semibold disabled:opacity-50" style={btnPrimary}>
-            <UserPlus size={14} />{saving ? 'Creating…' : 'Create User'}
+          <button onClick={createUser} disabled={saving}
+            className="flex items-center gap-2 px-5 py-2 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+            style={btnPrimary}>
+            <UserPlus size={14} />{saving ? 'Creating…' : 'Create & Send Welcome Email'}
           </button>
         </div>
       </Section>

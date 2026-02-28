@@ -47,9 +47,9 @@ class CreateExposureRequest(BaseModel):
     description: str = ""
     end_date: Optional[str] = None
 
+# ── Password removed — system generates it and emails customer ───
 class CreateUserRequest(BaseModel):
     email: str
-    password: str
     company_id: int
     role: str = "viewer"
 
@@ -120,20 +120,128 @@ def list_users(admin: dict = Depends(require_admin), db: Session = Depends(get_d
     return {"users": [{"id": r._mapping["id"], "email": r._mapping["email"], "role": r._mapping["role"], "created_at": r._mapping["created_at"], "company_name": r._mapping["company_name"], "company_id": r._mapping["company_id"]} for r in rows]}
 
 @router.post("/users")
-def create_user(request: CreateUserRequest, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
-    import bcrypt
-    existing = db.execute(text("SELECT id FROM users WHERE email = :email"), {"email": request.email.lower().strip()}).fetchone()
+async def create_user(request: CreateUserRequest, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
+    import bcrypt, secrets, httpx
+
+    # Check email not already taken
+    existing = db.execute(
+        text("SELECT id FROM users WHERE email = :email"),
+        {"email": request.email.lower().strip()}
+    ).fetchone()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    if len(request.password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-    company = db.execute(text("SELECT id, name FROM companies WHERE id = :id"), {"id": request.company_id}).fetchone()
+
+    # Check company exists
+    company = db.execute(
+        text("SELECT id, name FROM companies WHERE id = :id"),
+        {"id": request.company_id}
+    ).fetchone()
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
-    password_hash = bcrypt.hashpw(request.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    db.execute(text("INSERT INTO users (email, password_hash, company_id, role, created_at) VALUES (:email, :hash, :company_id, :role, NOW())"), {"email": request.email.lower().strip(), "hash": password_hash, "company_id": request.company_id, "role": request.role})
+
+    # Generate secure temporary password
+    temp_password = secrets.token_urlsafe(12)
+    password_hash = bcrypt.hashpw(temp_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+    db.execute(text("""
+        INSERT INTO users (email, password_hash, company_id, role, created_at)
+        VALUES (:email, :hash, :company_id, :role, NOW())
+    """), {
+        "email": request.email.lower().strip(),
+        "hash": password_hash,
+        "company_id": request.company_id,
+        "role": request.role
+    })
     db.commit()
-    return {"message": "User created", "email": request.email, "company": company._mapping["name"], "role": request.role}
+
+    # Send welcome email
+    frontend_url = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    company_name = company._mapping["name"]
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px;">
+      <div style="background:#1A2744;padding:28px;border-radius:12px;text-align:center;margin-bottom:28px;">
+        <h1 style="color:#C9A86C;margin:0;font-size:22px;letter-spacing:4px;font-weight:800;">SUMNOHOW</h1>
+        <p style="color:#8DA4C4;font-size:12px;margin:6px 0 0;font-style:italic;">Know your FX position. Before it costs you.</p>
+      </div>
+
+      <h2 style="color:#1A2744;margin-bottom:8px;">Welcome to Sumnohow</h2>
+      <p style="color:#555;font-size:14px;line-height:1.7;margin-bottom:24px;">
+        Your FX risk dashboard for <strong>{company_name}</strong> is ready.
+        Use the credentials below to sign in.
+      </p>
+
+      <div style="background:#F4F6FA;border-radius:10px;padding:20px;margin-bottom:28px;">
+        <table style="width:100%;font-size:14px;">
+          <tr>
+            <td style="color:#888;padding:6px 0;">Login URL</td>
+            <td style="color:#1A2744;font-weight:600;text-align:right;">
+              <a href="{frontend_url}" style="color:#1A2744;">{frontend_url}</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="color:#888;padding:6px 0;">Email</td>
+            <td style="color:#1A2744;font-weight:600;text-align:right;">{request.email}</td>
+          </tr>
+          <tr>
+            <td style="color:#888;padding:6px 0;">Temporary password</td>
+            <td style="font-weight:700;text-align:right;font-family:monospace;
+                       font-size:15px;color:#C9A86C;letter-spacing:1px;">{temp_password}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div style="text-align:center;margin-bottom:28px;">
+        <a href="{frontend_url}"
+           style="background:#1A2744;color:white;padding:14px 36px;border-radius:8px;
+                  text-decoration:none;font-weight:700;font-size:14px;display:inline-block;
+                  letter-spacing:0.5px;">
+          Sign in to your dashboard →
+        </a>
+      </div>
+
+      <div style="background:#FFF8EC;border:1px solid #F0D9A8;border-radius:8px;padding:14px 18px;margin-bottom:24px;">
+        <p style="color:#92660A;font-size:13px;margin:0;">
+          <strong>Security tip:</strong> After signing in, use "Forgot your password?"
+          on the login page to set your own password.
+        </p>
+      </div>
+
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+      <p style="color:#aaa;font-size:11px;text-align:center;margin:0;">
+        Sumnohow FX Risk Management · Stavanger, Norway<br>
+        If you weren't expecting this email, please ignore it.
+      </p>
+    </div>
+    """
+
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": "Sumnohow <noreply@updates.sumnohow.com>",
+                    "to": [request.email],
+                    "subject": f"Your Sumnohow dashboard is ready — {company_name}",
+                    "html": html
+                }
+            )
+        logger.info(f"Welcome email sent to {request.email}")
+    except Exception as e:
+        # Don't fail user creation if email fails — account still created
+        logger.error(f"Welcome email failed for {request.email}: {e}")
+
+    return {
+        "message": "User created and welcome email sent",
+        "email": request.email,
+        "company": company_name,
+        "role": request.role
+    }
 
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
