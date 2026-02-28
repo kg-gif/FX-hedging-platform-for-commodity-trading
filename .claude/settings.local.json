@@ -5,7 +5,9 @@
       "Bash(git commit:*)",
       "Bash(git push origin main)",
       "Bash(git add auth_utils.py birk_api.py routes/settings_routes.py)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(git add routes/auth_routes.py birk_api.py)",
+      "Bash(git add frontend/src/components/ForgotPasswordModal.jsx frontend/src/components/ResetPassword.jsx frontend/src/components/Login.jsx frontend/src/App.jsx)"
     ]
   }
 }
