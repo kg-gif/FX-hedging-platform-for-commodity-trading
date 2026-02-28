@@ -39,7 +39,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   useEffect(() => {
     if (propsExposures?.length > 0) setExposures(propsExposures)
     else if (selectedCompany) fetchExposures(selectedCompany.id)
-    fetchPolicy()
+    if (selectedCompany) fetchPolicy(selectedCompany.id)
   }, [selectedCompany, propsExposures])
 
   const fetchCompanies = async () => {
@@ -50,10 +50,15 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     } catch { setError('Failed to fetch companies') }
   }
 
-  const fetchPolicy = async () => {
+  // ── FIXED: use company_id, not hardcoded policy ID ──
+  const fetchPolicy = async (companyId) => {
     try {
-      const r = await fetch(`${API_BASE}/api/policies/1`, { headers: authHeaders() })
-      if (r.ok) setPolicy(await r.json())
+      const r = await fetch(`${API_BASE}/api/policies?company_id=${companyId}`, { headers: authHeaders() })
+      if (r.ok) {
+        const data = await r.json()
+        const active = (data.policies || []).find(p => p.is_active)
+        if (active) setPolicy(active)
+      }
     } catch {}
   }
 
@@ -123,7 +128,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     return true
   })
 
-  // ── Derived numbers for CFO story ──
   const totalExposure   = exposures.reduce((s, e) => s + Math.abs(e.amount * (e.current_rate || 1)), 0)
   const totalPnl        = filteredExposures.reduce((s, e) => s + (e.current_pnl || 0), 0)
   const hedgedValue     = exposures.reduce((s, e) => s + (e.hedged_amount || 0), 0)
@@ -159,7 +163,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   return (
     <div className="space-y-6">
 
-      {/* ── BREACH ALERT BANNER ── */}
       {breaches.length > 0 && (
         <div className="rounded-xl px-5 py-4 flex items-center gap-3"
           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>
@@ -175,11 +178,8 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         </div>
       )}
 
-      {/* ── CFO HERO — 3 answers in 5 seconds ── */}
       {exposures.length > 0 && (
         <div className="rounded-xl p-6" style={{ background: NAVY }}>
-
-          {/* Top row: company + policy + refresh */}
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-xl font-bold text-white">{selectedCompany?.name}</h2>
@@ -203,10 +203,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             </div>
           </div>
 
-          {/* 3 hero numbers */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-            {/* 1. Total P&L vs budget */}
             <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8DA4C4' }}>
                 Total P&L vs Budget
@@ -224,7 +221,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
               </p>
             </div>
 
-            {/* 2. Protection status */}
             <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8DA4C4' }}>
                 Protection Status
@@ -242,27 +238,18 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
               </p>
             </div>
 
-            {/* 3. Attention required */}
             <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8DA4C4' }}>
                 Requires Attention
               </p>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>
-                    Breaches
-                  </span>
-                  <span className="text-2xl font-bold" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>
-                    {breaches.length}
-                  </span>
+                  <span className="text-sm" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>Breaches</span>
+                  <span className="text-2xl font-bold" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>{breaches.length}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: warnings.length > 0 ? WARNING : '#8DA4C4' }}>
-                    Warnings
-                  </span>
-                  <span className="text-2xl font-bold" style={{ color: warnings.length > 0 ? WARNING : '#8DA4C4' }}>
-                    {warnings.length}
-                  </span>
+                  <span className="text-sm" style={{ color: warnings.length > 0 ? WARNING : '#8DA4C4' }}>Warnings</span>
+                  <span className="text-2xl font-bold" style={{ color: warnings.length > 0 ? WARNING : '#8DA4C4' }}>{warnings.length}</span>
                 </div>
                 {breaches.length === 0 && warnings.length === 0 && (
                   <p className="text-xs pt-1" style={{ color: SUCCESS }}>All exposures within policy</p>
@@ -273,15 +260,13 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         </div>
       )}
 
-      {/* ── CHARTS ── */}
       {exposures.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
             <h3 className="text-sm font-semibold mb-4" style={{ color: NAVY }}>Currency Mix</h3>
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie data={currencyDist} dataKey="value" nameKey="currency"
-                  cx="50%" cy="50%" outerRadius={75}
+                <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%" outerRadius={75}
                   label={(e) => `${e.flag} ${e.currency}`}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
@@ -298,9 +283,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
                 <YAxis style={{ fontSize: '11px' }} />
                 <Tooltip formatter={(v) => `${v.toFixed(2)}%`} />
                 <Bar dataKey="change" radius={[4, 4, 0, 0]}>
-                  {rateChanges.map((e, i) => (
-                    <Cell key={i} fill={e.change >= 0 ? SUCCESS : DANGER} />
-                  ))}
+                  {rateChanges.map((e, i) => <Cell key={i} fill={e.change >= 0 ? SUCCESS : DANGER} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -308,7 +291,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         </div>
       )}
 
-      {/* ── CONTROLS ── */}
       <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100 flex flex-wrap items-center gap-3">
         <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)}
           placeholder="Search reference or description..."
@@ -320,9 +302,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
-        <span className="text-sm text-gray-400">
-          {filteredExposures.length} of {exposures.length}
-        </span>
+        <span className="text-sm text-gray-400">{filteredExposures.length} of {exposures.length}</span>
         <button onClick={exportToCSV} disabled={!exposures.length}
           className="px-4 py-2 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
           style={{ background: NAVY }}>
@@ -334,7 +314,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
 
-      {/* ── EXPOSURE REGISTER ── */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4" style={{ background: NAVY }}>
           <h3 className="font-semibold text-white text-sm">Exposure Register</h3>
@@ -344,8 +323,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             <thead style={{ background: '#F4F6FA' }}>
               <tr>
                 {['Instrument','Currency','Amount','Budget','Current','P&L','Status','Hedge %','Description','Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider"
-                    style={{ color: NAVY }}>{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -354,13 +332,11 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
                 const isBreached = exp.pnl_status === 'BREACH'
                 return (
                   <tr key={exp.id} className="hover:bg-gray-50 transition-colors"
-                    style={ isBreached ? { background: 'rgba(239,68,68,0.03)' } : {}}>
+                    style={isBreached ? { background: 'rgba(239,68,68,0.03)' } : {}}>
                     <td className="px-4 py-3 text-sm text-gray-600">{exp.instrument_type || 'Spot'}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="mr-1">{CURRENCY_FLAGS[exp.from_currency] || '🏳️'}</span>
-                      <span className="font-medium text-sm" style={{ color: NAVY }}>
-                        {exp.from_currency} / {exp.to_currency}
-                      </span>
+                      <span className="font-medium text-sm" style={{ color: NAVY }}>{exp.from_currency} / {exp.to_currency}</span>
                     </td>
                     <td className="px-4 py-3 text-sm text-right font-mono text-gray-700">
                       {exp.amount.toLocaleString()} {exp.from_currency}
@@ -402,14 +378,11 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             </tbody>
           </table>
           {filteredExposures.length === 0 && !loading && (
-            <div className="text-center py-16 text-gray-400 text-sm">
-              No exposures found. Add one via Data Import.
-            </div>
+            <div className="text-center py-16 text-gray-400 text-sm">No exposures found. Add one via Data Import.</div>
           )}
         </div>
       </div>
 
-      {/* ── EDIT MODAL ── */}
       {showEditModal && editingExposure && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-8 max-w-2xl w-full mx-4 shadow-2xl">
@@ -430,20 +403,14 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => { setShowEditModal(false); setEditingExposure(null) }}
-                className="px-5 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
-                Cancel
-              </button>
+                className="px-5 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
               <button onClick={() => handleEditSave(editingExposure)}
-                className="px-5 py-2 text-white rounded-lg text-sm font-semibold"
-                style={{ background: NAVY }}>
-                Save Changes
-              </button>
+                className="px-5 py-2 text-white rounded-lg text-sm font-semibold" style={{ background: NAVY }}>Save Changes</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── DELETE MODAL ── */}
       {showDeleteConfirm && deletingExposure && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4 shadow-2xl">
@@ -453,13 +420,9 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             </p>
             <div className="flex justify-end gap-3">
               <button onClick={() => { setShowDeleteConfirm(false); setDeletingExposure(null) }}
-                className="px-5 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">
-                Cancel
-              </button>
+                className="px-5 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
               <button onClick={handleDeleteConfirm}
-                className="px-5 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700">
-                Delete
-              </button>
+                className="px-5 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700">Delete</button>
             </div>
           </div>
         </div>

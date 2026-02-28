@@ -4,7 +4,8 @@
       "Bash(git add routes/admin_routes.py frontend/src/components/Admin.jsx birk_api.py)",
       "Bash(git commit:*)",
       "Bash(git push origin main)",
-      "Bash(git add auth_utils.py birk_api.py routes/settings_routes.py)"
+      "Bash(git add auth_utils.py birk_api.py routes/settings_routes.py)",
+      "Bash(git push)"
     ]
   }
 }
