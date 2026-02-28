@@ -127,7 +127,7 @@ function AppContent({ authUser, onLogout }) {
 
   return (
     <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
-      <div style={{ background: NAVY }} className="shadow-xl">
+      <div style={{ background: NAVY }} className="shadow-xl sticky top-0 z-50">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
