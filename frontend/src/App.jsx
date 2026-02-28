@@ -11,6 +11,7 @@ import MonteCarloTab from './components/MonteCarloTab'
 import Settings from './components/Settings'
 import Admin from './components/Admin'
 import Login from './components/Login'
+import ResetPassword from './components/ResetPassword'
 
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
@@ -243,6 +244,9 @@ function App() {
     </div>
   )
 
+  if (window.location.pathname === '/reset-password') {
+    return <ResetPassword onDone={() => window.location.href = '/'} />
+  }
   if (!authData) return <Login onLoginSuccess={handleLoginSuccess} />
 
   return (

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import ForgotPasswordModal from './ForgotPasswordModal'
 
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
@@ -9,6 +10,7 @@ export default function Login({ onLoginSuccess }) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showForgot, setShowForgot] = useState(false)
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -161,8 +163,12 @@ export default function Login({ onLoginSuccess }) {
         </form>
 
         <p className="text-center text-xs mt-6" style={{ color: '#8DA4C4' }}>
-          Having trouble signing in? Contact your administrator.
+          <button onClick={() => setShowForgot(true)}
+            style={{ color: GOLD, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+            Forgot your password?
+          </button>
         </p>
+        {showForgot && <ForgotPasswordModal onClose={() => setShowForgot(false)} />}
       </div>
 
       <p className="text-xs mt-8" style={{ color: 'rgba(141,164,196,0.4)' }}>
