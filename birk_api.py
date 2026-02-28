@@ -654,7 +654,9 @@ async def startup_event():
                 id SERIAL PRIMARY KEY, email VARCHAR(255) UNIQUE NOT NULL,
                 password_hash VARCHAR(255) NOT NULL, company_id INTEGER REFERENCES companies(id),
                 role VARCHAR(50) DEFAULT 'viewer', created_at TIMESTAMP DEFAULT NOW()
-            )"""
+            )""",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
         ]
         for sql in migrations:
             try:
