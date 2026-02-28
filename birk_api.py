@@ -507,40 +507,211 @@ def debug_breaches(
 
 @app.get("/api/alerts/send-daily")
 async def send_daily_alerts(
-    company_id: int = 1,
-    db: Session = Depends(get_db),
-    payload: dict = Depends(get_token_payload)
+    secret: str = "",
+    db: Session = Depends(get_db)
 ):
+    """
+    Daily digest endpoint — called by cron-job.org at 7am UTC.
+    Protected by CRON_SECRET env variable instead of JWT (cron can't log in).
+    Sends each company their own digest to their configured alert email.
+    """
     from sqlalchemy import text
-    safe_id = resolve_company_id(company_id, payload)
 
-    all_rows = db.execute(text(
-        "SELECT from_currency, to_currency, amount, budget_rate, current_rate FROM exposures WHERE company_id = :cid AND budget_rate IS NOT NULL AND current_rate IS NOT NULL"
-    ), {"cid": safe_id}).fetchall()
+    # Verify cron secret
+    expected_secret = os.getenv("CRON_SECRET", "")
+    if not expected_secret or secret != expected_secret:
+        raise HTTPException(status_code=401, detail="Invalid cron secret")
 
-    breach_list = []
-    for row in all_rows:
-        r = row._mapping
-        pnl = (float(r["current_rate"]) - float(r["budget_rate"])) * float(r["amount"])
-        if pnl < -50000:
-            breach_list.append(f"{r['from_currency']}/{r['to_currency']} P&L: ${int(pnl)}")
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    frontend_url = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
 
-    if not breach_list:
-        return {"message": "No alerts to send - all exposures within policy"}
+    # Get all companies with an alert email configured
+    companies = db.execute(text("""
+        SELECT id, name, alert_email
+        FROM companies
+        WHERE alert_email IS NOT NULL AND alert_email != ''
+    """)).fetchall()
 
-    html_content = "<h2>BIRK FX Daily Alert</h2><ul>" + "".join(f"<li>{item}</li>" for item in breach_list) + "</ul><p><a href='https://birk-dashboard.onrender.com'>View Dashboard</a></p>"
+    if not companies:
+        return {"message": "No companies with alert emails configured", "sent": 0}
 
-    resend_api_key = os.environ.get("RESEND_API_KEY")
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
-            json={"from": "BIRK FX Alerts <alerts@updates.sumnohow.com>", "to": ["kg@sumnohow.com"],
-                  "subject": f"BIRK FX Alert - {len(breach_list)} breach(es) detected", "html": html_content}
-        )
-    if response.status_code == 200:
-        return {"message": "Alert sent", "breaches": len(breach_list)}
-    raise HTTPException(status_code=500, detail=f"Resend error: {response.text}")
+    sent_count = 0
+    results = []
+
+    for company_row in companies:
+        c = company_row._mapping
+        company_id = c["id"]
+        company_name = c["name"]
+        alert_email = c["alert_email"]
+
+        # Get exposures with P&L data
+        exposures = db.execute(text("""
+            SELECT from_currency, to_currency, amount, budget_rate, current_rate,
+                   hedge_ratio_policy, description
+            FROM exposures
+            WHERE company_id = :cid
+            AND budget_rate IS NOT NULL
+            AND current_rate IS NOT NULL
+        """), {"cid": company_id}).fetchall()
+
+        if not exposures:
+            continue
+
+        # Calculate P&L for each exposure
+        breaches, warnings, healthy = [], [], []
+        total_pnl = 0
+
+        for row in exposures:
+            r = row._mapping
+            pnl = (float(r["current_rate"]) - float(r["budget_rate"])) * float(r["amount"])
+            total_pnl += pnl
+            pair = f"{r['from_currency']}/{r['to_currency']}"
+            entry = {
+                "pair": pair,
+                "pnl": pnl,
+                "amount": float(r["amount"]),
+                "current_rate": float(r["current_rate"]),
+                "budget_rate": float(r["budget_rate"]),
+                "description": r["description"] or ""
+            }
+            if pnl < -50000:
+                breaches.append(entry)
+            elif pnl < -10000:
+                warnings.append(entry)
+            else:
+                healthy.append(entry)
+
+        # Format P&L
+        def fmt_pnl(n):
+            sign = "+" if n >= 0 else ""
+            return f"{sign}${int(n):,}"
+
+        def pnl_color(n):
+            return "#27AE60" if n >= 0 else "#E74C3C"
+
+        def exposure_row(e, bg):
+            return f"""
+            <tr style="background:{bg};">
+              <td style="padding:10px 12px;font-weight:600;color:#1A2744;">{e['pair']}</td>
+              <td style="padding:10px 12px;color:#555;">{e['description'][:40] if e['description'] else '—'}</td>
+              <td style="padding:10px 12px;text-align:right;font-family:monospace;color:#1A2744;">
+                ${int(e['amount']):,}
+              </td>
+              <td style="padding:10px 12px;text-align:right;font-family:monospace;color:#555;">
+                {e['budget_rate']:.4f}
+              </td>
+              <td style="padding:10px 12px;text-align:right;font-family:monospace;color:#555;">
+                {e['current_rate']:.4f}
+              </td>
+              <td style="padding:10px 12px;text-align:right;font-weight:700;color:{pnl_color(e['pnl'])};">
+                {fmt_pnl(e['pnl'])}
+              </td>
+            </tr>"""
+
+        # Build exposure table rows
+        breach_rows = "".join(exposure_row(e, "#FEF2F2") for e in breaches)
+        warning_rows = "".join(exposure_row(e, "#FFFBEB") for e in warnings)
+        healthy_rows = "".join(exposure_row(e, "#F9FAFB") for e in healthy)
+
+        # Summary status
+        status_color = "#E74C3C" if breaches else "#F59E0B" if warnings else "#27AE60"
+        status_text = f"{len(breaches)} breach{'es' if len(breaches) != 1 else ''} require action" if breaches \
+            else f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''} to monitor" if warnings \
+            else "All exposures within policy"
+
+        subject = f"{'⚠️ Action Required' if breaches else '📊 Daily FX Digest'} — {company_name}"
+
+        html = f"""
+        <div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px;">
+
+          <div style="background:#1A2744;padding:24px;border-radius:12px;text-align:center;margin-bottom:24px;">
+            <h1 style="color:#C9A86C;margin:0;font-size:20px;letter-spacing:4px;font-weight:800;">SUMNOHOW</h1>
+            <p style="color:#8DA4C4;font-size:11px;margin:4px 0 0;font-style:italic;">
+              Know your FX position. Before it costs you.
+            </p>
+          </div>
+
+          <h2 style="color:#1A2744;margin-bottom:4px;">Daily FX Digest</h2>
+          <p style="color:#888;font-size:13px;margin-bottom:20px;">
+            {company_name} · {datetime.utcnow().strftime('%A %d %B %Y')}
+          </p>
+
+          <div style="background:#F4F6FA;border-radius:10px;padding:16px 20px;margin-bottom:24px;
+                      display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <p style="margin:0;font-size:13px;color:#888;">Total Portfolio P&L</p>
+              <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:{pnl_color(total_pnl)};">
+                {fmt_pnl(total_pnl)}
+              </p>
+            </div>
+            <div style="text-align:right;">
+              <p style="margin:0;font-size:13px;color:#888;">Status</p>
+              <p style="margin:4px 0 0;font-size:14px;font-weight:700;color:{status_color};">
+                {status_text}
+              </p>
+            </div>
+          </div>
+
+          {'<p style="font-size:13px;font-weight:700;color:#E74C3C;margin-bottom:8px;">⚠️ Breaches</p>' if breaches else ''}
+          <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
+            <thead>
+              <tr style="background:#1A2744;">
+                <th style="padding:10px 12px;text-align:left;color:#C9A86C;font-weight:600;">Pair</th>
+                <th style="padding:10px 12px;text-align:left;color:#C9A86C;font-weight:600;">Description</th>
+                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Amount</th>
+                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Budget</th>
+                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Current</th>
+                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">P&L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {breach_rows}
+              {warning_rows}
+              {healthy_rows}
+            </tbody>
+          </table>
+
+          <div style="text-align:center;margin-bottom:24px;">
+            <a href="{frontend_url}"
+               style="background:#1A2744;color:white;padding:12px 32px;border-radius:8px;
+                      text-decoration:none;font-weight:700;font-size:13px;display:inline-block;">
+              View Full Dashboard →
+            </a>
+          </div>
+
+          <hr style="border:none;border-top:1px solid #eee;margin:20px 0;">
+          <p style="color:#bbb;font-size:11px;text-align:center;margin:0;">
+            Sumnohow FX Risk Management · Stavanger, Norway<br>
+            To change your alert preferences, visit Settings in your dashboard.
+          </p>
+        </div>
+        """
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {resend_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "from": "Sumnohow <alerts@updates.sumnohow.com>",
+                        "to": [alert_email],
+                        "subject": subject,
+                        "html": html
+                    }
+                )
+            if resp.status_code == 200:
+                sent_count += 1
+                results.append({"company": company_name, "email": alert_email, "breaches": len(breaches), "status": "sent"})
+            else:
+                results.append({"company": company_name, "email": alert_email, "status": "failed", "error": resp.text})
+        except Exception as e:
+            results.append({"company": company_name, "email": alert_email, "status": "error", "error": str(e)})
+
+    logger.info(f"Daily digest: {sent_count} emails sent")
+    return {"message": f"Daily digest sent to {sent_count} companies", "sent": sent_count, "results": results}
 
 
 @app.get("/setup/create-policies")
