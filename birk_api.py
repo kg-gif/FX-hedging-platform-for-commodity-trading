@@ -841,3 +841,55 @@ async def startup_event():
         db.rollback()
     finally:
         db.close()
+
+
+@app.post("/api/audit/value-date-change")
+def log_value_date_change(
+    payload_body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Compliance audit log for value date changes.
+    Called automatically when user overrides the value date on an execution order.
+    """
+    from sqlalchemy import text as _text
+
+    # Auto-create table if not exists (runs once)
+    db.execute(_text("""
+        CREATE TABLE IF NOT EXISTS value_date_audit_log (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER REFERENCES companies(id),
+            exposure_id INTEGER,
+            currency_pair VARCHAR(20),
+            original_date DATE,
+            new_date DATE,
+            reason TEXT NOT NULL,
+            changed_by VARCHAR(255),
+            changed_at TIMESTAMP DEFAULT NOW()
+        )
+    """))
+
+    db.execute(_text("""
+        INSERT INTO value_date_audit_log
+            (company_id, exposure_id, currency_pair, original_date, new_date, reason, changed_by)
+        VALUES
+            (:company_id, :exposure_id, :currency_pair, :original_date, :new_date, :reason, :changed_by)
+    """), {
+        "company_id":    payload_body.get("company_id"),
+        "exposure_id":   payload_body.get("exposure_id"),
+        "currency_pair": payload_body.get("currency_pair"),
+        "original_date": payload_body.get("original_date"),
+        "new_date":      payload_body.get("new_date"),
+        "reason":        payload_body.get("reason"),
+        "changed_by":    payload_body.get("changed_by") or payload.get("email")
+    })
+    db.commit()
+
+    logger.info(
+        f"Value date change: {payload_body.get('currency_pair')} "
+        f"{payload_body.get('original_date')} → {payload_body.get('new_date')} "
+        f"by {payload_body.get('changed_by')} — {payload_body.get('reason')}"
+    )
+
+    return {"message": "Audit log recorded"}
