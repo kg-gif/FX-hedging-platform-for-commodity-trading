@@ -1,13 +1,10 @@
 # Sumnohow — Product Backlog
 
-## Sumnohow — Product Backlog
-
 ## 🔴 Next Up (Pilot Critical)
-- [ ] Remove "View Exposures" button from exposure register — confusing for pilots
-- [ ] Execute with Bank — pull bank URL from customer Settings, open in new tab
 - [ ] Pilot readiness end-to-end test — full customer journey walkthrough
 
-## 🟡 Needs Scoping Before Building
+## 🟡 Needs Scoping / Ideation
+- [ ] Execution logging — how do we record that an order was sent/executed for reporting accuracy? Options to explore: (a) manual "mark as executed" button, (b) auto-log when email draft opened, (c) bank confirmation upload. Needs decision before building.
 - [ ] Start/end date + historical rate on exposures — rate should reflect rate on start date, then calculate and display take profit and stop loss levels (core risk engine differentiator — needs design session)
 - [ ] Hedge screen scenario analysis — "Unable to load scenario analysis" error, needs investigation
 
@@ -20,6 +17,9 @@
 - [ ] Bank execution integration — connect to FX providers
 
 ## 🟢 Nice to Have
+- [ ] Live rate ticker in header — scrolling FX rates across top of dashboard
+- [ ] News feed — macro FX news relevant to customer's currency pairs
+
 - [ ] Password strength indicator on reset/create
 - [ ] Admin dashboard — usage stats across all pilot customers
 - [ ] Audit log UI improvements — better filtering and export
@@ -36,3 +36,4 @@
 - [x] Resend integration — breach alerts
 - [x] Daily digest cron job — branded email, per-company, 7am UTC via cron-job.org
 - [x] SPA routing fix — reset password link works from email
+- [x] Execute with Bank modal — immediate + limit orders, value date audit log

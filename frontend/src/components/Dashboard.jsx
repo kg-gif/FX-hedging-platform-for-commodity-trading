@@ -72,15 +72,15 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     finally { setLoading(false) }
   }
 
-  const refreshRates = async () => {
-    if (!selectedCompany) return
-    setRefreshing(true)
-    try {
-      await fetch(`${API_BASE}/companies/${selectedCompany.id}/refresh-rates`, { method: 'POST', headers: authHeaders() })
-      await fetchExposures(selectedCompany.id)
-    } catch { setError('Failed to refresh rates') }
-    finally { setRefreshing(false) }
-  }
+}const refreshRates = async () => {
+  if (!selectedCompany) return
+  setRefreshing(true)
+  setError(null)
+  try {
+    await fetchExposures(selectedCompany.id)
+  } catch { setError('Failed to refresh rates') }
+  finally { setRefreshing(false) }
+}
 
   const handleEditSave = async (updated) => {
     try {
