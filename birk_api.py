@@ -893,3 +893,103 @@ def log_value_date_change(
     )
 
     return {"message": "Audit log recorded"}
+
+
+@app.post("/api/audit/order-sent")
+def log_order_sent(
+    payload_body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """Logs every time an execution email draft is opened."""
+    from sqlalchemy import text as _text
+
+    db.execute(_text("""
+        CREATE TABLE IF NOT EXISTS order_audit_log (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER REFERENCES companies(id),
+            exposure_id INTEGER,
+            currency_pair VARCHAR(20),
+            order_type VARCHAR(20),
+            action TEXT,
+            value_date DATE,
+            instrument VARCHAR(20),
+            limit_rate NUMERIC(18,6),
+            stop_rate NUMERIC(18,6),
+            good_till DATE,
+            sent_by VARCHAR(255),
+            sent_at TIMESTAMP DEFAULT NOW(),
+            executed_at TIMESTAMP,
+            confirmed_by VARCHAR(255),
+            status VARCHAR(20) DEFAULT 'sent'
+        )
+    """))
+
+    db.execute(_text("""
+        INSERT INTO order_audit_log
+            (company_id, exposure_id, currency_pair, order_type, action,
+             value_date, instrument, limit_rate, stop_rate, good_till, sent_by, sent_at)
+        VALUES
+            (:company_id, :exposure_id, :currency_pair, :order_type, :action,
+             :value_date, :instrument, :limit_rate, :stop_rate, :good_till, :sent_by, :sent_at)
+    """), {
+        "company_id":    payload_body.get("company_id"),
+        "exposure_id":   payload_body.get("exposure_id"),
+        "currency_pair": payload_body.get("currency_pair"),
+        "order_type":    payload_body.get("order_type"),
+        "action":        payload_body.get("action"),
+        "value_date":    payload_body.get("value_date"),
+        "instrument":    payload_body.get("instrument"),
+        "limit_rate":    payload_body.get("limit_rate"),
+        "stop_rate":     payload_body.get("stop_rate"),
+        "good_till":     payload_body.get("good_till"),
+        "sent_by":       payload_body.get("sent_by") or payload.get("email"),
+        "sent_at":       payload_body.get("sent_at")
+    })
+    db.commit()
+
+    logger.info(
+        f"Order sent: {payload_body.get('currency_pair')} "
+        f"{payload_body.get('order_type')} by {payload_body.get('sent_by')}"
+    )
+    return {"message": "Order logged"}
+
+
+@app.post("/api/audit/mark-executed")
+def mark_order_executed(
+    payload_body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Marks the most recent sent order for an exposure as executed.
+    Called when user clicks 'Mark as Executed' after bank confirms.
+    """
+    from sqlalchemy import text as _text
+
+    db.execute(_text("""
+        UPDATE order_audit_log
+        SET executed_at = :executed_at,
+            confirmed_by = :confirmed_by,
+            status = 'executed'
+        WHERE id = (
+            SELECT id FROM order_audit_log
+            WHERE exposure_id = :exposure_id
+            AND company_id = :company_id
+            AND status = 'sent'
+            ORDER BY sent_at DESC
+            LIMIT 1
+        )
+    """), {
+        "executed_at":  payload_body.get("executed_at"),
+        "confirmed_by": payload_body.get("confirmed_by") or payload.get("email"),
+        "exposure_id":  payload_body.get("exposure_id"),
+        "company_id":   payload_body.get("company_id")
+    })
+    db.commit()
+
+    logger.info(
+        f"Order executed: exposure {payload_body.get('exposure_id')} "
+        f"confirmed by {payload_body.get('confirmed_by')}"
+    )
+    return {"message": "Marked as executed"}
