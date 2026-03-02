@@ -65,6 +65,7 @@ function ExecutionModal({ rec, bankEmail, bankName, baseCurrency, companyId, onC
   const [goodTill, setGoodTill]           = useState(addBusinessDays(defaultValueDate, -3))
   const [saving, setSaving]               = useState(false)
   const [sent, setSent]                   = useState(false)
+  const [copied, setCopied]               = useState(false)
 
   const direction = getDirection(rec, baseCurrency)
   const [fromCcy] = rec.currency_pair.split('/')
@@ -102,6 +103,48 @@ function ExecutionModal({ rec, bankEmail, bankName, baseCurrency, companyId, onC
     }
   }
 
+  // Build email bodies — defined here so both handleExecute and handleCopy can access them
+  const subjectImmediate = `FX ${instrumentType} Request — ${rec.action} ${rec.currency_pair}`
+  const subjectLimit     = `FX Limit Order — ${rec.action} ${rec.currency_pair}`
+
+  const bodyImmediate = [
+    `Dear ${bankName || 'FX Desk'},`,
+    '',
+    `Please execute the following FX transaction:`,
+    '',
+    `Direction:     Sell ${direction.sell} / Buy ${direction.buy}`,
+    `Amount:        ${fromCcy} ${displayAmount}`,
+    `Currency Pair: ${rec.currency_pair}`,
+    `Instrument:    ${instrumentType}`,
+    `Value Date:    ${toDisplayDate(valueDate)}`,
+    `Rate:          At best / market rate`,
+    valueDateChanged ? `Note: Value date changed from ${toDisplayDate(originalValueDate)}. Reason: ${valueDateReason}` : '',
+    '',
+    `Please confirm execution by return.`,
+    '',
+    `Kind regards`
+  ].filter(l => l !== undefined).join('\n')
+
+  const bodyLimit = [
+    `Dear ${bankName || 'FX Desk'},`,
+    '',
+    `Please place the following limit order:`,
+    '',
+    `Direction:     Sell ${direction.sell} / Buy ${direction.buy}`,
+    `Amount:        ${fromCcy} ${displayAmount}`,
+    `Currency Pair: ${rec.currency_pair}`,
+    `Limit Rate:    ${limitRate} (take profit)`,
+    `Stop Rate:     ${stopRate} (stop loss)`,
+    `Value Date:    ${toDisplayDate(valueDate)}`,
+    `Good Till:     ${toDisplayDate(goodTill)}`,
+    `Instructions:  Please cancel automatically if not filled by Good Till date.`,
+    valueDateChanged ? `Note: Value date changed from ${toDisplayDate(originalValueDate)}. Reason: ${valueDateReason}` : '',
+    '',
+    `Please confirm order placement by return.`,
+    '',
+    `Kind regards`
+  ].filter(l => l !== undefined).join('\n')
+
   async function handleExecute() {
     if (valueDateChanged && !valueDateReason.trim()) {
       alert('Please provide a reason for changing the value date.')
@@ -110,55 +153,22 @@ function ExecutionModal({ rec, bankEmail, bankName, baseCurrency, companyId, onC
     setSaving(true)
     if (valueDateChanged) await logValueDateChange()
 
-    // Build email body
-    const subjectImmediate = `FX ${instrumentType} Request — ${rec.action} ${rec.currency_pair}`
-    const subjectLimit     = `FX Limit Order — ${rec.action} ${rec.currency_pair}`
-
-    const bodyImmediate = [
-      `Dear ${bankName || 'FX Desk'},`,
-      '',
-      `Please execute the following FX transaction:`,
-      '',
-      `Direction:     Sell ${direction.sell} / Buy ${direction.buy}`,
-      `Amount:        ${fromCcy} ${displayAmount}`,
-      `Currency Pair: ${rec.currency_pair}`,
-      `Instrument:    ${instrumentType}`,
-      `Value Date:    ${toDisplayDate(valueDate)}`,
-      `Rate:          At best / market rate`,
-      valueDateChanged ? `Note: Value date changed from ${toDisplayDate(originalValueDate)}. Reason: ${valueDateReason}` : '',
-      '',
-      `Please confirm execution by return.`,
-      '',
-      `Kind regards`
-    ].filter(l => l !== undefined).join('\n')
-
-    const bodyLimit = [
-      `Dear ${bankName || 'FX Desk'},`,
-      '',
-      `Please place the following limit order:`,
-      '',
-      `Direction:     Sell ${direction.sell} / Buy ${direction.buy}`,
-      `Amount:        ${fromCcy} ${displayAmount}`,
-      `Currency Pair: ${rec.currency_pair}`,
-      `Limit Rate:    ${limitRate} (take profit)`,
-      `Stop Rate:     ${stopRate} (stop loss)`,
-      `Value Date:    ${toDisplayDate(valueDate)}`,
-      `Good Till:     ${toDisplayDate(goodTill)}`,
-      `Instructions:  Please cancel automatically if not filled by Good Till date.`,
-      valueDateChanged ? `Note: Value date changed from ${toDisplayDate(originalValueDate)}. Reason: ${valueDateReason}` : '',
-      '',
-      `Please confirm order placement by return.`,
-      '',
-      `Kind regards`
-    ].filter(l => l !== undefined).join('\n')
-
     const subject = orderType === 'immediate' ? subjectImmediate : subjectLimit
     const body    = orderType === 'immediate' ? bodyImmediate : bodyLimit
     const mailto  = `mailto:${bankEmail || ''}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 
-    window.open(mailto, '_blank')
+    const a = document.createElement('a')
+    a.href = mailto
+    a.click()
     setSaving(false)
     setSent(true)
+  }
+
+  async function handleCopy() {
+    const text = orderType === 'immediate' ? bodyImmediate : bodyLimit
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 3000)
   }
 
   return (
@@ -294,15 +304,22 @@ function ExecutionModal({ rec, bankEmail, bankName, baseCurrency, companyId, onC
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3 pt-1">
-              <button onClick={onClose}
-                className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-500">
-                Cancel
-              </button>
-              <button onClick={handleExecute} disabled={saving || !bankEmail}
-                className="flex-1 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-                style={{ background: NAVY, color: 'white' }}>
-                {saving ? 'Opening...' : 'Open Email Draft →'}
+            <div className="space-y-3 pt-1">
+              <div className="flex gap-3">
+                <button onClick={onClose}
+                  className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-500">
+                  Cancel
+                </button>
+                <button onClick={handleExecute} disabled={saving || !bankEmail}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
+                  style={{ background: NAVY, color: 'white' }}>
+                  {saving ? 'Opening...' : 'Open Email Draft →'}
+                </button>
+              </div>
+              <button onClick={handleCopy}
+                className="w-full py-2.5 border border-gray-200 rounded-lg text-sm font-semibold transition-all"
+                style={{ color: NAVY }}>
+                {copied ? '✓ Copied to clipboard' : 'Copy order details'}
               </button>
             </div>
           </div>
