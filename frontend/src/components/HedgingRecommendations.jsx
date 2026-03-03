@@ -79,19 +79,16 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain }) {
       })
 
       // 2. Create tranche record — links execution to register
-      const amountMatch = order.action?.match(/[\d,]+/)
-      const amount = amountMatch ? parseFloat(amountMatch[0].replace(/,/g, '')) : 0
-
       await fetch(`${API_BASE}/api/exposures/${exposureId}/tranches`, {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({
-          amount,
-          rate:       null,
+          amount:     order.amount,
+          rate:       order.currentSpot || null,
           instrument: order.instrument,
           value_date: order.valueDate
             ? order.valueDate.split('/').reverse().join('-')
             : null,
-          notes: `Order type: ${order.orderType}. Rate to be confirmed by bank.`
+          notes: `Order type: ${order.orderType}.`
         })
       })
 
@@ -181,6 +178,14 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
   const [saving, setSaving]                   = useState(false)
   const [sent, setSent]                       = useState(false)
   const [copied, setCopied]                   = useState(false)
+  const [currentSpot, setCurrentSpot]         = useState(null)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/fx-rates?pairs=${rec.currency_pair}`, { headers: authHeaders() })
+      .then(r => r.json())
+      .then(data => setCurrentSpot(data.rates?.[0]?.rate || null))
+      .catch(() => {})
+  }, [])
 
   const direction        = getDirection(rec)
   const [fromCcy]        = rec.currency_pair.split('/')
@@ -292,6 +297,9 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
       valueDate: toDisplayDate(valueDate),
       limitRate: limitRate || null,
       stopRate: stopRate || null,
+      amount: parseFloat(amountStr) || 0,
+      currentSpot,
+      action: rec.action,
     })
   }
 
