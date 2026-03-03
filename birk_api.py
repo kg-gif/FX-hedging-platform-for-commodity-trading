@@ -546,31 +546,40 @@ async def send_daily_alerts(
 
         # Get exposures with P&L data
         exposures = db.execute(text("""
-            SELECT from_currency, to_currency, amount, budget_rate, current_rate,
+            SELECT from_currency, to_currency, amount, budget_rate,
                    hedge_ratio_policy, description
             FROM exposures
             WHERE company_id = :cid
             AND budget_rate IS NOT NULL
-            AND current_rate IS NOT NULL
         """), {"cid": company_id}).fetchall()
 
         if not exposures:
             continue
 
-        # Calculate P&L for each exposure
+        # Fetch LIVE rates for all pairs in this company
+        pairs = list(dict.fromkeys([
+            f"{r._mapping['from_currency']}/{r._mapping['to_currency']}"
+            for r in exposures
+        ]))
+        live_rates = await get_current_rates(pairs)
+
+        # Calculate P&L for each exposure using live rates
         breaches, warnings, healthy = [], [], []
         total_pnl = 0
 
         for row in exposures:
             r = row._mapping
-            pnl = (float(r["current_rate"]) - float(r["budget_rate"])) * float(r["amount"])
+            pair = f"{r['from_currency']}/{r['to_currency']}"
+            rate_info = live_rates.get(pair)
+            current_rate = rate_info["rate"] if rate_info and rate_info.get("rate") else float(r.get("current_rate", 0))
+            pnl = (current_rate - float(r["budget_rate"])) * float(r["amount"])
             total_pnl += pnl
             pair = f"{r['from_currency']}/{r['to_currency']}"
             entry = {
                 "pair": pair,
                 "pnl": pnl,
                 "amount": float(r["amount"]),
-                "current_rate": float(r["current_rate"]),
+                "current_rate": current_rate,
                 "budget_rate": float(r["budget_rate"]),
                 "description": r["description"] or ""
             }
