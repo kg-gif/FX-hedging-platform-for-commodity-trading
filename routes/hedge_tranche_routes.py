@@ -34,10 +34,19 @@ def get_db():
         db.close()
 
 
-def get_token_payload(credentials=None):
-    """Re-use auth from main app — imported at call time to avoid circular imports."""
-    from birk_api import get_token_payload as _get_token_payload
-    return _get_token_payload(credentials)
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+_security = HTTPBearer(auto_error=False)
+
+def get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> dict:
+    from jose import JWTError, jwt
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
+    try:
+        return jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 def resolve_company_id(requested_id: int, payload: dict) -> int:
