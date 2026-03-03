@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
+import ExposureRegister from './ExposureRegister'
 import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { Edit2, Trash2, AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
@@ -314,74 +315,11 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4" style={{ background: NAVY }}>
-          <h3 className="font-semibold text-white text-sm">Exposure Register</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-100">
-            <thead style={{ background: '#F4F6FA' }}>
-              <tr>
-                {['Instrument','Currency','Amount','Budget','Current','P&L','Status','Hedge %','Description','Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-50">
-              {filteredExposures.map((exp) => {
-                const isBreached = exp.pnl_status === 'BREACH'
-                return (
-                  <tr key={exp.id} className="hover:bg-gray-50 transition-colors"
-                    style={isBreached ? { background: 'rgba(239,68,68,0.03)' } : {}}>
-                    <td className="px-4 py-3 text-sm text-gray-600">{exp.instrument_type || 'Spot'}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="mr-1">{CURRENCY_FLAGS[exp.from_currency] || '🏳️'}</span>
-                      <span className="font-medium text-sm" style={{ color: NAVY }}>{exp.from_currency} / {exp.to_currency}</span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-mono text-gray-700">
-                      {exp.amount.toLocaleString()} {exp.from_currency}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-mono text-gray-500">
-                      {exp.budget_rate ? exp.budget_rate.toFixed(4) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-mono text-gray-700">
-                      {exp.current_rate ? exp.current_rate.toFixed(4) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-semibold"
-                      style={{ color: exp.current_pnl >= 0 ? SUCCESS : DANGER }}>
-                      {exp.current_pnl != null ? fmtSign(exp.current_pnl) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {exp.pnl_status === 'BREACH'     && <span className="px-2 py-1 text-xs font-bold rounded-full bg-red-100 text-red-700">BREACH</span>}
-                      {exp.pnl_status === 'WARNING'    && <span className="px-2 py-1 text-xs font-bold rounded-full bg-yellow-100 text-yellow-700">WARNING</span>}
-                      {exp.pnl_status === 'TARGET_MET' && <span className="px-2 py-1 text-xs font-bold rounded-full bg-blue-100 text-blue-700">TARGET</span>}
-                      {exp.pnl_status === 'OK'         && <span className="px-2 py-1 text-xs font-bold rounded-full bg-green-100 text-green-700">OK</span>}
-                      {!exp.pnl_status                 && <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm font-semibold" style={{ color: NAVY }}>
-                      {exp.hedge_ratio_policy ? `${(exp.hedge_ratio_policy * 100).toFixed(0)}%` : '100%'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-400 max-w-xs truncate">{exp.description}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-center">
-                      <button onClick={() => { setEditingExposure(exp); setShowEditModal(true) }}
-                        className="mr-3 hover:opacity-60" style={{ color: NAVY }}>
-                        <Edit2 size={15} />
-                      </button>
-                      <button onClick={() => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
-                        className="hover:opacity-60 text-red-400">
-                        <Trash2 size={15} />
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-          {filteredExposures.length === 0 && !loading && (
-            <div className="text-center py-16 text-gray-400 text-sm">No exposures found. Add one via Data Import.</div>
-          )}
-        </div>
-      </div>
+      <ExposureRegister
+        companyId={selectedCompany?.id || companyId}
+        onEdit={(exp) => { setEditingExposure(exp); setShowEditModal(true) }}
+        onDelete={(exp) => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
+      />
 
       {showEditModal && editingExposure && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">

@@ -39,6 +39,7 @@ def resolve_company_id(requested_id: int, payload: dict) -> int:
     return int(token_company_id)
 
 from routes.hedging_routes_fastapi import router as hedging_router
+from routes.hedge_tranche_routes import router as tranche_router
 from routes.data_import_routes_fastapi import router as data_import_router
 from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
 
@@ -62,6 +63,7 @@ app.add_middleware(
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(hedging_router)
+app.include_router(tranche_router)
 app.include_router(data_import_router)
 app.include_router(monte_carlo_router)
 app.include_router(pdf_router)
