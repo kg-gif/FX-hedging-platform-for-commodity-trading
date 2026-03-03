@@ -85,7 +85,7 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain }) {
     return (
       <div className="mt-4 rounded-xl px-4 py-3 flex items-center gap-3"
         style={{ background: '#F0FDF4', border: '1px solid #86EFAC' }}>
-        <span className="text-green-600 text-lg">checkmark</span>
+        <span className="text-green-600 text-lg">✓</span>
         <div>
           <p className="text-sm font-semibold text-green-800">Marked as executed</p>
           <p className="text-xs text-green-600">Recorded for reporting - {nowDisplay()}</p>
@@ -519,21 +519,23 @@ function HedgingRecommendations() {
               className="bg-white rounded-xl shadow-sm p-6 border-l-4 hover:shadow-md transition-shadow"
               style={{ borderLeftColor: rec.urgency === 'HIGH' ? '#EF4444' : rec.urgency === 'MEDIUM' ? '#F59E0B' : '#10B981' }}>
 
-              <div className="flex items-center gap-3 mb-4">
-                <h3 className="text-lg font-bold" style={{ color: NAVY }}>{rec.action}</h3>
-                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                  rec.urgency === 'HIGH'   ? 'bg-red-100 text-red-800' :
-                  rec.urgency === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-green-100 text-green-800'
-                }`}>
-                  {rec.urgency} PRIORITY
-                </span>
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h3 className="text-lg font-bold" style={{ color: NAVY }}>{rec.action}</h3>
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                    rec.urgency === 'HIGH'   ? 'bg-red-100 text-red-800' :
+                    rec.urgency === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-green-100 text-green-800'
+                  }`}>
+                    {rec.urgency} PRIORITY
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4 mb-4">
                 {[
                   { label: 'Currency Pair', value: rec.currency_pair, highlight: false },
-                  { label: 'Target Hedge',  value: rec.target_ratio,  highlight: true  },
+                  { label: 'Target Hedge', value: typeof rec.target_ratio === 'string' && rec.target_ratio.includes('%') ? rec.target_ratio : `${rec.target_ratio}%`, highlight: true },
                   { label: 'Instrument',    value: rec.instrument,    highlight: false },
                 ].map(({ label, value, highlight }) => (
                   <div key={label}>
