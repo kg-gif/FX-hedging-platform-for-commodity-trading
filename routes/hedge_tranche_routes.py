@@ -302,13 +302,13 @@ def reset_corridor(
     resolve_company_id(exp["company_id"], payload)
 
     current_spot = float(body.get("current_spot") or 0)
-    corridor_pct = float(body.get("corridor_pct") or 0.03)  # default 3%
-    reason = body.get("reason", "Manual corridor reset")
+    tp_pct       = float(body.get("take_profit_pct") or body.get("corridor_pct") or 0.03)
+    sl_pct       = float(body.get("stop_loss_pct")   or body.get("corridor_pct") or 0.03)
+    reason       = body.get("reason", "Manual corridor reset")
 
     if not current_spot:
         raise HTTPException(status_code=400, detail="current_spot is required")
 
-    # Calculate open amount
     existing_hedged = db.execute(text("""
         SELECT COALESCE(SUM(amount), 0)
         FROM hedge_tranches
@@ -316,11 +316,11 @@ def reset_corridor(
     """), {"eid": exposure_id}).scalar()
 
     total_amount = float(exp["amount"])
-    open_amount = total_amount - float(existing_hedged or 0)
+    open_amount  = total_amount - float(existing_hedged or 0)
 
-    # Calculate new corridor around today's spot
-    take_profit = round(current_spot * (1 + corridor_pct), 6)
-    stop_loss   = round(current_spot * (1 - corridor_pct), 6)
+    # Asymmetric corridor — take profit and stop loss set independently
+    take_profit = round(current_spot * (1 + tp_pct), 6)
+    stop_loss   = round(current_spot * (1 - sl_pct), 6)
 
     db.execute(text("""
         INSERT INTO hedge_corridor_log
@@ -337,9 +337,9 @@ def reset_corridor(
         "original_budget_rate": exp.get("budget_rate"),
         "take_profit_rate":     take_profit,
         "stop_loss_rate":       stop_loss,
-        "corridor_pct":         corridor_pct,
+        "corridor_pct":         tp_pct,  # take_profit side stored; stop_loss_pct in notes
         "reset_by":             payload.get("email"),
-        "reason":               reason,
+        "reason":               f"{reason} | TP: {tp_pct*100:.1f}% SL: {sl_pct*100:.1f}%",
     })
     db.commit()
 
@@ -353,9 +353,10 @@ def reset_corridor(
         "exposure_id":      exposure_id,
         "open_amount":      round(open_amount, 2),
         "reference_rate":   current_spot,
-        "take_profit_rate": take_profit,
-        "stop_loss_rate":   stop_loss,
-        "corridor_pct":     f"{corridor_pct * 100:.1f}%",
+        "take_profit_rate":  take_profit,
+        "stop_loss_rate":    stop_loss,
+        "take_profit_pct":   f"{tp_pct * 100:.1f}%",
+        "stop_loss_pct":     f"{sl_pct * 100:.1f}%",
     }
 
 

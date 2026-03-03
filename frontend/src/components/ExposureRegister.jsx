@@ -85,13 +85,15 @@ function TrancheRow({ tranche, ccy }) {
 
 function CorridorResetModal({ exposure, onClose, onReset }) {
   const [reason, setReason]           = useState('')
-  const [corridorPct, setCorridorPct] = useState('3')
-  const [saving, setSaving]           = useState(false)
+  const [tpPct, setTpPct]   = useState('2')
+  const [slPct, setSlPct]   = useState('3')
+  const [saving, setSaving] = useState(false)
 
   const spot       = exposure.current_spot
-  const pct        = parseFloat(corridorPct) / 100
-  const takeProfit = spot ? (spot * (1 + pct)).toFixed(4) : '—'
-  const stopLoss   = spot ? (spot * (1 - pct)).toFixed(4) : '—'
+  const tp         = parseFloat(tpPct) / 100
+  const sl         = parseFloat(slPct) / 100
+  const takeProfit = spot ? (spot * (1 + tp)).toFixed(4) : '—'
+  const stopLoss   = spot ? (spot * (1 - sl)).toFixed(4) : '—'
 
   async function handleReset() {
     if (!reason.trim()) { alert('Please provide a reason for the corridor reset.'); return }
@@ -100,8 +102,9 @@ function CorridorResetModal({ exposure, onClose, onReset }) {
       const res = await fetch(`${API_BASE}/api/exposures/${exposure.id}/reset-corridor`, {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({
-          current_spot: spot,
-          corridor_pct: pct,
+          current_spot:    spot,
+          take_profit_pct: tp,
+          stop_loss_pct:   sl,
           reason
         })
       })
@@ -139,11 +142,20 @@ function CorridorResetModal({ exposure, onClose, onReset }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5"
-              style={{ color: NAVY }}>Corridor Width (%)</label>
-            <input type="number" value={corridorPct} min="0.5" max="20" step="0.5"
-              onChange={e => setCorridorPct(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Take Profit (%)</label>
+                <input type="number" value={tpPct} min="0.5" max="20" step="0.5"
+                  onChange={e => setTpPct(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Stop Loss (%)</label>
+                <input type="number" value={slPct} min="0.5" max="20" step="0.5"
+                  onChange={e => setSlPct(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

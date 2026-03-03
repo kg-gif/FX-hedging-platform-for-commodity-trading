@@ -67,6 +67,7 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain }) {
   async function handleMarkExecuted() {
     setExecuting(true)
     try {
+      // 1. Existing audit log (unchanged)
       await fetch(`${API_BASE}/api/audit/mark-executed`, {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({
@@ -76,6 +77,24 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain }) {
           confirmed_by: JSON.parse(localStorage.getItem('auth_user') || '{}').email || 'unknown'
         })
       })
+
+      // 2. Create tranche record — links execution to register
+      const amountMatch = order.action?.match(/[\d,]+/)
+      const amount = amountMatch ? parseFloat(amountMatch[0].replace(/,/g, '')) : 0
+
+      await fetch(`${API_BASE}/api/exposures/${exposureId}/tranches`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({
+          amount,
+          rate:       null,
+          instrument: order.instrument,
+          value_date: order.valueDate
+            ? order.valueDate.split('/').reverse().join('-')
+            : null,
+          notes: `Order type: ${order.orderType}. Rate to be confirmed by bank.`
+        })
+      })
+
       setExecuted(true)
     } catch (e) { console.error('Mark executed failed:', e) }
     finally { setExecuting(false) }
