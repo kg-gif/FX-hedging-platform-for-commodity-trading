@@ -15,6 +15,8 @@
 - [ ] Hedge screen scenario analysis — "Unable to load scenario analysis" error, needs investigation.
 
 ## 🟡 Post-Pilot / Growth
+- [ ] Policy override audit log — when a user deviates from policy hedge ratio (hedges more or less than policy dictates), mandatory reason required before execution. Logs: who, what policy said, what was actually done, why, timestamp, exposure. Same amber warning pattern as value date change. Table: policy_override_audit_log. Required for both regulatory compliance and internal board governance.
+- [ ] User permission tiers — currently Admin/Viewer only. Add: (1) Trader — can execute orders but not change policy, (2) Approver — must approve orders above threshold before they are sent, (3) Read-only — dashboard and reports only, no execution. Policy overrides should require Approver or Admin role.
 - [ ] Get started tutorial — onboarding flow for new customers
 - [ ] Google / SSO login — sign in with Google in addition to password
 - [ ] CSV bulk exposure upload — currently manual entry only

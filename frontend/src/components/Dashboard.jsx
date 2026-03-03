@@ -316,7 +316,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
       )}
 
       <ExposureRegister
-        companyId={selectedCompany?.id || companyId}
+        companyId={selectedCompany?.id || 1}
         onEdit={(exp) => { setEditingExposure(exp); setShowEditModal(true) }}
         onDelete={(exp) => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
       />
