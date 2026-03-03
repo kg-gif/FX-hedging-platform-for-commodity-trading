@@ -192,7 +192,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete }) {
   const [searchText, setSearchText]       = useState('')
   const [filterCcy, setFilterCcy]         = useState('')
 
-  useEffect(() => { load() }, [companyId])
+  useEffect(() => { if (companyId) load() }, [companyId])
 
   async function load() {
     setLoading(true)
