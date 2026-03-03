@@ -477,15 +477,19 @@ def get_recommendations(
             target_ratio = float(p["hedge_ratio_under_1m"])
         recommended_amount = amount * target_ratio - (amount - unhedged)
         if recommended_amount > 100000:
-            recommendations.append({
-                "exposure_id": exp["id"],
-                "currency_pair": f"{exp['from_currency']}/{exp['to_currency']}",
-                "action": f"Hedge {exp['from_currency']} {int(recommended_amount):,}",
-                "target_ratio": f"{int(target_ratio * 100)}%",
-                "instrument": "Forward",
-                "urgency": "HIGH" if unhedged > amount * 0.5 else "MEDIUM",
-                "reason": f"Policy target: {int(target_ratio * 100)}% hedge"
-            })
+           recommendations.append({
+            "exposure_id":    exp["id"],
+            "currency_pair":  f"{exp['from_currency']}/{exp['to_currency']}",
+            "action":         f"Hedge {exp['from_currency']} {int(recommended_amount):,}",
+            "target_ratio":   f"{int(target_ratio * 100)}%",
+            "recommended_amount": int(recommended_amount),
+            "total_exposure": int(amount),
+            "instrument":     exp.get("instrument_type") or "Forward",
+            "urgency":        "HIGH" if unhedged > amount * 0.5 else "MEDIUM",
+            "reason":         f"Policy target: {int(target_ratio * 100)}% hedge. Recommended hedge: {exp['from_currency']} {int(recommended_amount):,} of {int(amount):,} total exposure.",
+            "exposure_type":  exp.get("exposure_type") or "payable",
+            "end_date":       exp["end_date"].isoformat() if exp.get("end_date") else None,
+        })
 
     return {"company_id": safe_id, "policy": p["policy_name"], "recommendations": recommendations}
 
