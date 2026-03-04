@@ -405,7 +405,7 @@ async def get_enriched_exposures(
     safe_id = resolve_company_id(company_id, payload)
 
     exposures = db.execute(
-        text("SELECT * FROM exposures WHERE company_id = :cid"),
+        text("SELECT * FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true)"),
         {"cid": safe_id}
     ).fetchall()
 

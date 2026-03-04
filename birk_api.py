@@ -346,8 +346,11 @@ async def get_exposures(
     payload: dict = Depends(get_token_payload)
 ):
     """Main dashboard exposures endpoint. Viewers restricted to own company."""
+    from sqlalchemy import text as _text
     safe_id = resolve_company_id(company_id, payload)
-    exposures = db.query(Exposure).filter(Exposure.company_id == safe_id).all()
+    exposures = db.query(Exposure).filter(Exposure.company_id == safe_id).filter(
+        _text("(is_active IS NULL OR is_active = true)")
+    ).all()
 
     pairs = list(dict.fromkeys([f"{e.from_currency}/{e.to_currency}" for e in exposures]))
     rates_map = await get_current_rates(pairs)
@@ -462,7 +465,7 @@ def get_recommendations(
         return {"recommendations": [], "error": "No active policy"}
 
     p = policy_row._mapping
-    exposures = db.execute(text("SELECT * FROM exposures WHERE company_id = :cid"), {"cid": safe_id}).fetchall()
+    exposures = db.execute(text("SELECT * FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true)"), {"cid": safe_id}).fetchall()
 
     recommendations = []
     for exp_row in exposures:
@@ -556,6 +559,7 @@ async def send_daily_alerts(
                    hedge_ratio_policy, description
             FROM exposures
             WHERE company_id = :cid
+            AND (is_active IS NULL OR is_active = true)
             AND budget_rate IS NOT NULL
         """), {"cid": company_id}).fetchall()
 
@@ -1008,3 +1012,47 @@ def mark_order_executed(
         f"confirmed by {payload_body.get('confirmed_by')}"
     )
     return {"message": "Marked as executed"}
+
+
+@app.delete("/data/exposures/{exposure_id}")
+def delete_exposure(
+    exposure_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Soft-delete an exposure. Sets is_active = false rather than destroying the record.
+    Audit trail (order logs, value date changes) is preserved for compliance.
+    Only admin or the owning company can delete.
+    """
+    from sqlalchemy import text as _text
+
+    # Auto-add is_active column if not exists
+    try:
+        db.execute(_text(
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    # Fetch exposure and verify ownership
+    exposure = db.execute(
+        _text("SELECT * FROM exposures WHERE id = :id"),
+        {"id": exposure_id}
+    ).fetchone()
+
+    if not exposure:
+        raise HTTPException(status_code=404, detail="Exposure not found")
+
+    safe_company_id = resolve_company_id(exposure._mapping["company_id"], payload)
+
+    # Soft delete
+    db.execute(
+        _text("UPDATE exposures SET is_active = false WHERE id = :id AND company_id = :cid"),
+        {"id": exposure_id, "cid": safe_company_id}
+    )
+    db.commit()
+
+    logger.info(f"Exposure {exposure_id} soft-deleted by {payload.get('email')}")
+    return {"message": "Exposure deleted", "exposure_id": exposure_id}
