@@ -189,7 +189,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
 
   const direction        = getDirection(rec)
   const [fromCcy]        = rec.currency_pair.split('/')
-  const amountStr        = rec.action.replace(/[^0-9,]/g, '').replace(',', '')
+  const amountStr        = rec.action.replace(/[^0-9,]/g, '').replace(/,/g, '')
   const displayAmount    = parseInt(amountStr).toLocaleString()
   const valueDateChanged = valueDate !== originalValueDate
   const instrumentType   = isForward(valueDate) ? 'Forward' : 'Spot'

@@ -203,6 +203,8 @@ export default function ExposureRegister({ companyId, onEdit, onDelete }) {
   const [corridorModal, setCorridorModal] = useState(null)
   const [searchText, setSearchText]       = useState('')
   const [filterCcy, setFilterCcy]         = useState('')
+  const [page, setPage]                   = useState(1)
+  const PAGE_SIZE = 10
 
   useEffect(() => { if (companyId) load() }, [companyId])
 
@@ -236,7 +238,10 @@ export default function ExposureRegister({ companyId, onEdit, onDelete }) {
     return true
   })
 
-  // Portfolio totals
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  // Portfolio totals (across all filtered rows, not just current page)
   const totalLockedPnl   = filtered.reduce((s, e) => s + (e.locked_pnl || 0), 0)
   const totalFloatingPnl = filtered.reduce((s, e) => s + (e.floating_pnl || 0), 0)
   const totalCombinedPnl = filtered.reduce((s, e) => s + (e.combined_pnl || 0), 0)
@@ -302,7 +307,30 @@ export default function ExposureRegister({ companyId, onEdit, onDelete }) {
           style={{ background: NAVY, color: 'white' }}>
           <RefreshCw size={13} /> Refresh
         </button>
-        <span className="text-sm text-gray-400">{filtered.length} exposures</span>
+        <span className="text-sm text-gray-400">
+          {filtered.length} exposures · Page {page} of {totalPages || 1}
+        </span>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            className="px-3 py-1.5 rounded border border-gray-200 text-sm disabled:opacity-40">
+            ← Prev
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+            <button key={p} onClick={() => setPage(p)}
+              className="px-3 py-1.5 rounded border text-sm font-semibold"
+              style={{
+                background: p === page ? NAVY : 'white',
+                color: p === page ? 'white' : '#6B7280',
+                borderColor: p === page ? NAVY : '#E5E7EB'
+              }}>
+              {p}
+            </button>
+          ))}
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || totalPages === 0}
+            className="px-3 py-1.5 rounded border border-gray-200 text-sm disabled:opacity-40">
+            Next →
+          </button>
+        </div>
       </div>
 
       {/* Register */}
@@ -326,7 +354,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map(exp => (
+              {paginated.map(exp => (
                 <React.Fragment key={exp.id}>
                   <tr className="hover:bg-gray-50 transition-colors cursor-pointer"
                     onClick={() => toggleExpand(exp.id)}>
