@@ -271,11 +271,25 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
             <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>
               Amount *
             </label>
-            <input type="number" value={formData.amount}
-              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-              className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none ${errors.amount ? 'border-red-400' : 'border-gray-200'}`}
-              placeholder="1000000" step="0.01" />
+            <div className="relative">
+              <input type="number" value={formData.amount}
+                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none pr-16 ${errors.amount ? 'border-red-400' : 'border-gray-200'}`}
+                placeholder="1000000" step="0.01" />
+              {formData.currency_pair && (
+                <span className="absolute right-3 top-2.5 text-xs font-bold text-gray-400">
+                  {formData.currency_pair.split('/')[0]}
+                </span>
+              )}
+            </div>
             {errors.amount && <p className="text-red-500 text-xs mt-1">{errors.amount}</p>}
+            {formData.amount && formData.currency_pair && (formData.rate || formData.budget_rate) && (
+              <p className="text-xs text-gray-400 mt-1">
+                ≈ {formData.currency_pair.split('/')[1]}{' '}
+                {(parseFloat(formData.amount) * parseFloat(formData.rate || formData.budget_rate)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                {' '}(at {formData.rate ? 'entered rate' : 'budget rate'})
+              </p>
+            )}
           </div>
 
           {/* FX Rate */}
@@ -410,8 +424,8 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
               style={{ background: 'rgba(201,168,108,0.08)', border: `1px solid rgba(201,168,108,0.3)` }}>
               <p style={{ color: NAVY }}>
                 <strong>Hedge Breakdown:</strong><br />
-                Hedged: ${(amt * hedgeRatio).toLocaleString()} ({(hedgeRatio * 100).toFixed(0)}%)<br />
-                Open / Unhedged: ${(amt * (1 - hedgeRatio)).toLocaleString()} ({((1 - hedgeRatio) * 100).toFixed(0)}%)
+                Hedged: {formData.currency_pair?.split('/')[0] || ''} {(amt * hedgeRatio).toLocaleString()} ({(hedgeRatio * 100).toFixed(0)}%)<br />
+                Open / Unhedged: {formData.currency_pair?.split('/')[0] || ''} {(amt * (1 - hedgeRatio)).toLocaleString()} ({((1 - hedgeRatio) * 100).toFixed(0)}%)
               </p>
             </div>
           )}
