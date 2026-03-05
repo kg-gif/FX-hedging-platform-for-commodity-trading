@@ -253,14 +253,14 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
             <select value={formData.exposure_type || 'payable'}
               onChange={(e) => setFormData({ ...formData, exposure_type: e.target.value })}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none">
-              <option value="payable">Payable — I am buying the base currency</option>
-              <option value="receivable">Receivable — I am selling the base currency</option>
+              <option value="payable">Buy {formData.currency_pair?.split('/')[0] || 'base'} / Sell {formData.currency_pair?.split('/')[1] || 'quote'}</option>
+              <option value="receivable">Sell {formData.currency_pair?.split('/')[0] || 'base'} / Buy {formData.currency_pair?.split('/')[1] || 'quote'}</option>
             </select>
             {formData.currency_pair && (
               <p className="text-xs text-gray-400 mt-1">
                 {formData.exposure_type === 'receivable'
-                  ? `You will receive ${formData.currency_pair.split('/')[0]} and sell ${formData.currency_pair.split('/')[1]}`
-                  : `You will buy ${formData.currency_pair.split('/')[0]} and pay ${formData.currency_pair.split('/')[1]}`
+                  ? `You are selling ${formData.currency_pair.split('/')[0]} — exposed to ${formData.currency_pair.split('/')[0]} weakening`
+                  : `You are buying ${formData.currency_pair.split('/')[0]} — exposed to ${formData.currency_pair.split('/')[0]} strengthening`
                 }
               </p>
             )}
