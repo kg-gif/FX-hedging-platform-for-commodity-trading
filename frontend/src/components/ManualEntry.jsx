@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useCompany } from '../contexts/CompanyContext';
-import { Plus, Save, X, CheckCircle, AlertCircle, AlertTriangle, Calendar, DollarSign, FileText, Hash } from 'lucide-react';
+import { Plus, Save, X, CheckCircle, AlertCircle, AlertTriangle, Calendar, FileText, Hash } from 'lucide-react';
 import { NAVY, GOLD, WARNING } from '../brand';
 
 const API_BASE_URL = 'https://birk-fx-api.onrender.com';
@@ -12,6 +12,7 @@ const authHeaders = () => ({
 const EMPTY_FORM = {
   reference_number: '',
   currency_pair: '',
+  exposure_type: 'payable',
   amount: '',
   start_date: '',
   end_date: '',
@@ -67,6 +68,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     max_loss_limit:     data.max_loss_limit   ? parseFloat(data.max_loss_limit)   : null,
     target_profit:      data.target_profit    ? parseFloat(data.target_profit)    : null,
     hedge_ratio_policy: data.hedge_ratio_policy ? parseFloat(data.hedge_ratio_policy) : 1.0,
+    exposure_type:      data.exposure_type || 'payable',
     instrument_type:    data.instrument_type || 'Spot'
   });
 
@@ -219,17 +221,55 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
               onChange={(e) => setFormData({ ...formData, currency_pair: e.target.value })}
               className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none ${errors.currency_pair ? 'border-red-400' : 'border-gray-200'}`}>
               <option value="">Select currency pair</option>
-              {['EURUSD','GBPUSD','JPYUSD','CHFUSD','AUDUSD','CADUSD','NZDUSD','CNYUSD','INRUSD','BRLUSD','MXNUSD','ZARUSD'].map(p => (
-                <option key={p} value={p}>{p.slice(0,3)}/{p.slice(3)}</option>
-              ))}
+              <optgroup label="Major USD Pairs">
+                {['EUR/USD','GBP/USD','USD/JPY','USD/CHF','AUD/USD','USD/CAD','NZD/USD'].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Euro Crosses">
+                {['EUR/GBP','EUR/CHF','EUR/JPY','EUR/CAD','EUR/AUD','EUR/NOK','EUR/SEK','EUR/DKK'].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Sterling Crosses">
+                {['GBP/CHF','GBP/JPY','GBP/CAD','GBP/AUD','GBP/NOK','GBP/SEK'].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </optgroup>
+              <optgroup label="Emerging Markets">
+                {['USD/CNY','USD/INR','USD/BRL','USD/MXN','USD/ZAR','USD/TRY','USD/SGD','USD/HKD'].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </optgroup>
             </select>
             {errors.currency_pair && <p className="text-red-500 text-xs mt-1">{errors.currency_pair}</p>}
+          </div>
+
+          {/* Direction */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>
+              Direction *
+            </label>
+            <select value={formData.exposure_type || 'payable'}
+              onChange={(e) => setFormData({ ...formData, exposure_type: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none">
+              <option value="payable">Payable — I am buying the base currency</option>
+              <option value="receivable">Receivable — I am selling the base currency</option>
+            </select>
+            {formData.currency_pair && (
+              <p className="text-xs text-gray-400 mt-1">
+                {formData.exposure_type === 'receivable'
+                  ? `You will receive ${formData.currency_pair.split('/')[0]} and sell ${formData.currency_pair.split('/')[1]}`
+                  : `You will buy ${formData.currency_pair.split('/')[0]} and pay ${formData.currency_pair.split('/')[1]}`
+                }
+              </p>
+            )}
           </div>
 
           {/* Amount */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>
-              <DollarSign size={12} className="inline mr-1" />Amount *
+              Amount *
             </label>
             <input type="number" value={formData.amount}
               onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
@@ -417,7 +457,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
                 <div>
                   <p className="font-medium text-sm" style={{ color: NAVY }}>{entry.reference_number}</p>
                   <p className="text-xs text-gray-500">
-                    {entry.currency_pair} • {entry.instrument_type} • ${parseFloat(entry.amount).toLocaleString()}
+                    {entry.currency_pair} • {entry.exposure_type || 'payable'} • {entry.instrument_type} • {parseFloat(entry.amount).toLocaleString()}
                   </p>
                 </div>
                 <button onClick={() => setBatchEntries(batchEntries.filter((_, idx) => idx !== i))}

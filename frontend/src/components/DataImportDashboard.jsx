@@ -193,7 +193,7 @@ const DataImportDashboard = () => {
                           <td className="px-4 py-3 font-medium text-sm" style={{ color: NAVY }}>
                             {exp.from_currency} / {exp.to_currency}
                           </td>
-                          <td className="px-4 py-3 text-sm">${exp.amount?.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-sm font-mono">{exp.amount?.toLocaleString()}</td>
                           <td className="px-4 py-3 text-sm">{formatDate(exp.start_date)}</td>
                           <td className="px-4 py-3 text-sm">{formatDate(exp.end_date)}</td>
                           <td className="px-4 py-3 text-sm">{exp.settlement_period} days</td>
