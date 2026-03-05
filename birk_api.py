@@ -834,6 +834,7 @@ async def startup_event():
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS alert_email VARCHAR(255)",
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS daily_digest BOOLEAN DEFAULT TRUE",
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS hedge_override BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
             """CREATE TABLE IF NOT EXISTS policy_audit_log (
                 id SERIAL PRIMARY KEY, company_id INTEGER REFERENCES companies(id),
                 policy_id INTEGER NOT NULL, policy_name VARCHAR(100) NOT NULL,
