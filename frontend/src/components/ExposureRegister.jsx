@@ -22,8 +22,8 @@ const fmtAmount = (n, ccy = '') =>
 
 const fmtPnl = (n) => {
   if (n == null) return '—'
-  const sign = n >= 0 ? '+' : ''
-  return `${sign}$${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+  const sign = n >= 0 ? '+' : '-'
+  return `${sign}${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 }
 
 const pnlColor = (n) => n == null ? '#9CA3AF' : n >= 0 ? SUCCESS : DANGER

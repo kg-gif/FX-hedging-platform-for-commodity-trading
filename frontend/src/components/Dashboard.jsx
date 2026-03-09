@@ -17,8 +17,8 @@ const CURRENCY_FLAGS = {
 }
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
 
-const fmt = (n, opts = {}) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0, ...opts }).format(n)
-const fmtSign = (n) => fmt(n, { signDisplay: 'always' })
+const fmt = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
+const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 
 function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const [companies, setCompanies]                 = useState([])
@@ -33,8 +33,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const [deletingExposure, setDeletingExposure]   = useState(null)
   const [showEditModal, setShowEditModal]         = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [searchText, setSearchText]               = useState('')
-  const [filterCurrency, setFilterCurrency]       = useState('')
 
   useEffect(() => { fetchCompanies() }, [])
   useEffect(() => {
@@ -101,33 +99,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     } catch { alert('Error deleting') }
   }
 
-  const exportToCSV = () => {
-    const headers = ['Instrument','Currency','Amount','Budget Rate','Current Rate','P&L','Status','Hedge %','Description']
-    const rows = filteredExposures.map(e => [
-      e.instrument_type || 'Spot',
-      `${e.from_currency}/${e.to_currency}`,
-      `${e.amount} ${e.from_currency}`,
-      e.budget_rate || 'N/A', e.current_rate || 'N/A',
-      e.current_pnl || 0, e.pnl_status || 'N/A',
-      `${((e.hedge_ratio_policy || 1) * 100).toFixed(0)}%`,
-      e.description || ''
-    ])
-    const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const a = document.createElement('a')
-    a.href = window.URL.createObjectURL(blob)
-    a.download = `${selectedCompany?.name || 'exposures'}_${new Date().toISOString().split('T')[0]}.csv`
-    a.click()
-  }
-
-  const filteredExposures = exposures.filter(exp => {
-    if (filterCurrency && `${exp.from_currency}/${exp.to_currency}` !== filterCurrency) return false
-    if (searchText) {
-      const s = searchText.toLowerCase()
-      if (!exp.reference?.toLowerCase().includes(s) && !exp.description?.toLowerCase().includes(s)) return false
-    }
-    return true
-  })
+  const filteredExposures = exposures
 
   const totalExposure   = exposures.reduce((s, e) => s + Math.abs(e.amount * (e.current_rate || 1)), 0)
   const totalPnl        = filteredExposures.reduce((s, e) => s + (e.current_pnl || 0), 0)
@@ -268,7 +240,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%" outerRadius={75}
-                  label={(e) => `${e.flag} ${e.currency}`}>
+                  label={(e) => e.currency}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v) => fmt(v)} />
@@ -292,25 +264,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100 flex flex-wrap items-center gap-3">
-        <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)}
-          placeholder="Search reference or description..."
-          className="flex-1 min-w-48 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" />
-        <select value={filterCurrency} onChange={(e) => setFilterCurrency(e.target.value)}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-          <option value="">All Currencies</option>
-          {[...new Set(exposures.map(e => `${e.from_currency}/${e.to_currency}`))].map(p => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-        <span className="text-sm text-gray-400">{filteredExposures.length} of {exposures.length}</span>
-        <button onClick={exportToCSV} disabled={!exposures.length}
-          className="px-4 py-2 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
-          style={{ background: NAVY }}>
-          Export CSV
-        </button>
-      </div>
-
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
@@ -325,7 +278,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-8 max-w-2xl w-full mx-4 shadow-2xl">
             <h2 className="text-lg font-bold mb-6" style={{ color: NAVY }}>Edit Exposure</h2>
-            <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Amount</label>
                 <input type="number" value={editingExposure.amount}
@@ -333,10 +286,48 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
                   className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
               </div>
               <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Direction</label>
+                <select value={editingExposure.direction || 'Buy'}
+                  onChange={(e) => setEditingExposure({ ...editingExposure, direction: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm">
+                  <option value="Buy">Buy (Payable)</option>
+                  <option value="Sell">Sell (Receivable)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Budget Rate</label>
+                <input type="number" step="0.0001" value={editingExposure.budget_rate || ''}
+                  onChange={(e) => setEditingExposure({ ...editingExposure, budget_rate: parseFloat(e.target.value) })}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Instrument</label>
+                <select value={editingExposure.instrument_type || 'Spot'}
+                  onChange={(e) => setEditingExposure({ ...editingExposure, instrument_type: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm">
+                  <option value="Spot">Spot</option>
+                  <option value="Forward">Forward</option>
+                  <option value="NDF">NDF</option>
+                  <option value="Option">Option</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Start Date</label>
+                <input type="date" value={editingExposure.start_date || ''}
+                  onChange={(e) => setEditingExposure({ ...editingExposure, start_date: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Due Date</label>
+                <input type="date" value={editingExposure.due_date || ''}
+                  onChange={(e) => setEditingExposure({ ...editingExposure, due_date: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div className="col-span-2">
                 <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Description</label>
                 <textarea value={editingExposure.description || ''}
                   onChange={(e) => setEditingExposure({ ...editingExposure, description: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" rows="3" />
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" rows="2" />
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
