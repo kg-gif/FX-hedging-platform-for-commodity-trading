@@ -6,6 +6,7 @@ import HedgingRecommendations from './components/HedgingRecommendations'
 import PolicySelector from './components/PolicySelector'
 import DataImportDashboard from './components/DataImportDashboard'
 import MonteCarloTab from './components/MonteCarloTab'
+import Reports from './components/Reports'
 import Settings from './components/Settings'
 import Admin from './components/Admin'
 import Login from './components/Login'
@@ -98,22 +99,7 @@ function AppContent({ authUser, onLogout }) {
           </div>
         )
       case 'reports':
-        return (
-          <div className="bg-white rounded-xl shadow-md p-12 text-center">
-            <p className="text-4xl mb-4">📄</p>
-            <h2 className="text-xl font-bold mb-2" style={{ color: NAVY }}>Reports</h2>
-            <p className="text-gray-500 mb-6">
-              Download your Automated Currency Plan or view historical reports.
-            </p>
-            <button
-              onClick={() => window.open(`${API_URL}/api/reports/currency-plan?company_id=${selectedCompanyId}`, '_blank')}
-              className="px-8 py-3 text-white rounded-lg font-semibold"
-              style={{ background: NAVY }}
-            >
-              Download Currency Plan
-            </button>
-          </div>
-        )
+        return <Reports />
       case 'policy':
         return <PolicySelector onPolicyChange={() => {}} />
       case 'monte-carlo':
