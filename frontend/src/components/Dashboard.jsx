@@ -264,6 +264,55 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         </div>
       )}
 
+      {exposures.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
+            <h3 className="text-sm font-semibold text-white">Live Rates</h3>
+            <p className="text-xs" style={{ color: '#8DA4C4' }}>
+              {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Live'}
+            </p>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {[...new Map(exposures
+              .filter(e => e.current_rate && e.budget_rate)
+              .map(e => [`${e.from_currency}/${e.to_currency}`, e])
+            ).values()].map(e => {
+              const pair = `${e.from_currency}/${e.to_currency}`
+              const change = ((e.current_rate - e.budget_rate) / e.budget_rate) * 100
+              const positive = change >= 0
+              return (
+                <div key={pair} className="flex items-center justify-between px-5 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-bold" style={{ color: NAVY }}>{pair}</span>
+                  </div>
+                  <div className="flex items-center gap-6 text-right">
+                    <div>
+                      <p className="text-xs text-gray-400">Budget</p>
+                      <p className="text-sm font-mono" style={{ color: NAVY }}>
+                        {e.budget_rate.toFixed(4)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Spot</p>
+                      <p className="text-sm font-mono font-bold" style={{ color: NAVY }}>
+                        {e.current_rate.toFixed(4)}
+                      </p>
+                    </div>
+                    <div className="w-20 text-right">
+                      <p className="text-xs text-gray-400">vs Budget</p>
+                      <p className="text-sm font-bold"
+                        style={{ color: positive ? SUCCESS : DANGER }}>
+                        {positive ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
