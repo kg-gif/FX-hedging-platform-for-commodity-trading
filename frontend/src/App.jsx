@@ -106,7 +106,7 @@ function AppContent({ authUser, onLogout }) {
               Download your Automated Currency Plan or view historical reports.
             </p>
             <button
-              onClick={() => window.open(`${API_URL}/api/reports/currency-plan?company_id=1`, '_blank')}
+              onClick={() => window.open(`${API_URL}/api/reports/currency-plan?company_id=${selectedCompanyId}`, '_blank')}
               className="px-8 py-3 text-white rounded-lg font-semibold"
               style={{ background: NAVY }}
             >
