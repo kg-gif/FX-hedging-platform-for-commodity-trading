@@ -33,6 +33,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const [deletingExposure, setDeletingExposure]   = useState(null)
   const [showEditModal, setShowEditModal]         = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [enrichedExposures, setEnrichedExposures] = useState([])
 
   useEffect(() => { fetchCompanies() }, [])
   useEffect(() => {
@@ -60,8 +61,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
       }
     } catch {}
   }
-
-  const [enrichedExposures, setEnrichedExposures] = useState([])
 
   const fetchExposures = async (companyId) => {
     setLoading(true)
