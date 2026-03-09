@@ -85,6 +85,16 @@ function AppContent({ authUser, onLogout }) {
         return (
           <div className="space-y-6">
             <HedgingRecommendations />
+            <div className="bg-white rounded-xl shadow-sm p-8 text-center border border-dashed border-gray-200">
+              <p className="text-2xl mb-3">📊</p>
+              <h3 className="text-base font-bold mb-1" style={{ color: NAVY }}>Scenario Analysis</h3>
+              <p className="text-sm text-gray-400">What-if modelling coming soon — hedge ratio simulator and corridor builder</p>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm p-8 text-center border border-dashed border-gray-200">
+              <p className="text-2xl mb-3">🛡️</p>
+              <h3 className="text-base font-bold mb-1" style={{ color: NAVY }}>Active Hedge Portfolio</h3>
+              <p className="text-sm text-gray-400">Track and manage executed hedge positions — coming soon</p>
+            </div>
           </div>
         )
       case 'reports':
