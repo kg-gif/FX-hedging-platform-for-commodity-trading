@@ -65,15 +65,24 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const fetchExposures = async (companyId) => {
     setLoading(true)
     try {
-      const [basic, enriched] = await Promise.all([
-        fetch(`${API_BASE}/exposures?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json()),
-        fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json())
-      ])
+      const basicRes = await fetch(`${API_BASE}/exposures?company_id=${companyId}`, { headers: authHeaders() })
+      const basic = await basicRes.json()
       setExposures(Array.isArray(basic) ? basic : [])
-      setEnrichedExposures(Array.isArray(enriched) ? enriched : [])
       setLastUpdated(new Date())
     } catch { setError('Failed to fetch exposures') }
     finally { setLoading(false) }
+
+    try {
+      const enrichedRes = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
+      if (enrichedRes.ok) {
+        const enriched = await enrichedRes.json()
+        setEnrichedExposures(Array.isArray(enriched) ? enriched : [])
+      } else {
+        console.error('Enriched fetch returned', enrichedRes.status)
+      }
+    } catch (e) {
+      console.error('Enriched fetch failed silently:', e)
+    }
   }
 
   const refreshRates = async () => {
