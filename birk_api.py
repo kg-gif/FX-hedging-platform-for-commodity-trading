@@ -530,13 +530,24 @@ def get_recommendations(
         return {"recommendations": [], "error": "No active policy"}
 
     p = policy_row._mapping
-    exposures = db.execute(text("SELECT * FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true)"), {"cid": safe_id}).fetchall()
+    exposures = db.execute(text("""
+        SELECT e.*,
+            COALESCE(SUM(ht.amount), 0) as actual_hedged
+        FROM exposures e
+        LEFT JOIN hedge_tranches ht
+            ON ht.exposure_id = e.id
+            AND ht.status IN ('executed', 'confirmed')
+        WHERE e.company_id = :cid
+            AND (e.is_active IS NULL OR e.is_active = true)
+        GROUP BY e.id
+    """), {"cid": safe_id}).fetchall()
 
     recommendations = []
     for exp_row in exposures:
         exp = exp_row._mapping
         amount = float(exp["amount"])
-        unhedged = float(exp["unhedged_amount"]) if exp["unhedged_amount"] is not None else amount
+        actual_hedged = float(exp["actual_hedged"] or 0)
+        unhedged = max(amount - actual_hedged, 0)
         if unhedged <= 0:
             continue
         if amount >= 5000000:
@@ -545,7 +556,9 @@ def get_recommendations(
             target_ratio = float(p["hedge_ratio_1m_to_5m"])
         else:
             target_ratio = float(p["hedge_ratio_under_1m"])
-        recommended_amount = amount * target_ratio - (amount - unhedged)
+        recommended_amount = (amount * target_ratio) - actual_hedged
+        if recommended_amount <= 0:
+            continue
         if recommended_amount > 100000:
            recommendations.append({
             "exposure_id":    exp["id"],
