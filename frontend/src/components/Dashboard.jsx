@@ -134,7 +134,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   )
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
 
       {breaches.length > 0 && (
         <div className="rounded-xl px-5 py-4 flex items-center gap-3"
@@ -237,7 +237,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
             <h3 className="text-sm font-semibold mb-4" style={{ color: NAVY }}>Currency Mix</h3>
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={160}>
               <PieChart>
                 <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%" outerRadius={75}
                   label={(e) => e.currency}>
@@ -249,7 +249,7 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
           </div>
           <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
             <h3 className="text-sm font-semibold mb-4" style={{ color: NAVY }}>Rate vs Budget (%)</h3>
-            <ResponsiveContainer width="100%" height={220}>
+            <ResponsiveContainer width="100%" height={160}>
               <BarChart data={rateChanges}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="currency" style={{ fontSize: '11px' }} />
@@ -265,51 +265,79 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
       )}
 
       {exposures.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
-            <h3 className="text-sm font-semibold text-white">Live Rates</h3>
-            <p className="text-xs" style={{ color: '#8DA4C4' }}>
-              {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Live'}
-            </p>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {[...new Map(exposures
-              .filter(e => e.current_rate && e.budget_rate)
-              .map(e => [`${e.from_currency}/${e.to_currency}`, e])
-            ).values()].map(e => {
-              const pair = `${e.from_currency}/${e.to_currency}`
-              const change = ((e.current_rate - e.budget_rate) / e.budget_rate) * 100
-              const positive = change >= 0
-              return (
-                <div key={pair} className="flex items-center justify-between px-5 py-3">
-                  <div className="flex items-center gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+          {/* Live Rates */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
+              <h3 className="text-sm font-semibold text-white">Live Rates</h3>
+              <p className="text-xs" style={{ color: '#8DA4C4' }}>
+                {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Live'}
+              </p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {[...new Map(exposures
+                .filter(e => e.current_rate && e.budget_rate)
+                .map(e => [`${e.from_currency}/${e.to_currency}`, e])
+              ).values()].map(e => {
+                const pair = `${e.from_currency}/${e.to_currency}`
+                const change = ((e.current_rate - e.budget_rate) / e.budget_rate) * 100
+                const positive = change >= 0
+                return (
+                  <div key={pair} className="flex items-center justify-between px-4 py-2.5">
                     <span className="text-sm font-bold" style={{ color: NAVY }}>{pair}</span>
-                  </div>
-                  <div className="flex items-center gap-6 text-right">
-                    <div>
-                      <p className="text-xs text-gray-400">Budget</p>
-                      <p className="text-sm font-mono" style={{ color: NAVY }}>
-                        {e.budget_rate.toFixed(4)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400">Spot</p>
-                      <p className="text-sm font-mono font-bold" style={{ color: NAVY }}>
-                        {e.current_rate.toFixed(4)}
-                      </p>
-                    </div>
-                    <div className="w-20 text-right">
-                      <p className="text-xs text-gray-400">vs Budget</p>
-                      <p className="text-sm font-bold"
-                        style={{ color: positive ? SUCCESS : DANGER }}>
-                        {positive ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
-                      </p>
+                    <div className="flex items-center gap-5 text-right">
+                      <div>
+                        <p className="text-xs text-gray-400">Budget</p>
+                        <p className="text-xs font-mono" style={{ color: NAVY }}>{e.budget_rate.toFixed(4)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Spot</p>
+                        <p className="text-xs font-mono font-bold" style={{ color: NAVY }}>{e.current_rate.toFixed(4)}</p>
+                      </div>
+                      <div className="w-16">
+                        <p className="text-xs text-gray-400">vs Budget</p>
+                        <p className="text-xs font-bold" style={{ color: positive ? SUCCESS : DANGER }}>
+                          {positive ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
+
+          {/* Hedge Coverage */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-5 py-3" style={{ background: NAVY }}>
+              <h3 className="text-sm font-semibold text-white">Hedge Coverage by Pair</h3>
+            </div>
+            <div className="divide-y divide-gray-50 px-4">
+              {[...new Map(exposures
+                .map(e => [`${e.from_currency}/${e.to_currency}`, e])
+              ).values()].map(e => {
+                const pair = `${e.from_currency}/${e.to_currency}`
+                const hedged = e.hedged_amount || 0
+                const total = Math.abs(e.amount || 0)
+                const pct = total > 0 ? Math.min((hedged / total) * 100, 100) : 0
+                const color = pct >= 70 ? SUCCESS : pct >= 40 ? WARNING : DANGER
+                return (
+                  <div key={pair} className="py-2.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-bold" style={{ color: NAVY }}>{pair}</span>
+                      <span className="text-xs font-bold" style={{ color }}>{pct.toFixed(0)}% hedged</span>
+                    </div>
+                    <div className="rounded-full overflow-hidden" style={{ background: '#E5E7EB', height: 6 }}>
+                      <div className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, background: color }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
         </div>
       )}
 
