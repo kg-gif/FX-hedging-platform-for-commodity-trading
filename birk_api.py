@@ -388,6 +388,69 @@ async def get_exposures(
     return enriched
 
 
+@app.put("/api/exposure-data/exposures/{exposure_id}")
+async def update_exposure(
+    exposure_id: int,
+    payload_body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    from sqlalchemy import text as _text
+
+    # Auto-add new columns if not present
+    for sql in [
+        "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS start_date DATE",
+        "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS due_date DATE",
+        "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS direction VARCHAR(10) DEFAULT 'Buy'",
+    ]:
+        try:
+            db.execute(_text(sql))
+        except Exception:
+            db.rollback()
+    db.commit()
+
+    # Verify ownership
+    row = db.execute(_text("SELECT * FROM exposures WHERE id = :id"), {"id": exposure_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Exposure not found")
+    safe_id = resolve_company_id(row._mapping["company_id"], payload)
+
+    db.execute(_text("""
+        UPDATE exposures SET
+            amount           = :amount,
+            description      = :description,
+            budget_rate      = :budget_rate,
+            instrument_type  = :instrument_type,
+            direction        = :direction,
+            start_date       = :start_date,
+            due_date         = :due_date
+        WHERE id = :id AND company_id = :company_id
+    """), {
+        "amount":          payload_body.get("amount"),
+        "description":     payload_body.get("description"),
+        "budget_rate":     payload_body.get("budget_rate"),
+        "instrument_type": payload_body.get("instrument_type", "Spot"),
+        "direction":       payload_body.get("direction", "Buy"),
+        "start_date":      payload_body.get("start_date") or None,
+        "due_date":        payload_body.get("due_date") or None,
+        "id":              exposure_id,
+        "company_id":      safe_id
+    })
+    db.commit()
+
+    logger.info(f"Exposure {exposure_id} updated by {payload.get('email')}")
+    return {"message": "Exposure updated", "exposure_id": exposure_id}
+
+
+@app.delete("/api/exposure-data/exposures/{exposure_id}")
+def delete_exposure_alias(
+    exposure_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    return delete_exposure(exposure_id, db, payload)
+
+
 @app.get("/api/policies/{policy_id}")
 def get_policy(
     policy_id: int,
