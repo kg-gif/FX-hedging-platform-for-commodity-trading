@@ -417,6 +417,7 @@ async def update_exposure(
 
     db.execute(_text("""
         UPDATE exposures SET
+            reference        = :reference,
             amount           = :amount,
             description      = :description,
             budget_rate      = :budget_rate,
@@ -426,6 +427,7 @@ async def update_exposure(
             due_date         = :due_date
         WHERE id = :id AND company_id = :company_id
     """), {
+        "reference":       payload_body.get("reference"),
         "amount":          payload_body.get("amount"),
         "description":     payload_body.get("description"),
         "budget_rate":     payload_body.get("budget_rate"),

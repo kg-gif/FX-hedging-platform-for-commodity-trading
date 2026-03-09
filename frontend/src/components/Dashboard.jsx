@@ -314,12 +314,15 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
               <h3 className="text-sm font-semibold text-white">Hedge Coverage by Pair</h3>
             </div>
             <div className="divide-y divide-gray-50 px-4">
-              {[...new Map(exposures
-                .map(e => [`${e.from_currency}/${e.to_currency}`, e])
-              ).values()].map(e => {
-                const pair = `${e.from_currency}/${e.to_currency}`
-                const hedged = e.hedged_amount || 0
-                const total = Math.abs(e.amount || 0)
+              {Object.entries(
+                exposures.reduce((acc, e) => {
+                  const pair = `${e.from_currency}/${e.to_currency}`
+                  if (!acc[pair]) acc[pair] = { hedged: 0, total: 0 }
+                  acc[pair].hedged += e.hedged_amount || 0
+                  acc[pair].total  += Math.abs(e.amount || 0)
+                  return acc
+                }, {})
+              ).map(([pair, { hedged, total }]) => {
                 const pct = total > 0 ? Math.min((hedged / total) * 100, 100) : 0
                 const color = pct >= 70 ? SUCCESS : pct >= 40 ? WARNING : DANGER
                 return (
@@ -356,6 +359,13 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
           <div className="bg-white rounded-xl p-8 max-w-2xl w-full mx-4 shadow-2xl">
             <h2 className="text-lg font-bold mb-6" style={{ color: NAVY }}>Edit Exposure</h2>
             <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Reference</label>
+                <input type="text" value={editingExposure.reference || ''}
+                  onChange={(e) => setEditingExposure({ ...editingExposure, reference: e.target.value })}
+                  placeholder="e.g. INV-2024-001 or Paytech Q1"
+                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Amount</label>
                 <input type="number" value={editingExposure.amount}
