@@ -4,8 +4,6 @@ import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
 import HedgingRecommendations from './components/HedgingRecommendations'
 import PolicySelector from './components/PolicySelector'
-import ScenarioAnalysis from './components/ScenarioAnalysis'
-import HedgeTracker from './components/HedgeTracker'
 import DataImportDashboard from './components/DataImportDashboard'
 import MonteCarloTab from './components/MonteCarloTab'
 import Settings from './components/Settings'
@@ -87,8 +85,6 @@ function AppContent({ authUser, onLogout }) {
         return (
           <div className="space-y-6">
             <HedgingRecommendations />
-            <ScenarioAnalysis />
-            <HedgeTracker />
           </div>
         )
       case 'reports':
