@@ -61,11 +61,17 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
     } catch {}
   }
 
+  const [enrichedExposures, setEnrichedExposures] = useState([])
+
   const fetchExposures = async (companyId) => {
     setLoading(true)
     try {
-      const data = await fetch(`${API_BASE}/exposures?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json())
-      setExposures(Array.isArray(data) ? data : [])
+      const [basic, enriched] = await Promise.all([
+        fetch(`${API_BASE}/exposures?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json()),
+        fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json())
+      ])
+      setExposures(Array.isArray(basic) ? basic : [])
+      setEnrichedExposures(Array.isArray(enriched) ? enriched : [])
       setLastUpdated(new Date())
     } catch { setError('Failed to fetch exposures') }
     finally { setLoading(false) }
@@ -315,11 +321,11 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
             </div>
             <div className="divide-y divide-gray-50 px-4">
               {Object.entries(
-                exposures.reduce((acc, e) => {
-                  const pair = `${e.from_currency}/${e.to_currency}`
+                enrichedExposures.reduce((acc, e) => {
+                  const pair = e.currency_pair
                   if (!acc[pair]) acc[pair] = { hedged: 0, total: 0 }
                   acc[pair].hedged += e.hedged_amount || 0
-                  acc[pair].total  += Math.abs(e.amount || 0)
+                  acc[pair].total  += Math.abs(e.total_amount || 0)
                   return acc
                 }, {})
               ).map(([pair, { hedged, total }]) => {
