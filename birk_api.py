@@ -603,7 +603,7 @@ async def send_daily_alerts(
         # Format P&L
         def fmt_pnl(n):
             sign = "+" if n >= 0 else ""
-            return f"{sign}${int(n):,}"
+            return f"{sign}{int(n):,}"
 
         def pnl_color(n):
             return "#27AE60" if n >= 0 else "#E74C3C"
@@ -614,7 +614,7 @@ async def send_daily_alerts(
               <td style="padding:10px 12px;font-weight:600;color:#1A2744;">{e['pair']}</td>
               <td style="padding:10px 12px;color:#555;">{e['description'][:40] if e['description'] else '—'}</td>
               <td style="padding:10px 12px;text-align:right;font-family:monospace;color:#1A2744;">
-                ${int(e['amount']):,}
+                {e['pair'].split('/')[0]} {int(e['amount']):,}
               </td>
               <td style="padding:10px 12px;text-align:right;font-family:monospace;color:#555;">
                 {e['budget_rate']:.4f}
