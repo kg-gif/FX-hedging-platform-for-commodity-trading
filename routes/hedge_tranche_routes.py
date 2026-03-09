@@ -127,13 +127,14 @@ def calculate_pnl_split(exposure: dict, tranches: list, current_spot: float) -> 
 
     # Locked P&L — weighted against each tranche's execution rate
     locked_pnl = sum(
-        (float(t["rate"] or budget_rate) - budget_rate) * float(t["amount"])
+        (float(t["rate"] or budget_rate or 0) - (budget_rate or 0)) * float(t["amount"] or 0)
         for t in tranches
         if t["status"] in ("executed", "confirmed")
+        and t["amount"] is not None
     )
 
     # Floating P&L — open portion vs today's spot
-    floating_pnl = (current_spot - budget_rate) * open_amount if budget_rate and current_spot else 0
+    floating_pnl = (current_spot - (budget_rate or 0)) * open_amount if current_spot and budget_rate else 0
 
     combined_pnl = locked_pnl + floating_pnl
     hedge_pct = (hedged_amount / total_amount * 100) if total_amount > 0 else 0
