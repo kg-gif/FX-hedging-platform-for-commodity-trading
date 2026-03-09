@@ -59,7 +59,7 @@ function Row({ label, value, bold, note }) {
 }
 
 // ── Order Status Banner shown on card after order is sent ─────────
-function OrderStatusBanner({ order, exposureId, companyId, onSendAgain }) {
+function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecuted }) {
   const [confirming, setConfirming] = useState(false)
   const [executing, setExecuting]   = useState(false)
   const [executed, setExecuted]     = useState(false)
@@ -93,6 +93,7 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain }) {
       })
 
       setExecuted(true)
+      setTimeout(() => { if (onExecuted) onExecuted() }, 1500)
     } catch (e) { console.error('Mark executed failed:', e) }
     finally { setExecuting(false) }
   }
@@ -599,6 +600,7 @@ function HedgingRecommendations() {
                   exposureId={rec.exposure_id}
                   companyId={companyId}
                   onSendAgain={() => setActiveModal(rec)}
+                  onExecuted={loadAll}
                 />
               )}
             </div>
