@@ -85,6 +85,7 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
           amount:     order.amount,
           rate:       order.currentSpot || null,
           instrument: order.instrument,
+          status:     'executed',
           value_date: order.valueDate
             ? order.valueDate.split('/').reverse().join('-')
             : null,
