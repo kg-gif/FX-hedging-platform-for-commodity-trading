@@ -12,7 +12,8 @@
       "Bash(git add birk_api.py)",
       "Bash(git add frontend/src/components/Dashboard.jsx)",
       "Bash(git add frontend/src/components/Dashboard.jsx birk_api.py)",
-      "Bash(git add routes/hedge_tranche_routes.py)"
+      "Bash(git add routes/hedge_tranche_routes.py)",
+      "Bash(git add frontend/src/components/HedgingRecommendations.jsx)"
     ]
   }
 }

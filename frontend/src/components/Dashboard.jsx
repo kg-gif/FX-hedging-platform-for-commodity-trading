@@ -35,12 +35,12 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [enrichedExposures, setEnrichedExposures] = useState([])
 
-  useEffect(() => { fetchCompanies() }, [])
-  useEffect(() => {
-    if (propsExposures?.length > 0) setExposures(propsExposures)
-    else if (selectedCompany) fetchExposures(selectedCompany.id)
-    if (selectedCompany) fetchPolicy(selectedCompany.id)
-  }, [selectedCompany, propsExposures])
+ useEffect(() => {
+  if (propsExposures?.length > 0) setExposures(propsExposures)
+  else if (selectedCompany) fetchExposures(selectedCompany.id)
+  if (selectedCompany) fetchPolicy(selectedCompany.id)
+  if (selectedCompany) fetchEnriched(selectedCompany.id)
+}, [selectedCompany, propsExposures])
 
   const fetchCompanies = async () => {
     try {
@@ -61,6 +61,17 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
       }
     } catch {}
   }
+const fetchEnriched = async (companyId) => {
+  try {
+    const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
+    if (res.ok) {
+      const data = await res.json()
+      setEnrichedExposures(Array.isArray(data) ? data : [])
+    }
+  } catch (e) {
+    console.error('Enriched fetch failed:', e)
+  }
+}
 
   const fetchExposures = async (companyId) => {
     setLoading(true)

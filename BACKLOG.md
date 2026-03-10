@@ -16,6 +16,17 @@
 - [ ] MC-derived corridor defaults — Run Monte Carlo simulation per exposure to derive default TP/SL corridor widths based on historical volatility and exposure tenor, rather than flat percentages. Output: 95th-percentile expected move as suggested corridor width, per currency pair and time horizon.
 - [ ] Weekend market hours flag — rate API returns interpolated/cached rates on Saturday and Sunday (markets closed Fri 5pm NY → Sun 5pm NY). Add market status check: if weekend or public holiday, show "Market Closed" indicator on dashboard and digest email, and suppress rate refresh to avoid misleading P&L movements.
 
+## 🟡 Strategic Features (Needs Design Session)
+
+- [ ] **AI Market Analysis** — AI-generated commentary on rate direction, volatility regime and optimal hedge timing per currency pair. Pulls live rates, compares to budget, flags elevated risk conditions. Output: plain-English insight card per pair on dashboard and hedging tab. Core differentiator. Requires design session.
+- [ ] **Onside / Offside (MTM Position)** — Mark-to-market valuation of all open forward contracts vs current spot. Shows whether each hedge is in-the-money (onside) or out-of-the-money (offside). Critical for margin call awareness. Required for any client hedging with forwards. Table-stakes for $20M+ ICP. Needs design session.
+- [ ] **Trading Facility Usage** — Shows how much of a client's FX credit line (bank facility limit) is consumed by open forward MTM exposure. Input: client sets facility limit in settings. Output: facility usage % per bank, headroom remaining, warning threshold alerts. Linked to onside/offside feature.
+- [ ] **Budget Rate Calculation (AI-Assisted)** — AI suggests a defensible budget rate per currency pair based on forward curve, historical volatility, and hedge tenor. Clearly labelled as a suggestion — final rate set by the CFO. Reduces manual research time. Must not be positioned as a recommendation or it creates liability.
+- [ ] **Multi-Company (Parent/Daughter)** — Parent entity sees consolidated group exposure + P&L across all subsidiaries. Daughter entities see only their own data. Group-level hedging can offset subsidiary positions before execution (netting). Architecture change required — design session before building. High enterprise value.
+- [ ] **Exposure Forecasting (AI)** — Upload 12-24 months of AP/AR history to forecast next 12 months of FX exposure by currency pair. Output: projected exposure by month, suggested hedge plan, timing and amounts. AI layer requires sufficient historical data — capture data now, build forecasting after 2-3 pilots have 6+ months of data.
+- [ ] **Hedge Accounting (IAS 39 / IFRS 9)** — Formal hedge designation, effectiveness testing (80-125% rule), and documentation pack. Allows listed/regulated clients to apply hedge accounting treatment and reduce P&L volatility. High complexity, high value for larger corporates. Series A feature — scope now, build later.
+- [ ] **FX Netting (Multi-Entity)** — For parent/daughter clients: identify offsetting exposures across entities before hedging. Net GBP payable in one entity against GBP receivable in another. Reduces transaction costs and facility usage. Linked to multi-company feature.
+
 ## 🟡 Post-Pilot / Growth
 - [ ] Flag emojis in currency mix chart — Windows suppresses flag emojis, showing country code text (CH, GB, JP, EU) instead. Replace with a CSS flag library (e.g. flag-icons) across all components that display currency flags.
 - [ ] Policy override audit log — when a user deviates from policy hedge ratio, mandatory reason required before execution. Logs: who, what policy said, what was done, why, timestamp, exposure. Table: policy_override_audit_log. Required for regulatory compliance and board governance.
@@ -26,6 +37,9 @@
 - [ ] Self-service signup — customers create own accounts
 - [ ] ERP integration — connect to customer accounting systems
 - [ ] Bank execution integration — connect to FX providers directly
+- [ ] **Trade Reconciliation** — Match executed hedge tranches against bank confirmations. Phase 1: manual upload of bank confirmation (PDF/CSV/MT103). Phase 2: auto-match via open banking. Flags unconfirmed trades, rate discrepancies, and missing confirmations. Produces reconciliation report for month-end close. Critical for audit and compliance — reduces manual spreadsheet work that treasury teams currently do. Links to Reports tab.
+- [ ] **Open Banking / Bank Account Integration** — Connect to bank accounts via open banking (PSD2 in EU/UK). Auto-reconcile executed trades against bank confirmations, view FX account balances. High compliance burden — FCA/PSD2 regulated. Series A feature, not pre-seed. Do not build until regulatory path is clear.
+- [ ] **Counterparty Risk** — Track FX exposure concentration per bank. Flag over-reliance on single counterparty. Required for treasury policy compliance at larger corporates.
 - [ ] Multi-provider support — Settings to support multiple banks/providers per company, each with name, contact, email, portal URL, and instrument types handled. Execution modal shows provider dropdown filtered by instrument type.
 - [ ] Bank portal redirect — direct link to customer's bank online portal alongside email execution option.
 
