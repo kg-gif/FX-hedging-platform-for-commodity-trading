@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import ExposureRegister from './ExposureRegister'
-import { PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 
@@ -17,40 +17,43 @@ const CURRENCY_FLAGS = {
 }
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
 
-const fmt = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
+const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 
 function Dashboard() {
-  const [companies, setCompanies]                 = useState([])
-  const [selectedCompany, setSelectedCompany]     = useState(null)
-  const [exposures, setExposures]                 = useState([])
-  const [loading, setLoading]                     = useState(false)
-  const [refreshing, setRefreshing]               = useState(false)
-  const [lastUpdated, setLastUpdated]             = useState(null)
-  const [error, setError]                         = useState(null)
-  const [policy, setPolicy]                       = useState(null)
-  const [editingExposure, setEditingExposure]     = useState(null)
-  const [deletingExposure, setDeletingExposure]   = useState(null)
-  const [showEditModal, setShowEditModal]         = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [companies,         setCompanies]         = useState([])
+  const [selectedCompany,   setSelectedCompany]   = useState(null)
+  const [exposures,         setExposures]         = useState([])
   const [enrichedExposures, setEnrichedExposures] = useState([])
+  const [loading,           setLoading]           = useState(false)
+  const [refreshing,        setRefreshing]        = useState(false)
+  const [lastUpdated,       setLastUpdated]       = useState(null)
+  const [error,             setError]             = useState(null)
+  const [policy,            setPolicy]            = useState(null)
+  const [editingExposure,   setEditingExposure]   = useState(null)
+  const [deletingExposure,  setDeletingExposure]  = useState(null)
+  const [showEditModal,     setShowEditModal]     = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
+  // On mount — load companies
+  useEffect(() => { fetchCompanies() }, [])
+
+  // When company changes — load everything
   useEffect(() => {
-    if (selectedCompany) {
-      fetchExposures(selectedCompany.id)
-      fetchPolicy(selectedCompany.id)
-    }
+    if (!selectedCompany) return
+    fetchExposures(selectedCompany.id)
+    fetchEnriched(selectedCompany.id)
+    fetchPolicy(selectedCompany.id)
   }, [selectedCompany])
 
   const fetchCompanies = async () => {
     try {
       const data = await fetch(`${API_BASE}/companies`, { headers: authHeaders() }).then(r => r.json())
-      setCompanies(data)
+      setCompanies(Array.isArray(data) ? data : [])
       if (data.length > 0) setSelectedCompany(data[0])
     } catch { setError('Failed to fetch companies') }
   }
 
-  // ── FIXED: use company_id, not hardcoded policy ID ──
   const fetchPolicy = async (companyId) => {
     try {
       const r = await fetch(`${API_BASE}/api/policies?company_id=${companyId}`, { headers: authHeaders() })
@@ -64,35 +67,32 @@ function Dashboard() {
 
   const fetchExposures = async (companyId) => {
     setLoading(true)
+    setError(null)
     try {
-      const basicRes = await fetch(`${API_BASE}/exposures?company_id=${companyId}`, { headers: authHeaders() })
-      const basic = await basicRes.json()
-      setExposures(Array.isArray(basic) ? basic : [])
+      const res  = await fetch(`${API_BASE}/exposures?company_id=${companyId}`, { headers: authHeaders() })
+      const data = await res.json()
+      setExposures(Array.isArray(data) ? data : [])
       setLastUpdated(new Date())
     } catch { setError('Failed to fetch exposures') }
     finally { setLoading(false) }
+  }
 
+  const fetchEnriched = async (companyId) => {
     try {
-      const enrichedRes = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
-      if (enrichedRes.ok) {
-        const enriched = await enrichedRes.json()
-        setEnrichedExposures(Array.isArray(enriched) ? enriched : [])
-      } else {
-        console.error('Enriched fetch returned', enrichedRes.status)
+      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
+      if (res.ok) {
+        const data = await res.json()
+        setEnrichedExposures(Array.isArray(data) ? data : [])
       }
-    } catch (e) {
-      console.error('Enriched fetch failed silently:', e)
-    }
+    } catch (e) { console.error('Enriched fetch failed:', e) }
   }
 
   const refreshRates = async () => {
     if (!selectedCompany) return
     setRefreshing(true)
-    setError(null)
-    try {
-      await fetchExposures(selectedCompany.id)
-    } catch { setError('Failed to refresh rates') }
-    finally { setRefreshing(false) }
+    await fetchExposures(selectedCompany.id)
+    await fetchEnriched(selectedCompany.id)
+    setRefreshing(false)
   }
 
   const handleEditSave = async (updated) => {
@@ -100,34 +100,43 @@ function Dashboard() {
       const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${updated.id}`, {
         method: 'PUT', headers: authHeaders(), body: JSON.stringify(updated)
       })
-      if (r.ok) { setShowEditModal(false); setEditingExposure(null); fetchExposures(selectedCompany.id) }
-      else alert('Failed to update')
+      if (r.ok) {
+        setShowEditModal(false)
+        setEditingExposure(null)
+        fetchExposures(selectedCompany.id)
+        fetchEnriched(selectedCompany.id)
+      } else { alert('Failed to update') }
     } catch { alert('Error updating') }
   }
 
   const handleDeleteConfirm = async () => {
     try {
-      const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, { method: 'DELETE', headers: authHeaders() })
-      if (r.ok) { setShowDeleteConfirm(false); setDeletingExposure(null); fetchExposures(selectedCompany.id) }
-      else alert('Failed to delete')
+      const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, {
+        method: 'DELETE', headers: authHeaders()
+      })
+      if (r.ok) {
+        setShowDeleteConfirm(false)
+        setDeletingExposure(null)
+        fetchExposures(selectedCompany.id)
+        fetchEnriched(selectedCompany.id)
+      } else { alert('Failed to delete') }
     } catch { alert('Error deleting') }
   }
 
-  const filteredExposures = exposures
-
-  const totalExposure   = exposures.reduce((s, e) => s + Math.abs(e.amount * (e.current_rate || 1)), 0)
-  const totalPnl        = filteredExposures.reduce((s, e) => s + (e.current_pnl || 0), 0)
-  const hedgedValue     = exposures.reduce((s, e) => s + (e.hedged_amount || 0), 0)
-  const unhedgedValue   = exposures.reduce((s, e) => s + (e.unhedged_amount || 0), 0)
-  const breaches        = filteredExposures.filter(e => e.pnl_status === 'BREACH')
-  const warnings        = filteredExposures.filter(e => e.pnl_status === 'WARNING')
-  const hedgePct        = totalExposure > 0 ? (hedgedValue / totalExposure) * 100 : 0
+  // ── Derived values ────────────────────────────────────────────
+  const totalExposure = exposures.reduce((s, e) => s + Math.abs(e.amount * (e.current_rate || 1)), 0)
+  const totalPnl      = exposures.reduce((s, e) => s + (e.current_pnl || 0), 0)
+  const hedgedValue   = exposures.reduce((s, e) => s + (e.hedged_amount || 0), 0)
+  const unhedgedValue = exposures.reduce((s, e) => s + (e.unhedged_amount || 0), 0)
+  const breaches      = exposures.filter(e => e.pnl_status === 'BREACH')
+  const warnings      = exposures.filter(e => e.pnl_status === 'WARNING')
+  const hedgePct      = totalExposure > 0 ? (hedgedValue / totalExposure) * 100 : 0
 
   const currencyDist = exposures.reduce((acc, e) => {
     const v = Math.abs(e.amount * (e.current_rate || 1))
     const x = acc.find(i => i.currency === e.from_currency)
     if (x) x.value += v
-    else acc.push({ currency: e.from_currency, value: v, flag: CURRENCY_FLAGS[e.from_currency] || '🏳️' })
+    else acc.push({ currency: e.from_currency, value: v })
     return acc
   }, [])
 
@@ -135,14 +144,24 @@ function Dashboard() {
     .filter(e => e.budget_rate && e.current_rate)
     .map(e => ({
       currency: e.from_currency,
-      change: ((e.current_rate - e.budget_rate) / e.budget_rate) * 100,
-      flag: CURRENCY_FLAGS[e.from_currency] || '🏳️'
+      change: ((e.current_rate - e.budget_rate) / e.budget_rate) * 100
     }))
     .sort((a, b) => b.change - a.change)
 
+  // ── Coverage card data ────────────────────────────────────────
+  const coverageByPair = Object.entries(
+    enrichedExposures.reduce((acc, e) => {
+      const pair = e.currency_pair
+      if (!acc[pair]) acc[pair] = { hedged: 0, total: 0 }
+      acc[pair].hedged += e.hedged_amount || 0
+      acc[pair].total  += Math.abs(e.total_amount || 0)
+      return acc
+    }, {})
+  )
+
   if (loading) return (
     <div className="text-center py-24">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto" style={{ borderColor: GOLD }}></div>
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto" style={{ borderColor: GOLD }} />
       <p className="mt-4 text-gray-400 text-sm">Loading your portfolio...</p>
     </div>
   )
@@ -150,6 +169,7 @@ function Dashboard() {
   return (
     <div className="space-y-4">
 
+      {/* Breach banner */}
       {breaches.length > 0 && (
         <div className="rounded-xl px-5 py-4 flex items-center gap-3"
           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>
@@ -165,6 +185,7 @@ function Dashboard() {
         </div>
       )}
 
+      {/* Portfolio summary */}
       {exposures.length > 0 && (
         <div className="rounded-xl p-6" style={{ background: NAVY }}>
           <div className="flex items-center justify-between mb-6">
@@ -191,6 +212,7 @@ function Dashboard() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Total P&L */}
             <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8DA4C4' }}>
                 Total P&L vs Budget
@@ -208,6 +230,7 @@ function Dashboard() {
               </p>
             </div>
 
+            {/* Protection status */}
             <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8DA4C4' }}>
                 Protection Status
@@ -225,6 +248,7 @@ function Dashboard() {
               </p>
             </div>
 
+            {/* Attention */}
             <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8DA4C4' }}>
                 Requires Attention
@@ -247,6 +271,7 @@ function Dashboard() {
         </div>
       )}
 
+      {/* Charts */}
       {exposures.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
@@ -278,6 +303,7 @@ function Dashboard() {
         </div>
       )}
 
+      {/* Live Rates + Hedge Coverage */}
       {exposures.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -294,9 +320,9 @@ function Dashboard() {
                 .filter(e => e.current_rate && e.budget_rate)
                 .map(e => [`${e.from_currency}/${e.to_currency}`, e])
               ).values()].map(e => {
-                const pair = `${e.from_currency}/${e.to_currency}`
+                const pair   = `${e.from_currency}/${e.to_currency}`
                 const change = ((e.current_rate - e.budget_rate) / e.budget_rate) * 100
-                const positive = change >= 0
+                const pos    = change >= 0
                 return (
                   <div key={pair} className="flex items-center justify-between px-4 py-2.5">
                     <span className="text-sm font-bold" style={{ color: NAVY }}>{pair}</span>
@@ -311,8 +337,8 @@ function Dashboard() {
                       </div>
                       <div className="w-16">
                         <p className="text-xs text-gray-400">vs Budget</p>
-                        <p className="text-xs font-bold" style={{ color: positive ? SUCCESS : DANGER }}>
-                          {positive ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
+                        <p className="text-xs font-bold" style={{ color: pos ? SUCCESS : DANGER }}>
+                          {pos ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
                         </p>
                       </div>
                     </div>
@@ -322,22 +348,17 @@ function Dashboard() {
             </div>
           </div>
 
-          {/* Hedge Coverage */}
+          {/* Hedge Coverage by Pair */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-5 py-3" style={{ background: NAVY }}>
               <h3 className="text-sm font-semibold text-white">Hedge Coverage by Pair</h3>
             </div>
             <div className="divide-y divide-gray-50 px-4">
-              {Object.entries(
-                enrichedExposures.reduce((acc, e) => {
-                  const pair = e.currency_pair
-                  if (!acc[pair]) acc[pair] = { hedged: 0, total: 0 }
-                  acc[pair].hedged += e.hedged_amount || 0
-                  acc[pair].total  += Math.abs(e.total_amount || 0)
-                  return acc
-                }, {})
-              ).map(([pair, { hedged, total }]) => {
-                const pct = total > 0 ? Math.min((hedged / total) * 100, 100) : 0
+              {coverageByPair.length === 0 && (
+                <p className="text-xs text-gray-400 py-4">Loading coverage data...</p>
+              )}
+              {coverageByPair.map(([pair, { hedged, total }]) => {
+                const pct   = total > 0 ? Math.min((hedged / total) * 100, 100) : 0
                 const color = pct >= 70 ? SUCCESS : pct >= 40 ? WARNING : DANGER
                 return (
                   <div key={pair} className="py-2.5">
@@ -362,12 +383,14 @@ function Dashboard() {
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
       )}
 
+      {/* Exposure Register */}
       <ExposureRegister
         companyId={selectedCompany?.id}
         onEdit={(exp) => { setEditingExposure(exp); setShowEditModal(true) }}
         onDelete={(exp) => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
       />
 
+      {/* Edit Modal */}
       {showEditModal && editingExposure && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-8 max-w-2xl w-full mx-4 shadow-2xl">
@@ -377,7 +400,7 @@ function Dashboard() {
                 <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Reference</label>
                 <input type="text" value={editingExposure.reference || ''}
                   onChange={(e) => setEditingExposure({ ...editingExposure, reference: e.target.value })}
-                  placeholder="e.g. INV-2024-001 or Paytech Q1"
+                  placeholder="e.g. INV-2024-001"
                   className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
               </div>
               <div>
@@ -441,6 +464,7 @@ function Dashboard() {
         </div>
       )}
 
+      {/* Delete Modal */}
       {showDeleteConfirm && deletingExposure && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4 shadow-2xl">
@@ -457,6 +481,7 @@ function Dashboard() {
           </div>
         </div>
       )}
+
     </div>
   )
 }
