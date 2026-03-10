@@ -20,7 +20,7 @@ const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899
 const fmt = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 
-function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
+function Dashboard() {
   const [companies, setCompanies]                 = useState([])
   const [selectedCompany, setSelectedCompany]     = useState(null)
   const [exposures, setExposures]                 = useState([])
@@ -35,12 +35,12 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [enrichedExposures, setEnrichedExposures] = useState([])
 
- useEffect(() => {
-  if (propsExposures?.length > 0) setExposures(propsExposures)
-  else if (selectedCompany) fetchExposures(selectedCompany.id)
-  if (selectedCompany) fetchPolicy(selectedCompany.id)
-  if (selectedCompany) fetchEnriched(selectedCompany.id)
-}, [selectedCompany, propsExposures])
+  useEffect(() => {
+    if (selectedCompany) {
+      fetchExposures(selectedCompany.id)
+      fetchPolicy(selectedCompany.id)
+    }
+  }, [selectedCompany])
 
   const fetchCompanies = async () => {
     try {
@@ -61,17 +61,6 @@ function Dashboard({ exposures: propsExposures, loading: propsLoading }) {
       }
     } catch {}
   }
-const fetchEnriched = async (companyId) => {
-  try {
-    const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
-    if (res.ok) {
-      const data = await res.json()
-      setEnrichedExposures(Array.isArray(data) ? data : [])
-    }
-  } catch (e) {
-    console.error('Enriched fetch failed:', e)
-  }
-}
 
   const fetchExposures = async (companyId) => {
     setLoading(true)
