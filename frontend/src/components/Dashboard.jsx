@@ -3,6 +3,7 @@ import ExposureRegister from './ExposureRegister'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
+import { CurrencyPairFlags } from './CurrencyFlag'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const authHeaders = () => ({
@@ -325,7 +326,10 @@ function Dashboard({ onNavigate }) {
                 const pos    = change >= 0
                 return (
                   <div key={pair} className="flex items-center justify-between px-4 py-2.5">
-                    <span className="text-sm font-bold" style={{ color: NAVY }}>{pair}</span>
+                    <span className="flex items-center gap-2 text-sm font-bold" style={{ color: NAVY }}>
+                      <CurrencyPairFlags pair={pair} />
+                      {pair}
+                    </span>
                     <div className="flex items-center gap-5 text-right">
                       <div>
                         <p className="text-xs text-gray-400">Budget</p>
@@ -363,7 +367,10 @@ function Dashboard({ onNavigate }) {
                 return (
                   <div key={pair} className="py-2.5">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-bold" style={{ color: NAVY }}>{pair}</span>
+                      <span className="flex items-center gap-2 text-sm font-bold" style={{ color: NAVY }}>
+                        <CurrencyPairFlags pair={pair} />
+                        {pair}
+                      </span>
                       <span className="text-xs font-bold" style={{ color }}>{pct.toFixed(0)}% hedged</span>
                     </div>
                     <div className="rounded-full overflow-hidden" style={{ background: '#E5E7EB', height: 6 }}>

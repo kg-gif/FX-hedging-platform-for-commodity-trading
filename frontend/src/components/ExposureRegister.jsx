@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { Edit2, Trash2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
+import { CurrencyPairFlags } from './CurrencyFlag'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const NAVY    = '#1A2744'
@@ -365,6 +366,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                         {expanded[exp.id]
                           ? <ChevronUp size={13} className="text-gray-400" />
                           : <ChevronDown size={13} className="text-gray-400" />}
+                        <CurrencyPairFlags pair={exp.currency_pair} size="sm" />
                         {exp.currency_pair}
                       </div>
                     </td>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { CurrencyPairFlags } from './CurrencyFlag'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const NAVY = '#1A2744'
@@ -607,10 +608,16 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
               </div>
 
               <div className="grid grid-cols-3 gap-3 mb-3">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Currency Pair</p>
+                  <p className="flex items-center gap-1.5 font-semibold text-sm" style={{ color: NAVY }}>
+                    <CurrencyPairFlags pair={rec.currency_pair} size="sm" />
+                    {rec.currency_pair}
+                  </p>
+                </div>
                 {[
-                  { label: 'Currency Pair', value: rec.currency_pair, highlight: false },
                   { label: 'Target Hedge', value: typeof rec.target_ratio === 'string' && rec.target_ratio.includes('%') ? rec.target_ratio : `${rec.target_ratio}%`, highlight: true },
-                  { label: 'Instrument',    value: rec.instrument,    highlight: false },
+                  { label: 'Instrument',   value: rec.instrument, highlight: false },
                 ].map(({ label, value, highlight }) => (
                   <div key={label}>
                     <p className="text-xs text-gray-500 mb-1">{label}</p>
@@ -711,7 +718,12 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
                     }
                     return (
                       <tr key={exp.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2.5 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{exp.currency_pair}</td>
+                        <td className="px-4 py-2.5 font-semibold whitespace-nowrap" style={{ color: NAVY }}>
+                          <span className="flex items-center gap-1.5">
+                            <CurrencyPairFlags pair={exp.currency_pair} size="sm" />
+                            {exp.currency_pair}
+                          </span>
+                        </td>
                         <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate">{exp.description || '—'}</td>
                         <td className="px-4 py-2.5 font-mono text-right whitespace-nowrap text-gray-700">{exp.from_currency} {fmt(exp.total_amount)}</td>
                         <td className="px-4 py-2.5 font-mono text-right whitespace-nowrap" style={{ color: '#10B981' }}>{fmt(exp.hedged_amount) || '—'}</td>
