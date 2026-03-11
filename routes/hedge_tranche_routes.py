@@ -447,12 +447,18 @@ async def get_enriched_exposures(
     ]))
     live_rates = await get_current_rates(pairs)
 
-    # Fetch active policy once — needed for zone thresholds
+    # Fetch active policy once — needed for zone thresholds and notification prefs
     policy_row = db.execute(
         text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"),
         {"cid": safe_id}
     ).fetchone()
     active_policy = dict(policy_row._mapping) if policy_row else {}
+
+    # Fetch company alert email once for zone notifications
+    company_row = db.execute(
+        text("SELECT alert_email FROM companies WHERE id = :cid"), {"cid": safe_id}
+    ).fetchone()
+    company_alert_email = company_row._mapping["alert_email"] if company_row else None
 
     result = []
     for exp_row in exposures:
@@ -522,6 +528,80 @@ async def get_enriched_exposures(
         else:
             base_ratio = float(active_policy.get("hedge_ratio_under_1m") or 1.0)
         z_target_ratio = zone_target_ratio(current_zone, active_policy, base_ratio)
+
+        # ── Zone-shift detection and notification ─────────────────────────────
+        # Only act when zone is non-base AND zone_notify_email is on
+        if current_zone != "base" and active_policy.get("zone_notify_email") and budget_rate:
+            try:
+                last_log = db.execute(text("""
+                    SELECT new_zone FROM zone_change_log
+                    WHERE company_id = :cid AND currency_pair = :pair
+                    ORDER BY created_at DESC LIMIT 1
+                """), {"cid": safe_id, "pair": pair}).fetchone()
+
+                last_zone = last_log._mapping["new_zone"] if last_log else "base"
+
+                if current_zone != last_zone:
+                    # Log the auto-detected zone change
+                    db.execute(text("""
+                        INSERT INTO zone_change_log
+                            (company_id, currency_pair, previous_zone, new_zone,
+                             trigger_type, spot_rate, budget_rate, pct_move, created_at)
+                        VALUES (:cid, :pair, :prev, :new, 'auto', :spot, :budget, :pct, NOW())
+                    """), {
+                        "cid":    safe_id,
+                        "pair":   pair,
+                        "prev":   last_zone,
+                        "new":    current_zone,
+                        "spot":   round(current_spot, 6),
+                        "budget": budget_rate,
+                        "pct":    round(pct_move, 2),
+                    })
+                    db.commit()
+
+                    # Send email notification
+                    resend_key = os.getenv("RESEND_API_KEY")
+                    if resend_key and company_alert_email:
+                        import httpx as _httpx
+                        zone_label = current_zone.upper()
+                        direction_txt = exp.get("exposure_type") or exp.get("direction") or "payable"
+                        action_txt = (
+                            "Increase hedge coverage to the Defensive target."
+                            if current_zone == "defensive"
+                            else "Consider reducing hedge coverage to the Opportunistic target."
+                        )
+                        body_html = (
+                            f"<p><strong>{pair}</strong> has moved into the "
+                            f"<strong>{zone_label}</strong> zone.</p>"
+                            f"<ul>"
+                            f"<li>Current spot: {round(current_spot, 4)}</li>"
+                            f"<li>Budget rate: {round(budget_rate, 4)}</li>"
+                            f"<li>Move vs budget: {round(pct_move, 2)}%</li>"
+                            f"<li>Direction: {direction_txt}</li>"
+                            f"</ul>"
+                            f"<p><strong>Recommended action:</strong> {action_txt}</p>"
+                            f"<p><a href='{os.getenv('FRONTEND_URL', 'https://birk-dashboard.onrender.com')}'>Review in Sumnohow →</a></p>"
+                        )
+                        try:
+                            import asyncio as _asyncio
+                            async def _send():
+                                async with _httpx.AsyncClient(timeout=10) as client:
+                                    await client.post(
+                                        "https://api.resend.com/emails",
+                                        headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                                        json={
+                                            "from": "Sumnohow <alerts@sumnohow.com>",
+                                            "to":   [company_alert_email],
+                                            "subject": f"{pair} Zone Alert — {zone_label}",
+                                            "html": body_html,
+                                        },
+                                    )
+                            _asyncio.ensure_future(_send())
+                        except Exception as _e:
+                            logger.warning(f"Zone shift email failed for {pair}: {_e}")
+            except Exception as _e:
+                logger.warning(f"Zone shift detection failed for {pair}: {_e}")
+        # ── End zone-shift notification ────────────────────────────────────────
 
         result.append({
             # Core exposure fields

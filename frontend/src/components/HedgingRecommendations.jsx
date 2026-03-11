@@ -498,6 +498,8 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
         end_date:           focusExposure.end_date,
         exposure_type:      focusExposure.exposure_type || 'payable',
         reason:             `Status: ${focusExposure.status}. Open position ${focusExposure.from_currency} ${(focusExposure.open_amount || 0).toLocaleString()} is unhedged.`,
+        current_zone:       focusExposure.current_zone || 'base',
+        zone_target_ratio:  focusExposure.zone_target_ratio ?? null,
       }
     : null
 
@@ -625,8 +627,18 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
                   </p>
                 </div>
                 {[
-                  { label: 'Target Hedge', value: typeof rec.target_ratio === 'string' && rec.target_ratio.includes('%') ? rec.target_ratio : `${rec.target_ratio}%`, highlight: true },
-                  { label: 'Instrument',   value: rec.instrument, highlight: false },
+                  {
+                    label: 'Target Hedge',
+                    value: rec.zone_target_ratio != null
+                      ? `${Math.round(rec.zone_target_ratio * 100)}%`
+                      : typeof rec.target_ratio === 'string' && rec.target_ratio.includes('%')
+                        ? rec.target_ratio
+                        : rec.target_ratio != null
+                          ? `${Math.round(Number(rec.target_ratio) * 100)}%`
+                          : '—',
+                    highlight: true,
+                  },
+                  { label: 'Instrument', value: rec.instrument, highlight: false },
                 ].map(({ label, value, highlight }) => (
                   <div key={label}>
                     <p className="text-xs text-gray-500 mb-1">{label}</p>
