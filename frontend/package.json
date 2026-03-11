@@ -4,6 +4,7 @@
   "description": "Birk FX Risk Management Dashboard",
   "private": true,
   "dependencies": {
+    "flag-icons": "^7.5.0",
     "lucide-react": "^0.303.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
