@@ -605,12 +605,13 @@ function HedgingRecommendations({ focusExposureId, onFocusConsumed }) {
                   <div className="flex items-center gap-2">
                     <label className="text-xs text-gray-500 whitespace-nowrap">Amount to hedge:</label>
                     <input
-                      type="number"
-                      value={displayAmt}
-                      onChange={e => setCustomAmounts(prev => ({ ...prev, [rec.exposure_id]: parseInt(e.target.value) || 0 }))}
+                      type="text"
+                      value={displayAmt.toLocaleString('en-US')}
+                      onChange={e => {
+                        const raw = parseInt(e.target.value.replace(/,/g, ''), 10)
+                        setCustomAmounts(prev => ({ ...prev, [rec.exposure_id]: isNaN(raw) ? 0 : raw }))
+                      }}
                       className="w-36 px-2 py-1 border border-gray-300 rounded text-sm font-mono text-right"
-                      min={0}
-                      max={rec.total_exposure}
                     />
                     <span className="text-xs text-gray-400">{rec.currency_pair?.split('/')[0]}</span>
                   </div>
