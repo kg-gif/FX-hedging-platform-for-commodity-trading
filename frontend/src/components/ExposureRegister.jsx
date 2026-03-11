@@ -195,7 +195,7 @@ function CorridorResetModal({ exposure, onClose, onReset }) {
   )
 }
 
-export default function ExposureRegister({ companyId, onEdit, onDelete }) {
+export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeNow }) {
   const [exposures, setExposures]         = useState([])
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState(null)
@@ -441,6 +441,13 @@ export default function ExposureRegister({ companyId, onEdit, onDelete }) {
                     {/* Actions */}
                     <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
+                        {onHedgeNow && exp.status === 'BREACH' && (
+                          <button onClick={() => onHedgeNow(exp.id)}
+                            className="text-xs px-2 py-1 rounded text-white font-semibold"
+                            style={{ background: DANGER }}>
+                            Hedge Now
+                          </button>
+                        )}
                         {exp.corridor && (
                           <button onClick={() => setCorridorModal(exp)}
                             title="Reset corridor"

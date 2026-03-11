@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const NAVY = '#1A2744'
@@ -452,7 +452,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
 }
 
 // ── Main Component ────────────────────────────────────────────────
-function HedgingRecommendations() {
+function HedgingRecommendations({ focusExposureId, onFocusConsumed }) {
   const authUser  = JSON.parse(localStorage.getItem('auth_user') || '{}')
   const companyId = authUser.company_id || 1
 
@@ -466,8 +466,20 @@ function HedgingRecommendations() {
   const [baseCurrency, setBaseCurrency]       = useState('USD')
   const [sentOrders, setSentOrders]           = useState({})
   const [expandedId, setExpandedId]           = useState(null)
+  const [customAmounts, setCustomAmounts]     = useState({})
+  const cardRefs = useRef({})
 
   useEffect(() => { loadAll() }, [companyId])
+
+  // When navigated here from a breach — expand and scroll to the target card
+  useEffect(() => {
+    if (!focusExposureId || loading) return
+    setExpandedId(focusExposureId)
+    setTimeout(() => {
+      cardRefs.current[focusExposureId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    if (onFocusConsumed) onFocusConsumed()
+  }, [focusExposureId, loading])
 
   async function loadAll() {
     setLoading(true)
@@ -543,9 +555,12 @@ function HedgingRecommendations() {
 
       <div className="space-y-2">
         {recommendations.map((rec) => {
-          const sentOrder = sentOrders[rec.exposure_id]
+          const sentOrder   = sentOrders[rec.exposure_id]
+          const customAmt   = customAmounts[rec.exposure_id]
+          const displayAmt  = customAmt !== undefined ? customAmt : rec.recommended_amount
           return (
             <div key={rec.exposure_id}
+              ref={el => { cardRefs.current[rec.exposure_id] = el }}
               className="bg-white rounded-xl shadow-sm p-4 border-l-4 hover:shadow-md transition-shadow"
               style={{ borderLeftColor: rec.urgency === 'HIGH' ? '#EF4444' : rec.urgency === 'MEDIUM' ? '#F59E0B' : '#10B981' }}>
 
@@ -586,9 +601,21 @@ function HedgingRecommendations() {
               )}
 
               {!sentOrder && (
-                <div className="flex justify-end">
-                  <button onClick={() => setActiveModal(rec)}
-                    className="px-5 py-2 text-white rounded-lg text-sm font-semibold"
+                <div className="flex items-center justify-between gap-3 mt-1">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500 whitespace-nowrap">Amount to hedge:</label>
+                    <input
+                      type="number"
+                      value={displayAmt}
+                      onChange={e => setCustomAmounts(prev => ({ ...prev, [rec.exposure_id]: parseInt(e.target.value) || 0 }))}
+                      className="w-36 px-2 py-1 border border-gray-300 rounded text-sm font-mono text-right"
+                      min={0}
+                      max={rec.total_exposure}
+                    />
+                    <span className="text-xs text-gray-400">{rec.currency_pair?.split('/')[0]}</span>
+                  </div>
+                  <button onClick={() => setActiveModal({ ...rec, override_amount: displayAmt })}
+                    className="px-5 py-2 text-white rounded-lg text-sm font-semibold shrink-0"
                     style={{ background: NAVY }}>
                     Execute with Bank
                   </button>

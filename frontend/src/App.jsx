@@ -41,6 +41,12 @@ function AppContent({ authUser, onLogout }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [exposures, setExposures] = useState([])
   const [loadingExposures, setLoadingExposures] = useState(true)
+  const [focusExposureId, setFocusExposureId] = useState(null)
+
+  function handleNavigate(page, opts = {}) {
+    setCurrentPage(page)
+    if (opts.focusExposureId) setFocusExposureId(opts.focusExposureId)
+  }
 
   const isAdmin = authUser?.role === 'admin'
 
@@ -81,11 +87,14 @@ function AppContent({ authUser, onLogout }) {
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <Dashboard exposures={exposures} loading={loadingExposures} />
+        return <Dashboard onNavigate={handleNavigate} />
       case 'hedging':
         return (
           <div className="space-y-6">
-            <HedgingRecommendations />
+            <HedgingRecommendations
+              focusExposureId={focusExposureId}
+              onFocusConsumed={() => setFocusExposureId(null)}
+            />
             <div className="bg-white rounded-xl shadow-sm p-8 text-center border border-dashed border-gray-200">
               <p className="text-2xl mb-3">📊</p>
               <h3 className="text-base font-bold mb-1" style={{ color: NAVY }}>Scenario Analysis</h3>
@@ -109,9 +118,9 @@ function AppContent({ authUser, onLogout }) {
       case 'settings':
         return <Settings />
       case 'admin':
-        return isAdmin ? <Admin authUser={authUser} /> : <Dashboard exposures={exposures} loading={loadingExposures} />
+        return isAdmin ? <Admin authUser={authUser} /> : <Dashboard onNavigate={handleNavigate} />
       default:
-        return <Dashboard exposures={exposures} loading={loadingExposures} />
+        return <Dashboard onNavigate={handleNavigate} />
     }
   }
 

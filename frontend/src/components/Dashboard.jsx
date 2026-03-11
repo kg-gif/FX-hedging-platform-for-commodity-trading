@@ -20,7 +20,7 @@ const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899
 const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 
-function Dashboard() {
+function Dashboard({ onNavigate }) {
   const [companies,         setCompanies]         = useState([])
   const [selectedCompany,   setSelectedCompany]   = useState(null)
   const [exposures,         setExposures]         = useState([])
@@ -388,6 +388,7 @@ function Dashboard() {
         companyId={selectedCompany?.id}
         onEdit={(exp) => { setEditingExposure(exp); setShowEditModal(true) }}
         onDelete={(exp) => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
+        onHedgeNow={onNavigate ? (id) => onNavigate('hedging', { focusExposureId: id }) : null}
       />
 
       {/* Edit Modal */}
