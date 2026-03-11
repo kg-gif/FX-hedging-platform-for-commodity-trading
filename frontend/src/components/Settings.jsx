@@ -297,6 +297,126 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* Zone Configuration */}
+      <Section icon={Layers} title="Zone Configuration">
+        <p className="text-xs text-gray-400 mb-5">
+          Zones shift hedge targets automatically when spot rates move vs budget.
+          Defensive increases the target; Opportunistic lowers it.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+          <Field label="Adverse Trigger %"
+            hint="Shift to Defensive when spot moves this % against your budget rate">
+            <div className="flex items-center gap-2">
+              <input type="number" step="0.1" min="0" max="20"
+                className={inputClass}
+                value={zones.adverse_trigger_pct}
+                onChange={e => setZones({ ...zones, adverse_trigger_pct: parseFloat(e.target.value) || 0 })} />
+              <span className="text-sm text-gray-400 shrink-0">%</span>
+            </div>
+          </Field>
+
+          <Field label="Favourable Trigger %"
+            hint="Shift to Opportunistic when spot moves this % in your favour">
+            <div className="flex items-center gap-2">
+              <input type="number" step="0.1" min="0" max="20"
+                className={inputClass}
+                value={zones.favourable_trigger_pct}
+                onChange={e => setZones({ ...zones, favourable_trigger_pct: parseFloat(e.target.value) || 0 })} />
+              <span className="text-sm text-gray-400 shrink-0">%</span>
+            </div>
+          </Field>
+
+          <Field label="Defensive Hedge Target %"
+            hint="Hedge ratio applied when in Defensive zone">
+            <div className="flex items-center gap-2">
+              <input type="number" step="1" min="0" max="100"
+                className={inputClass}
+                value={Math.round((zones.defensive_ratio || 0) * 100)}
+                onChange={e => setZones({ ...zones, defensive_ratio: (parseFloat(e.target.value) || 0) / 100 })} />
+              <span className="text-sm text-gray-400 shrink-0">%</span>
+            </div>
+          </Field>
+
+          <Field label="Opportunistic Hedge Target %"
+            hint="Hedge ratio applied when in Opportunistic zone">
+            <div className="flex items-center gap-2">
+              <input type="number" step="1" min="0" max="100"
+                className={inputClass}
+                value={Math.round((zones.opportunistic_ratio || 0) * 100)}
+                onChange={e => setZones({ ...zones, opportunistic_ratio: (parseFloat(e.target.value) || 0) / 100 })} />
+              <span className="text-sm text-gray-400 shrink-0">%</span>
+            </div>
+          </Field>
+        </div>
+
+        {/* Auto-apply toggle */}
+        <div className="border border-gray-100 rounded-xl p-4 mb-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold" style={{ color: NAVY }}>Auto-apply zone shifts</p>
+              <p className="text-xs text-gray-400 mt-0.5">Apply zone targets automatically when triggers fire</p>
+            </div>
+            <button
+              onClick={() => setZones({ ...zones, zone_auto_apply: !zones.zone_auto_apply })}
+              className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0"
+              style={{ background: zones.zone_auto_apply ? DANGER : '#E5E7EB' }}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                zones.zone_auto_apply ? 'translate-x-6' : 'translate-x-1'
+              }`} />
+            </button>
+          </div>
+          {zones.zone_auto_apply && (
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)' }}>
+              <AlertTriangle size={13} color={DANGER} />
+              <p className="text-xs" style={{ color: DANGER }}>
+                Zone shifts will apply automatically without confirmation
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Notification toggles */}
+        <div className="mb-5">
+          <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: NAVY }}>Zone Notifications</p>
+          <div className="flex flex-wrap gap-4">
+            {[
+              { key: 'zone_notify_inapp', label: 'In-app' },
+              { key: 'zone_notify_email', label: 'Email' },
+            ].map(({ key, label }) => (
+              <label key={key} className="flex items-center gap-2 cursor-pointer">
+                <button
+                  onClick={() => setZones({ ...zones, [key]: !zones[key] })}
+                  className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                  style={{ background: zones[key] ? GOLD : '#E5E7EB' }}>
+                  <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${
+                    zones[key] ? 'translate-x-5' : 'translate-x-1'
+                  }`} />
+                </button>
+                <span className="text-sm text-gray-600">{label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <button onClick={() => save('zones', {
+            defensive_ratio:        zones.defensive_ratio,
+            opportunistic_ratio:    zones.opportunistic_ratio,
+            adverse_trigger_pct:    zones.adverse_trigger_pct,
+            favourable_trigger_pct: zones.favourable_trigger_pct,
+            zone_auto_apply:        zones.zone_auto_apply,
+            zone_notify_email:      zones.zone_notify_email,
+            zone_notify_inapp:      zones.zone_notify_inapp,
+          })} disabled={saving === 'zones'}
+            className="flex items-center gap-2 px-5 py-2 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+            style={{ background: NAVY }}>
+            <Save size={14} />{saving === 'zones' ? 'Saving...' : 'Save Zone Config'}
+          </button>
+        </div>
+      </Section>
+
       {/* Notifications */}
       <Section icon={Bell} title="Notifications">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

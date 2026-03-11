@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import ExposureRegister from './ExposureRegister'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { CurrencyPairFlags } from './CurrencyFlag'
 
@@ -35,6 +35,7 @@ function Dashboard({ onNavigate }) {
   const [deletingExposure,  setDeletingExposure]  = useState(null)
   const [showEditModal,     setShowEditModal]     = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [dismissedZones,    setDismissedZones]    = useState({ defensive: false, opportunistic: false })
 
   // On mount — load companies
   useEffect(() => { fetchCompanies() }, [])
@@ -133,6 +134,10 @@ function Dashboard({ onNavigate }) {
   const warnings      = exposures.filter(e => e.pnl_status === 'WARNING')
   const hedgePct      = totalExposure > 0 ? (hedgedValue / totalExposure) * 100 : 0
 
+  // Zone alert pairs — derived from enriched endpoint (has budget_rate + live spot)
+  const defensivePairs     = [...new Set(enrichedExposures.filter(e => e.current_zone === 'defensive').map(e => e.currency_pair))]
+  const opportunisticPairs = [...new Set(enrichedExposures.filter(e => e.current_zone === 'opportunistic').map(e => e.currency_pair))]
+
   const currencyDist = exposures.reduce((acc, e) => {
     const v = Math.abs(e.amount * (e.current_rate || 1))
     const x = acc.find(i => i.currency === e.from_currency)
@@ -182,6 +187,70 @@ function Dashboard({ onNavigate }) {
             <span className="text-sm text-gray-600">
               {breaches.map(e => `${e.from_currency}/${e.to_currency}`).join(', ')}
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Defensive zone banner */}
+      {defensivePairs.length > 0 && !dismissedZones.defensive && (
+        <div className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={18} color={WARNING} />
+            <div>
+              <span className="font-bold text-sm" style={{ color: WARNING }}>
+                {defensivePairs.join(', ')}
+              </span>
+              <span className="text-sm text-gray-600 ml-1">
+                {defensivePairs.length === 1 ? 'has' : 'have'} moved adversely vs budget rate.
+                Defensive hedging recommended.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('hedging')}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                style={{ background: WARNING, color: 'white' }}>
+                Review
+              </button>
+            )}
+            <button onClick={() => setDismissedZones(d => ({ ...d, defensive: true }))}>
+              <X size={15} color={WARNING} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Opportunistic zone banner */}
+      {opportunisticPairs.length > 0 && !dismissedZones.opportunistic && (
+        <div className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
+          style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)' }}>
+          <div className="flex items-center gap-3">
+            <TrendingUp size={18} color={SUCCESS} />
+            <div>
+              <span className="font-bold text-sm" style={{ color: SUCCESS }}>
+                {opportunisticPairs.join(', ')}
+              </span>
+              <span className="text-sm text-gray-600 ml-1">
+                {opportunisticPairs.length === 1 ? 'is' : 'are'} trading favourably.
+                Consider opportunistic hedging.
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('hedging')}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                style={{ background: SUCCESS, color: 'white' }}>
+                Review
+              </button>
+            )}
+            <button onClick={() => setDismissedZones(d => ({ ...d, opportunistic: true }))}>
+              <X size={15} color={SUCCESS} />
+            </button>
           </div>
         </div>
       )}

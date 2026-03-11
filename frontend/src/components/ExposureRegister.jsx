@@ -29,6 +29,22 @@ const fmtPnl = (n) => {
 
 const pnlColor = (n) => n == null ? '#9CA3AF' : n >= 0 ? SUCCESS : DANGER
 
+function ZoneBadge({ zone }) {
+  if (!zone || zone === 'base') return null
+  const styles = {
+    defensive:    { bg: '#FEE2E2', text: '#991B1B', label: 'DEFENSIVE' },
+    opportunistic:{ bg: '#D1FAE5', text: '#065F46', label: 'OPPORTUNISTIC' },
+  }
+  const s = styles[zone]
+  if (!s) return null
+  return (
+    <span className="px-1.5 py-0.5 rounded text-xs font-semibold mt-1 inline-block"
+      style={{ background: s.bg, color: s.text }}>
+      {s.label}
+    </span>
+  )
+}
+
 function StatusBadge({ status }) {
   const map = {
     BREACH:      'bg-red-100 text-red-700',
@@ -442,7 +458,10 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
 
                     {/* Status */}
                     <td className="px-3 py-3">
-                      <StatusBadge status={exp.status} />
+                      <div className="flex flex-col gap-0.5">
+                        <StatusBadge status={exp.status} />
+                        {exp.budget_rate > 0 && <ZoneBadge zone={exp.current_zone} />}
+                      </div>
                     </td>
 
                     {/* Actions */}

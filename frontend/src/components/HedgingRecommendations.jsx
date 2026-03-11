@@ -601,6 +601,15 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
                   }`}>
                     {rec.urgency} PRIORITY
                   </span>
+                  {rec.current_zone && rec.current_zone !== 'base' && (
+                    <span className="px-2 py-1 rounded-full text-xs font-semibold" style={
+                      rec.current_zone === 'defensive'
+                        ? { background: '#FEE2E2', color: '#991B1B' }
+                        : { background: '#D1FAE5', color: '#065F46' }
+                    }>
+                      {rec.current_zone.toUpperCase()}
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs text-gray-400 shrink-0">
                   {expandedId === rec.exposure_id ? '▲ less' : '▼ details'}
