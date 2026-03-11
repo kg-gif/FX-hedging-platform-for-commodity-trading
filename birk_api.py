@@ -1276,6 +1276,8 @@ def get_hedge_trail(
     """), params).fetchall()
 
     # --- Orders ---
+    # Pre-compute pair filter for orders table (o.currency_pair is already a full pair string)
+    order_pair_filter = "AND o.currency_pair = :pair" if currency_pair else ""
     orders = db.execute(_text(f"""
         SELECT
             'order'                                        AS event_type,
@@ -1303,8 +1305,7 @@ def get_hedge_trail(
         FROM order_audit_log o
         LEFT JOIN exposures e ON e.id = o.exposure_id
         WHERE o.company_id = :cid
-          {pair_filter.replace('e.from_currency', 'SPLIT_PART(o.currency_pair,\'/\',1)').replace("e.to_currency", "SPLIT_PART(o.currency_pair,'/',2)") if currency_pair else ""}
-          {from_filter_o} {to_filter_o}
+          {order_pair_filter} {from_filter_o} {to_filter_o}
     """), params).fetchall()
 
     # --- Value date changes ---
