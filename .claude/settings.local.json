@@ -15,7 +15,8 @@
       "Bash(git add routes/hedge_tranche_routes.py)",
       "Bash(git add frontend/src/components/HedgingRecommendations.jsx)",
       "Bash(git add:*)",
-      "Bash(grep -n \"audit/orders\\\\|audit/value\" birk_api.py routes/*.py)"
+      "Bash(grep -n \"audit/orders\\\\|audit/value\" birk_api.py routes/*.py)",
+      "Bash(grep -n \"manual\\\\|/manual\" birk_api.py routes/*.py)"
     ]
   }
 }
