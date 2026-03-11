@@ -388,7 +388,7 @@ function Dashboard({ onNavigate }) {
         companyId={selectedCompany?.id}
         onEdit={(exp) => { setEditingExposure(exp); setShowEditModal(true) }}
         onDelete={(exp) => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
-        onHedgeNow={onNavigate ? (id) => onNavigate('hedging', { focusExposureId: id }) : null}
+        onHedgeNow={onNavigate ? (exp) => onNavigate('hedging', { focusExposure: exp }) : null}
       />
 
       {/* Edit Modal */}

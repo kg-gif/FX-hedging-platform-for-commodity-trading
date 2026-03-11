@@ -41,11 +41,11 @@ function AppContent({ authUser, onLogout }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [exposures, setExposures] = useState([])
   const [loadingExposures, setLoadingExposures] = useState(true)
-  const [focusExposureId, setFocusExposureId] = useState(null)
+  const [focusExposure, setFocusExposure] = useState(null)
 
   function handleNavigate(page, opts = {}) {
     setCurrentPage(page)
-    if (opts.focusExposureId) setFocusExposureId(opts.focusExposureId)
+    if (opts.focusExposure) setFocusExposure(opts.focusExposure)
   }
 
   const isAdmin = authUser?.role === 'admin'
@@ -92,8 +92,8 @@ function AppContent({ authUser, onLogout }) {
         return (
           <div className="space-y-6">
             <HedgingRecommendations
-              focusExposureId={focusExposureId}
-              onFocusConsumed={() => setFocusExposureId(null)}
+              focusExposure={focusExposure}
+              onFocusConsumed={() => setFocusExposure(null)}
             />
             <div className="bg-white rounded-xl shadow-sm p-8 text-center border border-dashed border-gray-200">
               <p className="text-2xl mb-3">📊</p>

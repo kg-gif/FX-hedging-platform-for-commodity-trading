@@ -441,10 +441,10 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                     {/* Actions */}
                     <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
-                        {onHedgeNow && exp.status === 'BREACH' && (
-                          <button onClick={() => onHedgeNow(exp.id)}
+                        {onHedgeNow && exp.open_amount > 0 && (
+                          <button onClick={() => onHedgeNow(exp)}
                             className="text-xs px-2 py-1 rounded text-white font-semibold"
-                            style={{ background: DANGER }}>
+                            style={{ background: exp.status === 'BREACH' ? DANGER : NAVY }}>
                             Hedge Now
                           </button>
                         )}

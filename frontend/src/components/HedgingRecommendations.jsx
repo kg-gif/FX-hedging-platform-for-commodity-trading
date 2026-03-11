@@ -452,7 +452,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
 }
 
 // ── Main Component ────────────────────────────────────────────────
-function HedgingRecommendations({ focusExposureId, onFocusConsumed }) {
+function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
   const authUser  = JSON.parse(localStorage.getItem('auth_user') || '{}')
   const companyId = authUser.company_id || 1
 
@@ -471,15 +471,32 @@ function HedgingRecommendations({ focusExposureId, onFocusConsumed }) {
 
   useEffect(() => { loadAll() }, [companyId])
 
-  // When navigated here from a breach — expand and scroll to the target card
+  // When navigated here via Hedge Now — expand and scroll to the target card
   useEffect(() => {
-    if (!focusExposureId || loading) return
-    setExpandedId(focusExposureId)
+    if (!focusExposure || loading) return
+    const id = focusExposure.id
+    setExpandedId(id)
     setTimeout(() => {
-      cardRefs.current[focusExposureId]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 100)
+      cardRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 150)
     if (onFocusConsumed) onFocusConsumed()
-  }, [focusExposureId, loading])
+  }, [focusExposure?.id, loading])
+
+  // Build an ad-hoc rec for any focused exposure not already in the recommendations list
+  const adhocRec = focusExposure && !recommendations.find(r => r.exposure_id === focusExposure.id)
+    ? {
+        exposure_id:        focusExposure.id,
+        currency_pair:      focusExposure.currency_pair,
+        action:             `Hedge ${focusExposure.from_currency} ${(focusExposure.open_amount || 0).toLocaleString()}`,
+        recommended_amount: focusExposure.open_amount || 0,
+        total_exposure:     focusExposure.total_amount || 0,
+        instrument:         focusExposure.instrument_type || 'Forward',
+        urgency:            focusExposure.status === 'BREACH' ? 'HIGH' : 'MEDIUM',
+        end_date:           focusExposure.end_date,
+        exposure_type:      focusExposure.exposure_type || 'payable',
+        reason:             `Status: ${focusExposure.status}. Open position ${focusExposure.from_currency} ${(focusExposure.open_amount || 0).toLocaleString()} is unhedged.`,
+      }
+    : null
 
   async function loadAll() {
     setLoading(true)
@@ -545,7 +562,7 @@ function HedgingRecommendations({ focusExposureId, onFocusConsumed }) {
         </div>
       </div>
 
-      {recommendations.length === 0 && (
+      {recommendations.length === 0 && !adhocRec && (
         <div className="bg-green-50 rounded-xl p-6 border border-green-200">
           <p className="text-green-700 font-semibold text-sm">
             All exposures are within policy targets. No action required.
@@ -554,7 +571,7 @@ function HedgingRecommendations({ focusExposureId, onFocusConsumed }) {
       )}
 
       <div className="space-y-2">
-        {recommendations.map((rec) => {
+        {[...(adhocRec ? [adhocRec] : []), ...recommendations].map((rec) => {
           const sentOrder   = sentOrders[rec.exposure_id]
           const customAmt   = customAmounts[rec.exposure_id]
           const displayAmt  = customAmt !== undefined ? customAmt : rec.recommended_amount
