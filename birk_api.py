@@ -1132,3 +1132,260 @@ def delete_exposure(
 
     logger.info(f"Exposure {exposure_id} soft-deleted by {payload.get('email')}")
     return {"message": "Exposure deleted", "exposure_id": exposure_id}
+
+
+# ── Audit Trail GET endpoints ──────────────────────────────────────────────
+
+@app.get("/api/audit/orders")
+def get_audit_orders(
+    company_id: int,
+    currency_pair: str = None,
+    from_date: str = None,
+    to_date: str = None,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """Returns order audit log with optional currency/date filters."""
+    from sqlalchemy import text as _text
+    safe_id = resolve_company_id(company_id, payload)
+
+    conditions = ["o.company_id = :cid"]
+    params = {"cid": safe_id}
+    if currency_pair:
+        conditions.append("o.currency_pair = :pair")
+        params["pair"] = currency_pair
+    if from_date:
+        conditions.append("o.sent_at >= :from_date")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("o.sent_at <= :to_date")
+        params["to_date"] = to_date
+
+    where = " AND ".join(conditions)
+    rows = db.execute(_text(f"""
+        SELECT o.*, e.description, e.reference, e.budget_rate,
+               e.from_currency, e.to_currency
+        FROM order_audit_log o
+        LEFT JOIN exposures e ON e.id = o.exposure_id
+        WHERE {where}
+        ORDER BY o.sent_at DESC
+    """), params).fetchall()
+
+    return {"orders": [dict(r._mapping) for r in rows]}
+
+
+@app.get("/api/audit/value-date-changes")
+def get_value_date_changes(
+    company_id: int,
+    currency_pair: str = None,
+    from_date: str = None,
+    to_date: str = None,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """Returns value date change audit log."""
+    from sqlalchemy import text as _text
+    safe_id = resolve_company_id(company_id, payload)
+
+    conditions = ["company_id = :cid"]
+    params = {"cid": safe_id}
+    if currency_pair:
+        conditions.append("currency_pair = :pair")
+        params["pair"] = currency_pair
+    if from_date:
+        conditions.append("changed_at >= :from_date")
+        params["from_date"] = from_date
+    if to_date:
+        conditions.append("changed_at <= :to_date")
+        params["to_date"] = to_date
+
+    where = " AND ".join(conditions)
+    rows = db.execute(_text(f"""
+        SELECT * FROM value_date_audit_log
+        WHERE {where}
+        ORDER BY changed_at DESC
+    """), params).fetchall()
+
+    return {"changes": [dict(r._mapping) for r in rows]}
+
+
+@app.get("/api/audit/hedge-trail")
+def get_hedge_trail(
+    company_id: int,
+    currency_pair: str = None,
+    from_date: str = None,
+    to_date: str = None,
+    include_deleted: bool = True,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Unified audit trail combining:
+    - Hedge tranches (all statuses) with exposure context
+    - Order audit log entries
+    - Value date changes
+    Sorted newest first. Supports filtering by pair, date range.
+    """
+    from sqlalchemy import text as _text
+    safe_id = resolve_company_id(company_id, payload)
+
+    # Build date/pair filter fragments
+    pair_filter    = "AND e.from_currency || '/' || e.to_currency = :pair" if currency_pair else ""
+    from_filter_t  = "AND ht.created_at >= :from_date" if from_date else ""
+    to_filter_t    = "AND ht.created_at <= :to_date"   if to_date   else ""
+    from_filter_o  = "AND o.sent_at >= :from_date"     if from_date else ""
+    to_filter_o    = "AND o.sent_at <= :to_date"       if to_date   else ""
+    from_filter_v  = "AND v.changed_at >= :from_date"  if from_date else ""
+    to_filter_v    = "AND v.changed_at <= :to_date"    if to_date   else ""
+    deleted_filter = "" if include_deleted else "AND (e.is_active IS NULL OR e.is_active = true)"
+
+    params = {"cid": safe_id}
+    if currency_pair: params["pair"]      = currency_pair
+    if from_date:     params["from_date"] = from_date
+    if to_date:       params["to_date"]   = to_date
+
+    # --- Tranches ---
+    tranches = db.execute(_text(f"""
+        SELECT
+            'tranche'                                      AS event_type,
+            ht.created_at                                  AS event_at,
+            e.from_currency || '/' || e.to_currency        AS currency_pair,
+            e.description,
+            e.reference,
+            e.budget_rate,
+            e.is_active,
+            ht.id                                          AS tranche_id,
+            ht.exposure_id,
+            ht.amount,
+            ht.rate                                        AS execution_rate,
+            ht.instrument,
+            ht.value_date,
+            ht.status                                      AS tranche_status,
+            ht.created_by,
+            ht.executed_at,
+            ht.executed_by,
+            ht.notes,
+            NULL::VARCHAR                                  AS order_type,
+            NULL::NUMERIC                                  AS limit_rate,
+            NULL::NUMERIC                                  AS stop_rate,
+            NULL::VARCHAR                                  AS reason
+        FROM hedge_tranches ht
+        JOIN exposures e ON e.id = ht.exposure_id
+        WHERE ht.company_id = :cid
+          {pair_filter} {from_filter_t} {to_filter_t} {deleted_filter}
+    """), params).fetchall()
+
+    # --- Orders ---
+    orders = db.execute(_text(f"""
+        SELECT
+            'order'                                        AS event_type,
+            o.sent_at                                      AS event_at,
+            o.currency_pair,
+            e.description,
+            e.reference,
+            e.budget_rate,
+            e.is_active,
+            NULL::INTEGER                                  AS tranche_id,
+            o.exposure_id,
+            NULL::NUMERIC                                  AS amount,
+            NULL::NUMERIC                                  AS execution_rate,
+            o.instrument,
+            o.value_date,
+            o.status                                       AS tranche_status,
+            o.sent_by                                      AS created_by,
+            o.executed_at,
+            o.confirmed_by                                 AS executed_by,
+            o.action                                       AS notes,
+            o.order_type,
+            o.limit_rate,
+            o.stop_rate,
+            NULL::VARCHAR                                  AS reason
+        FROM order_audit_log o
+        LEFT JOIN exposures e ON e.id = o.exposure_id
+        WHERE o.company_id = :cid
+          {pair_filter.replace('e.from_currency', 'SPLIT_PART(o.currency_pair,\'/\',1)').replace("e.to_currency", "SPLIT_PART(o.currency_pair,'/',2)") if currency_pair else ""}
+          {from_filter_o} {to_filter_o}
+    """), params).fetchall()
+
+    # --- Value date changes ---
+    vd_pair = "AND v.currency_pair = :pair" if currency_pair else ""
+    vd_changes = db.execute(_text(f"""
+        SELECT
+            'value_date_change'                            AS event_type,
+            v.changed_at                                   AS event_at,
+            v.currency_pair,
+            NULL::VARCHAR                                  AS description,
+            NULL::VARCHAR                                  AS reference,
+            NULL::NUMERIC                                  AS budget_rate,
+            TRUE                                           AS is_active,
+            NULL::INTEGER                                  AS tranche_id,
+            v.exposure_id,
+            NULL::NUMERIC                                  AS amount,
+            NULL::NUMERIC                                  AS execution_rate,
+            NULL::VARCHAR                                  AS instrument,
+            v.new_date                                     AS value_date,
+            NULL::VARCHAR                                  AS tranche_status,
+            v.changed_by                                   AS created_by,
+            NULL::TIMESTAMP                                AS executed_at,
+            NULL::VARCHAR                                  AS executed_by,
+            v.reason                                       AS notes,
+            NULL::VARCHAR                                  AS order_type,
+            NULL::NUMERIC                                  AS limit_rate,
+            NULL::NUMERIC                                  AS stop_rate,
+            v.original_date || ' → ' || v.new_date        AS reason
+        FROM value_date_audit_log v
+        WHERE v.company_id = :cid
+          {vd_pair} {from_filter_v} {to_filter_v}
+    """), params).fetchall()
+
+    # Merge and sort newest first
+    all_events = [dict(r._mapping) for r in tranches + orders + vd_changes]
+    all_events.sort(key=lambda x: str(x.get("event_at") or ""), reverse=True)
+
+    # Serialise dates/decimals
+    import decimal, datetime
+    def clean(v):
+        if isinstance(v, decimal.Decimal): return float(v)
+        if isinstance(v, (datetime.date, datetime.datetime)): return str(v)
+        return v
+
+    return {"events": [{k: clean(v) for k, v in e.items()} for e in all_events]}
+
+
+@app.get("/api/audit/hedge-trail/csv")
+def get_hedge_trail_csv(
+    company_id: int,
+    currency_pair: str = None,
+    from_date: str = None,
+    to_date: str = None,
+    include_deleted: bool = True,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """Returns the hedge trail as a downloadable CSV."""
+    import csv, io
+    from fastapi.responses import StreamingResponse
+
+    data = get_hedge_trail(
+        company_id=company_id,
+        currency_pair=currency_pair,
+        from_date=from_date,
+        to_date=to_date,
+        include_deleted=include_deleted,
+        db=db,
+        payload=payload
+    )
+    events = data["events"]
+
+    output = io.StringIO()
+    if events:
+        writer = csv.DictWriter(output, fieldnames=events[0].keys())
+        writer.writeheader()
+        writer.writerows(events)
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=hedge-audit-trail.csv"}
+    )

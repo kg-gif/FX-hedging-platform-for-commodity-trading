@@ -467,11 +467,14 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
   const [sentOrders, setSentOrders]           = useState({})
   const [expandedId, setExpandedId]           = useState(null)
   const [customAmounts, setCustomAmounts]     = useState({})
+  const [allExposures, setAllExposures]       = useState([])
   const cardRefs = useRef({})
 
   useEffect(() => { loadAll() }, [companyId])
 
   // When navigated here via Hedge Now — expand and scroll to the target card
+  // Note: do NOT call onFocusConsumed here — we need focusExposure to stay set
+  // so the ad-hoc card remains visible while the user is on this tab
   useEffect(() => {
     if (!focusExposure || loading) return
     const id = focusExposure.id
@@ -479,7 +482,6 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
     setTimeout(() => {
       cardRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }, 150)
-    if (onFocusConsumed) onFocusConsumed()
   }, [focusExposure?.id, loading])
 
   // Build an ad-hoc rec for any focused exposure not already in the recommendations list
@@ -511,6 +513,12 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
       setBaseCurrency(settingsRes.company?.base_currency || 'USD')
     } catch { setError('Failed to load recommendations') }
     finally { setLoading(false) }
+
+    // Fetch all enriched exposures separately — silently, doesn't block the main load
+    try {
+      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
+      if (res.ok) setAllExposures(await res.json())
+    } catch (e) { console.error('Enriched fetch failed:', e) }
   }
 
   function handleOrderSent(exposureId, orderSummary) {
@@ -658,6 +666,97 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
         style={{ background: 'rgba(26,39,68,0.04)', border: '1px solid rgba(26,39,68,0.1)' }}>
         Recommendations are based on your active {policy} policy. Confirm execution with your bank or FX provider.
       </div>
+
+      {/* ── All Open Positions ───────────────────────────────────── */}
+      {(() => {
+        const recIds = new Set(recommendations.map(r => r.exposure_id))
+        if (adhocRec) recIds.add(adhocRec.exposure_id)
+        const openPositions = allExposures.filter(e => e.open_amount > 0 && !recIds.has(e.id))
+        if (openPositions.length === 0) return null
+        return (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
+              <h3 className="font-semibold text-white text-sm">All Open Positions</h3>
+              <span className="text-xs" style={{ color: '#8DA4C4' }}>
+                Exposures with remaining open amount — not yet at policy trigger threshold
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm divide-y divide-gray-100">
+                <thead style={{ background: '#F4F6FA' }}>
+                  <tr>
+                    {['Pair', 'Description', 'Total', 'Hedged', 'Open', 'Hedge %', 'Status', 'Action'].map(h => (
+                      <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider"
+                        style={{ color: NAVY, whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {openPositions.map(exp => {
+                    const fmt = (n) => n != null ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n) : '—'
+                    const sentOrder = sentOrders[exp.id]
+                    const customAmt = customAmounts[exp.id]
+                    const execAmt   = customAmt !== undefined ? customAmt : (exp.open_amount || 0)
+                    const adhoc = {
+                      exposure_id:        exp.id,
+                      currency_pair:      exp.currency_pair,
+                      action:             `Hedge ${exp.from_currency} ${fmt(exp.open_amount)}`,
+                      recommended_amount: exp.open_amount || 0,
+                      total_exposure:     exp.total_amount || 0,
+                      instrument:         exp.instrument_type || 'Forward',
+                      urgency:            exp.status === 'BREACH' ? 'HIGH' : 'MEDIUM',
+                      end_date:           exp.end_date,
+                      exposure_type:      exp.exposure_type || 'payable',
+                      reason:             `${exp.status} — ${exp.from_currency} ${fmt(exp.open_amount)} open.`,
+                    }
+                    return (
+                      <tr key={exp.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2.5 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{exp.currency_pair}</td>
+                        <td className="px-4 py-2.5 text-gray-500 max-w-xs truncate">{exp.description || '—'}</td>
+                        <td className="px-4 py-2.5 font-mono text-right whitespace-nowrap text-gray-700">{exp.from_currency} {fmt(exp.total_amount)}</td>
+                        <td className="px-4 py-2.5 font-mono text-right whitespace-nowrap" style={{ color: '#10B981' }}>{fmt(exp.hedged_amount) || '—'}</td>
+                        <td className="px-4 py-2.5 font-mono text-right whitespace-nowrap" style={{ color: '#F59E0B' }}>{exp.from_currency} {fmt(exp.open_amount)}</td>
+                        <td className="px-4 py-2.5 text-right whitespace-nowrap text-gray-600">{exp.hedge_pct != null ? `${Math.round(exp.hedge_pct)}%` : '—'}</td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            exp.status === 'BREACH' ? 'bg-red-100 text-red-700' :
+                            exp.status === 'OPEN'   ? 'bg-gray-100 text-gray-600' :
+                            'bg-yellow-100 text-yellow-700'}`}>
+                            {exp.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap">
+                          {sentOrder ? (
+                            <span className="text-xs text-green-600 font-semibold">✓ Sent</span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={execAmt.toLocaleString('en-US')}
+                                onChange={e => {
+                                  const raw = parseInt(e.target.value.replace(/,/g, ''), 10)
+                                  setCustomAmounts(prev => ({ ...prev, [exp.id]: isNaN(raw) ? 0 : raw }))
+                                }}
+                                className="w-28 px-2 py-1 border border-gray-300 rounded text-xs font-mono text-right"
+                              />
+                              <button
+                                onClick={() => setActiveModal({ ...adhoc, override_amount: execAmt })}
+                                className="px-3 py-1 text-white rounded text-xs font-semibold whitespace-nowrap"
+                                style={{ background: NAVY }}>
+                                Execute
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
 
       {activeModal && (
         <ExecutionModal
