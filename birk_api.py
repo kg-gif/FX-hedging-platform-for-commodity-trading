@@ -54,8 +54,11 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:5173",
         "https://birk-dashboard.onrender.com",
-        "https://birk-fx-api.onrender.com"
+        "https://birk-fx-api.onrender.com",
     ],
+    # Covers any Render.com preview/branch deploy URLs in addition to the
+    # fixed origins above — ensures /api/audit/* endpoints are reachable.
+    allow_origin_regex=r"https?://.*\.onrender\.com",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

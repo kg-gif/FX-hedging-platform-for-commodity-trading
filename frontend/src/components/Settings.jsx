@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useCompany } from '../contexts/CompanyContext'
-import { Save, Building2, Landmark, Bell, ShieldCheck, History, AlertTriangle, CheckCircle } from 'lucide-react'
+import { Save, Building2, Landmark, Bell, ShieldCheck, History, AlertTriangle, CheckCircle, Layers } from 'lucide-react'
 import { NAVY, GOLD, DANGER, SUCCESS, WARNING } from '../brand'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
@@ -49,6 +49,15 @@ export default function Settings() {
   const [company, setCompany]   = useState({ name: '', base_currency: '', trading_volume_monthly: '' })
   const [bank, setBank]         = useState({ bank_name: '', bank_contact_name: '', bank_email: '' })
   const [notifs, setNotifs]     = useState({ alert_email: '', daily_digest: true })
+  const [zones, setZones]       = useState({
+    defensive_ratio:        0.75,
+    opportunistic_ratio:    0.25,
+    adverse_trigger_pct:    3.0,
+    favourable_trigger_pct: 3.0,
+    zone_auto_apply:        false,
+    zone_notify_email:      true,
+    zone_notify_inapp:      true,
+  })
 
   useEffect(() => { loadAll() }, [companyId])
 
@@ -75,6 +84,16 @@ export default function Settings() {
       setNotifs({
         alert_email: sRes.notifications?.alert_email || '',
         daily_digest: sRes.notifications?.daily_digest ?? true
+      })
+      const zc = sRes.zone_config
+      if (zc) setZones({
+        defensive_ratio:        zc.defensive_ratio        ?? 0.75,
+        opportunistic_ratio:    zc.opportunistic_ratio    ?? 0.25,
+        adverse_trigger_pct:    zc.adverse_trigger_pct    ?? 3.0,
+        favourable_trigger_pct: zc.favourable_trigger_pct ?? 3.0,
+        zone_auto_apply:        zc.zone_auto_apply        ?? false,
+        zone_notify_email:      zc.zone_notify_email      ?? true,
+        zone_notify_inapp:      zc.zone_notify_inapp      ?? true,
       })
       setPolicies(pRes.policies || [])
       setAuditLog(aRes.audit_log || [])
