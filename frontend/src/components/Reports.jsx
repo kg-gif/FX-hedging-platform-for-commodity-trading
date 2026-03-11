@@ -247,6 +247,9 @@ export default function Reports() {
                     </td>
                     <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">
                       {ev.amount ? fmt(ev.amount) : '—'}
+                      {ev.amount_currency && (
+                        <div className="text-xs text-gray-400">{ev.amount_currency}</div>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">
                       <div>{ev.execution_rate ? ev.execution_rate.toFixed(4) : '—'}</div>

@@ -378,6 +378,7 @@ async def get_exposures(
             "max_loss_limit": exp.max_loss_limit if hasattr(exp, 'max_loss_limit') else None,
             "target_profit": exp.target_profit if hasattr(exp, 'target_profit') else None,
             "hedge_ratio_policy": exp.hedge_ratio_policy if hasattr(exp, 'hedge_ratio_policy') else 1.0,
+            "amount_currency": exp.amount_currency if hasattr(exp, 'amount_currency') else getattr(exp, 'from_currency', None),
             "current_rate": current_rate,
             "current_pnl": pnl_data["current_pnl"],
             "hedged_amount": pnl_data["hedged_amount"],
@@ -424,19 +425,21 @@ async def update_exposure(
             instrument_type  = :instrument_type,
             direction        = :direction,
             start_date       = :start_date,
-            due_date         = :due_date
+            due_date         = :due_date,
+            amount_currency  = :amount_currency
         WHERE id = :id AND company_id = :company_id
     """), {
-        "reference":       payload_body.get("reference"),
-        "amount":          payload_body.get("amount"),
-        "description":     payload_body.get("description"),
-        "budget_rate":     payload_body.get("budget_rate"),
-        "instrument_type": payload_body.get("instrument_type", "Spot"),
-        "direction":       payload_body.get("direction", "Buy"),
-        "start_date":      payload_body.get("start_date") or None,
-        "due_date":        payload_body.get("due_date") or None,
-        "id":              exposure_id,
-        "company_id":      safe_id
+        "reference":        payload_body.get("reference"),
+        "amount":           payload_body.get("amount"),
+        "description":      payload_body.get("description"),
+        "budget_rate":      payload_body.get("budget_rate"),
+        "instrument_type":  payload_body.get("instrument_type", "Spot"),
+        "direction":        payload_body.get("direction", "Buy"),
+        "start_date":       payload_body.get("start_date") or None,
+        "due_date":         payload_body.get("due_date") or None,
+        "amount_currency":  payload_body.get("amount_currency") or None,
+        "id":               exposure_id,
+        "company_id":       safe_id
     })
     db.commit()
 
@@ -923,6 +926,9 @@ async def startup_event():
             )""",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS amount_currency VARCHAR(3)",
+            # Backfill: exposures without amount_currency default to from_currency (base currency)
+            "UPDATE exposures SET amount_currency = from_currency WHERE amount_currency IS NULL",
         ]
         for sql in migrations:
             try:
@@ -1268,7 +1274,8 @@ def get_hedge_trail(
             NULL::VARCHAR                                  AS order_type,
             NULL::NUMERIC                                  AS limit_rate,
             NULL::NUMERIC                                  AS stop_rate,
-            NULL::VARCHAR                                  AS reason
+            NULL::VARCHAR                                  AS reason,
+            COALESCE(e.amount_currency, e.from_currency)   AS amount_currency
         FROM hedge_tranches ht
         JOIN exposures e ON e.id = ht.exposure_id
         WHERE ht.company_id = :cid
@@ -1301,7 +1308,8 @@ def get_hedge_trail(
             o.order_type,
             o.limit_rate,
             o.stop_rate,
-            NULL::VARCHAR                                  AS reason
+            NULL::VARCHAR                                  AS reason,
+            COALESCE(e.amount_currency, e.from_currency)   AS amount_currency
         FROM order_audit_log o
         LEFT JOIN exposures e ON e.id = o.exposure_id
         WHERE o.company_id = :cid
@@ -1333,7 +1341,8 @@ def get_hedge_trail(
             NULL::VARCHAR                                  AS order_type,
             NULL::NUMERIC                                  AS limit_rate,
             NULL::NUMERIC                                  AS stop_rate,
-            v.original_date || ' → ' || v.new_date        AS reason
+            v.original_date || ' → ' || v.new_date        AS reason,
+            NULL::VARCHAR                                  AS amount_currency
         FROM value_date_audit_log v
         WHERE v.company_id = :cid
           {vd_pair} {from_filter_v} {to_filter_v}

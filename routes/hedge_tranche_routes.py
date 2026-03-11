@@ -102,6 +102,26 @@ def ensure_tables(db: Session):
     db.commit()
 
 
+# ── Helper: normalize amount to base currency ────────────────────────────────
+
+def normalize_to_base(amount: float, amount_currency: str, from_currency: str, budget_rate: float) -> float:
+    """
+    Exposure amounts may be entered in either the base (from) or quote (to) currency.
+    P&L and coverage calculations always work in base currency (from_currency).
+
+    If amount_currency == from_currency: already in base, return as-is.
+    If amount_currency == to_currency:  convert to base by dividing by budget_rate.
+    """
+    if not amount_currency or not from_currency:
+        return amount
+    if amount_currency.upper() == from_currency.upper():
+        return amount
+    # amount is in quote (to) currency — convert to base
+    if budget_rate and budget_rate > 0:
+        return amount / budget_rate
+    return amount
+
+
 # ── Helper: calculate P&L split ───────────────────────────────────────────────
 
 def calculate_pnl_split(exposure: dict, tranches: list, current_spot: float) -> dict:
@@ -117,7 +137,14 @@ def calculate_pnl_split(exposure: dict, tranches: list, current_spot: float) -> 
     Combined P&L: locked + floating — total picture for the CFO.
     """
     budget_rate = float(exposure.get("budget_rate") or 0)
-    total_amount = float(exposure.get("amount") or 0)
+    raw_amount = float(exposure.get("amount") or 0)
+    # Normalize stored amount to base (from) currency for all calculations
+    total_amount = normalize_to_base(
+        raw_amount,
+        exposure.get("amount_currency"),
+        exposure.get("from_currency"),
+        budget_rate
+    )
 
     hedged_amount = sum(
         float(t["amount"]) for t in tranches
@@ -444,8 +471,10 @@ async def get_enriched_exposures(
             ORDER BY reset_at DESC LIMIT 1
         """), {"eid": exposure_id}).fetchone()
 
-        # Calculate P&L split
-        pnl = calculate_pnl_split(dict(exp), tranche_list, current_spot)
+        # Calculate P&L split (normalize amount to base currency first)
+        exp_for_pnl = dict(exp)
+        exp_for_pnl["amount_currency"] = exp.get("amount_currency") or exp["from_currency"]
+        pnl = calculate_pnl_split(exp_for_pnl, tranche_list, current_spot)
 
         # Determine status
         budget_rate = float(exp.get("budget_rate") or 0)
@@ -460,6 +489,11 @@ async def get_enriched_exposures(
         else:
             status = "OPEN"
 
+        amount_currency = exp.get("amount_currency") or exp["from_currency"]
+        total_amount_base = normalize_to_base(
+            float(exp["amount"]), amount_currency, exp["from_currency"], budget_rate
+        )
+
         result.append({
             # Core exposure fields
             "id":               exposure_id,
@@ -472,7 +506,9 @@ async def get_enriched_exposures(
             "reference":        exp.get("reference") or "",
             "budget_rate":      budget_rate,
             "current_spot":     round(current_spot, 6),
-            "total_amount":     float(exp["amount"]),
+            "amount":           float(exp["amount"]),
+            "amount_currency":  amount_currency,
+            "total_amount":     round(total_amount_base, 2),  # Always in from_currency (base)
             "end_date":         exp["end_date"].isoformat() if exp.get("end_date") else None,
 
             # Tranche summary

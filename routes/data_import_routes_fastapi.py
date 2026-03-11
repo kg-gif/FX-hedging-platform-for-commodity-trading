@@ -34,6 +34,7 @@ class ManualExposureRequest(BaseModel):
     target_profit: Optional[float] = None
     hedge_ratio_policy: Optional[float] = Field(default=1.0, ge=0, le=1)
     instrument_type: Optional[str] = "Spot"
+    amount_currency: Optional[str] = None  # Which currency the amount is in (defaults to from_currency)
 
 
 class UpdateExposureRequest(BaseModel):
@@ -159,7 +160,24 @@ async def create_manual_exposure(
         db.add(db_exposure)
         db.commit()
         db.refresh(db_exposure)
-        
+
+        # Save fields not on the ORM model via raw SQL (reference, exposure_type, amount_currency)
+        from sqlalchemy import text as _text
+        effective_amount_currency = (request.amount_currency or from_currency).upper()
+        db.execute(_text("""
+            UPDATE exposures
+            SET reference        = :reference,
+                exposure_type    = :exposure_type,
+                amount_currency  = :amount_currency
+            WHERE id = :id
+        """), {
+            "reference":       request.reference_number,
+            "exposure_type":   getattr(request, 'exposure_type', 'payable') or 'payable',
+            "amount_currency": effective_amount_currency,
+            "id":              db_exposure.id,
+        })
+        db.commit()
+
         return {
             'success': True,
             'exposure': {

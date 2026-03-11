@@ -376,9 +376,14 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                       {exp.description || '—'}
                     </td>
 
-                    {/* Total */}
+                    {/* Total — always shown in from_currency (base), with note if entered in quote */}
                     <td className="px-3 py-3 font-mono text-right text-gray-700 whitespace-nowrap">
                       {fmtAmount(exp.total_amount, exp.from_currency)}
+                      {exp.amount_currency && exp.amount_currency !== exp.from_currency && (
+                        <div className="text-xs text-gray-400 font-normal">
+                          {exp.amount_currency} {(exp.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} entered
+                        </div>
+                      )}
                     </td>
 
                     {/* Hedged */}

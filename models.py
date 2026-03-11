@@ -69,6 +69,7 @@ class Exposure(Base):
     unhedged_amount = Column(Float, nullable=True)
     instrument_type = Column(String(20), default="Spot")  # Spot, Forward, Option, Swap
     hedge_override = Column(Boolean, default=False)
+    amount_currency = Column(String(3), nullable=True)  # Which currency the amount is denominated in (from_currency or to_currency)
     
     # Relationship to SimulationResult
     simulations = relationship("SimulationResult", back_populates="exposure")

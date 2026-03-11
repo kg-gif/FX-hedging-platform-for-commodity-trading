@@ -14,6 +14,7 @@ const EMPTY_FORM = {
   currency_pair: '',
   exposure_type: 'payable',
   amount: '',
+  amount_currency: '',  // '' means default to from_currency (base)
   start_date: '',
   end_date: '',
   description: '',
@@ -69,7 +70,8 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
     target_profit:      data.target_profit    ? parseFloat(data.target_profit)    : null,
     hedge_ratio_policy: data.hedge_ratio_policy ? parseFloat(data.hedge_ratio_policy) : 1.0,
     exposure_type:      data.exposure_type || 'payable',
-    instrument_type:    data.instrument_type || 'Spot'
+    instrument_type:    data.instrument_type || 'Spot',
+    amount_currency:    data.amount_currency || data.currency_pair?.split('/')[0] || null
   });
 
   const doSave = async () => {
@@ -271,25 +273,38 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
             <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>
               Amount *
             </label>
-            <div className="relative">
+            <div className="flex gap-2">
               <input type="number" value={formData.amount}
                 onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none pr-16 ${errors.amount ? 'border-red-400' : 'border-gray-200'}`}
+                className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none ${errors.amount ? 'border-red-400' : 'border-gray-200'}`}
                 placeholder="1000000" step="0.01" />
-              {formData.currency_pair && (
-                <span className="absolute right-3 top-2.5 text-xs font-bold text-gray-400">
-                  {formData.currency_pair.split('/')[0]}
-                </span>
+              {formData.currency_pair ? (
+                <select
+                  value={formData.amount_currency || formData.currency_pair.split('/')[0]}
+                  onChange={(e) => setFormData({ ...formData, amount_currency: e.target.value })}
+                  className="px-2 py-2 border border-gray-200 rounded-lg text-sm font-semibold focus:outline-none"
+                  style={{ color: NAVY, minWidth: '72px' }}
+                  title="Which currency is the amount in?">
+                  <option value={formData.currency_pair.split('/')[0]}>{formData.currency_pair.split('/')[0]}</option>
+                  <option value={formData.currency_pair.split('/')[1]}>{formData.currency_pair.split('/')[1]}</option>
+                </select>
+              ) : (
+                <span className="px-3 py-2 border border-gray-100 rounded-lg text-xs text-gray-400 bg-gray-50">CCY</span>
               )}
             </div>
             {errors.amount && <p className="text-red-500 text-xs mt-1">{errors.amount}</p>}
-            {formData.amount && formData.currency_pair && (formData.rate || formData.budget_rate) && (
-              <p className="text-xs text-gray-400 mt-1">
-                ≈ {formData.currency_pair.split('/')[1]}{' '}
-                {(parseFloat(formData.amount) * parseFloat(formData.rate || formData.budget_rate)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                {' '}(at {formData.rate ? 'entered rate' : 'budget rate'})
-              </p>
-            )}
+            {formData.currency_pair && (() => {
+              const [base, quote] = formData.currency_pair.split('/')
+              const amtCcy = formData.amount_currency || base
+              const amt = parseFloat(formData.amount) || 0
+              const rate = parseFloat(formData.rate || formData.budget_rate) || 0
+              if (!amt || !rate) return null
+              // Show equivalent in the other currency
+              const equiv = amtCcy === base
+                ? `≈ ${quote} ${(amt * rate).toLocaleString(undefined, { maximumFractionDigits: 0 })} (at ${formData.rate ? 'entered rate' : 'budget rate'})`
+                : `≈ ${base} ${(amt / rate).toLocaleString(undefined, { maximumFractionDigits: 0 })} (at ${formData.rate ? 'entered rate' : 'budget rate'})`
+              return <p className="text-xs text-gray-400 mt-1">{equiv}</p>
+            })()}
           </div>
 
           {/* FX Rate */}
