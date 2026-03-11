@@ -78,6 +78,15 @@ class HedgeOverrideRequest(BaseModel):
     hedge_ratio: float
     changed_by: Optional[str] = "admin"
 
+class ZoneConfigRequest(BaseModel):
+    defensive_ratio:        Optional[float] = None   # e.g. 0.75
+    opportunistic_ratio:    Optional[float] = None   # e.g. 0.25
+    adverse_trigger_pct:    Optional[float] = None   # e.g. 3.0
+    favourable_trigger_pct: Optional[float] = None   # e.g. 3.0
+    zone_auto_apply:        Optional[bool]  = None
+    zone_notify_email:      Optional[bool]  = None
+    zone_notify_inapp:      Optional[bool]  = None
+
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.get("/{company_id}")
@@ -87,11 +96,21 @@ def get_settings(company_id: int, db: Session = Depends(get_db), payload: dict =
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     policy = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"), {"cid": safe_id}).fetchone()
+    p = dict(policy._mapping) if policy else {}
     return {
         "company": {"id": company.id, "name": company.name, "base_currency": company.base_currency, "trading_volume_monthly": company.trading_volume_monthly},
         "bank": {"bank_name": company.bank_name, "bank_contact_name": company.bank_contact_name, "bank_email": company.bank_email},
         "notifications": {"alert_email": company.alert_email, "daily_digest": company.daily_digest},
-        "active_policy": dict(policy._mapping) if policy else None,
+        "active_policy": p if p else None,
+        "zone_config": {
+            "defensive_ratio":       p.get("defensive_ratio", 0.75),
+            "opportunistic_ratio":   p.get("opportunistic_ratio", 0.25),
+            "adverse_trigger_pct":   p.get("adverse_trigger_pct", 3.0),
+            "favourable_trigger_pct": p.get("favourable_trigger_pct", 3.0),
+            "zone_auto_apply":       p.get("zone_auto_apply", False),
+            "zone_notify_email":     p.get("zone_notify_email", True),
+            "zone_notify_inapp":     p.get("zone_notify_inapp", True),
+        } if p else None,
         "approved_pairs": sorted(list(APPROVED_PAIRS))
     }
 
@@ -132,6 +151,47 @@ def update_notification_settings(company_id: int, request: NotificationSettingsR
     company.updated_at = datetime.utcnow()
     db.commit()
     return {"success": True, "message": "Notification settings updated"}
+
+@router.put("/{company_id}/zones")
+def update_zone_config(
+    company_id: int,
+    request: ZoneConfigRequest,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Update zone configuration fields on the active hedging policy.
+    Only fields explicitly provided in the request are updated.
+    """
+    safe_id = resolve_company_id(company_id, payload)
+    policy = db.execute(
+        text("SELECT id FROM hedging_policies WHERE company_id = :cid AND is_active = true"),
+        {"cid": safe_id}
+    ).fetchone()
+    if not policy:
+        raise HTTPException(status_code=404, detail="No active policy found for this company")
+
+    policy_id = policy._mapping["id"]
+
+    # Build SET clause dynamically — only update fields that were provided
+    updates = {}
+    if request.defensive_ratio        is not None: updates["defensive_ratio"]        = request.defensive_ratio
+    if request.opportunistic_ratio    is not None: updates["opportunistic_ratio"]    = request.opportunistic_ratio
+    if request.adverse_trigger_pct    is not None: updates["adverse_trigger_pct"]    = request.adverse_trigger_pct
+    if request.favourable_trigger_pct is not None: updates["favourable_trigger_pct"] = request.favourable_trigger_pct
+    if request.zone_auto_apply        is not None: updates["zone_auto_apply"]        = request.zone_auto_apply
+    if request.zone_notify_email      is not None: updates["zone_notify_email"]      = request.zone_notify_email
+    if request.zone_notify_inapp      is not None: updates["zone_notify_inapp"]      = request.zone_notify_inapp
+
+    if not updates:
+        return {"success": True, "message": "No changes"}
+
+    set_clause = ", ".join(f"{col} = :{col}" for col in updates)
+    updates["id"] = policy_id
+    db.execute(text(f"UPDATE hedging_policies SET {set_clause} WHERE id = :id"), updates)
+    db.commit()
+    return {"success": True, "message": "Zone configuration updated", "policy_id": policy_id}
+
 
 @router.post("/policy/cascade")
 def cascade_policy(request: PolicyCascadeRequest, db: Session = Depends(get_db), payload: dict = Depends(get_token_payload)):

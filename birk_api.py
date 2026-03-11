@@ -550,31 +550,177 @@ def get_recommendations(
         unhedged = max(amount - actual_hedged, 0)
         if unhedged <= 0:
             continue
+
+        # Flat (size-band) base ratio from active policy
         if amount >= 5000000:
-            target_ratio = float(p["hedge_ratio_over_5m"])
+            base_ratio = float(p["hedge_ratio_over_5m"])
         elif amount >= 1000000:
-            target_ratio = float(p["hedge_ratio_1m_to_5m"])
+            base_ratio = float(p["hedge_ratio_1m_to_5m"])
         else:
-            target_ratio = float(p["hedge_ratio_under_1m"])
+            base_ratio = float(p["hedge_ratio_under_1m"])
+
+        # Zone-aware ratio — uses stored current_rate as proxy for live rate
+        direction  = exp.get("exposure_type") or exp.get("direction") or "payable"
+        spot       = float(exp.get("current_rate") or 0)
+        budget     = float(exp.get("budget_rate") or 0)
+        adv_trig   = float(p.get("adverse_trigger_pct") or 3.0)
+        fav_trig   = float(p.get("favourable_trigger_pct") or 3.0)
+        zone       = calculate_zone(spot, budget, adv_trig, fav_trig, direction)
+        target_ratio = zone_target_ratio(zone, dict(p), base_ratio)
+
         recommended_amount = max((amount * target_ratio) - actual_hedged, 0)
         if recommended_amount <= 0:
             continue
         if recommended_amount > 100000:
-           recommendations.append({
-            "exposure_id":    exp["id"],
-            "currency_pair":  f"{exp['from_currency']}/{exp['to_currency']}",
-            "action":         f"Hedge {exp['from_currency']} {int(recommended_amount):,}",
-            "target_ratio":   f"{int(target_ratio * 100)}%",
-            "recommended_amount": int(recommended_amount),
-            "total_exposure": int(amount),
-            "instrument":     exp.get("instrument_type") or "Forward",
-            "urgency":        "HIGH" if unhedged > amount * 0.5 else "MEDIUM",
-            "reason":         f"Policy target: {int(target_ratio * 100)}% hedge. Recommended hedge: {exp['from_currency']} {int(recommended_amount):,} of {int(amount):,} total exposure.",
-            "exposure_type":  exp.get("exposure_type") or "payable",
-            "end_date":       exp["end_date"].isoformat() if exp.get("end_date") else None,
-        })
+            recommendations.append({
+                "exposure_id":        exp["id"],
+                "currency_pair":      f"{exp['from_currency']}/{exp['to_currency']}",
+                "action":             f"Hedge {exp['from_currency']} {int(recommended_amount):,}",
+                "target_ratio":       f"{int(target_ratio * 100)}%",
+                "recommended_amount": int(recommended_amount),
+                "total_exposure":     int(amount),
+                "instrument":         exp.get("instrument_type") or "Forward",
+                "urgency":            "HIGH" if unhedged > amount * 0.5 else "MEDIUM",
+                "reason":             (
+                    f"Zone: {zone.upper()} — target {int(target_ratio * 100)}% hedge. "
+                    f"Recommended: {exp['from_currency']} {int(recommended_amount):,} "
+                    f"of {int(amount):,} total exposure."
+                ),
+                "exposure_type":      exp.get("exposure_type") or "payable",
+                "end_date":           exp["end_date"].isoformat() if exp.get("end_date") else None,
+                "current_zone":       zone,
+                "zone_target_ratio":  target_ratio,
+                "base_ratio":         base_ratio,
+            })
 
     return {"company_id": safe_id, "policy": p["policy_name"], "recommendations": recommendations}
+
+
+# ── Zone calculation ──────────────────────────────────────────────────────────
+
+def calculate_zone(spot_rate: float, budget_rate: float,
+                   adverse_trigger: float, favourable_trigger: float,
+                   direction: str = 'payable') -> str:
+    """
+    Determine hedging zone based on how far spot has moved vs budget rate.
+
+    For payable (BUY) exposures: adverse means spot went UP (costs more).
+    For receivable (SELL) exposures: adverse means spot went DOWN (receive less).
+
+    Returns: 'defensive' | 'base' | 'opportunistic'
+    Soft-fails to 'base' if inputs are invalid.
+    """
+    try:
+        if not budget_rate or not spot_rate or budget_rate == 0:
+            return 'base'
+        pct_move = (spot_rate - budget_rate) / budget_rate * 100
+        # Payable (BUY): flip sign so positive move = adverse
+        # Receivable (SELL): use raw pct_move — negative move = adverse
+        signed = -pct_move if direction == 'payable' else pct_move
+        if signed > (adverse_trigger or 3.0):
+            return 'defensive'
+        if signed < -(favourable_trigger or 3.0):
+            return 'opportunistic'
+        return 'base'
+    except Exception as e:
+        logger.warning(f"calculate_zone failed: {e}")
+        return 'base'
+
+
+def zone_target_ratio(zone: str, policy: dict, base_ratio: float) -> float:
+    """Return the hedge target ratio for the given zone."""
+    if zone == 'defensive':
+        return float(policy.get("defensive_ratio") or 0.75)
+    if zone == 'opportunistic':
+        return float(policy.get("opportunistic_ratio") or 0.25)
+    return base_ratio
+
+
+# ── Zone manual-override endpoint ─────────────────────────────────────────────
+
+@app.post("/api/zones/manual-override")
+async def zone_manual_override(
+    body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Manually override the zone for a currency pair.
+    Logs to zone_change_log and sends email if zone_notify_email is true.
+    """
+    from sqlalchemy import text as _text
+    company_id   = body.get("company_id")
+    currency_pair = body.get("currency_pair")
+    new_zone     = body.get("new_zone")
+    reason       = body.get("reason", "Manual override")
+    changed_by   = body.get("changed_by") or payload.get("email", "unknown")
+
+    if not company_id or not currency_pair or not new_zone:
+        raise HTTPException(status_code=400, detail="company_id, currency_pair, and new_zone are required")
+    if new_zone not in ("defensive", "base", "opportunistic"):
+        raise HTTPException(status_code=400, detail="new_zone must be defensive, base, or opportunistic")
+
+    safe_id = resolve_company_id(company_id, payload)
+
+    # Fetch active policy for notification preferences
+    policy = db.execute(
+        _text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"),
+        {"cid": safe_id}
+    ).fetchone()
+
+    # Log the zone change
+    db.execute(_text("""
+        INSERT INTO zone_change_log
+            (company_id, currency_pair, previous_zone, new_zone,
+             trigger_type, changed_by, reason, created_at)
+        VALUES (:cid, :pair, 'unknown', :new_zone, 'manual', :changed_by, :reason, NOW())
+    """), {
+        "cid":       safe_id,
+        "pair":      currency_pair,
+        "new_zone":  new_zone,
+        "changed_by": changed_by,
+        "reason":    reason,
+    })
+    db.commit()
+
+    # Send notification email if configured
+    if policy and policy._mapping.get("zone_notify_email"):
+        try:
+            company = db.execute(
+                _text("SELECT alert_email, name FROM companies WHERE id = :cid"), {"cid": safe_id}
+            ).fetchone()
+            alert_email = company._mapping.get("alert_email") if company else None
+            resend_api_key = os.getenv("RESEND_API_KEY")
+            frontend_url   = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
+            if alert_email and resend_api_key:
+                import httpx as _httpx
+                zone_label = {"defensive": "Defensive 🔴", "base": "Base 🔵", "opportunistic": "Opportunistic 🟢"}.get(new_zone, new_zone)
+                await _httpx.AsyncClient().post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
+                    json={
+                        "from": "Sumnohow <alerts@sumnohow.com>",
+                        "to": [alert_email],
+                        "subject": f"Zone Override — {currency_pair} shifted to {zone_label}",
+                        "html": (
+                            f"<p>The hedging zone for <strong>{currency_pair}</strong> has been manually set to "
+                            f"<strong>{zone_label}</strong> by {changed_by}.</p>"
+                            f"<p>Reason: {reason}</p>"
+                            f"<p><a href='{frontend_url}'>Review in Sumnohow →</a></p>"
+                        )
+                    },
+                    timeout=10
+                )
+        except Exception as e:
+            logger.warning(f"Zone override email failed: {e}")
+
+    logger.info(f"Zone override: {currency_pair} → {new_zone} by {changed_by}")
+    return {
+        "success":      True,
+        "currency_pair": currency_pair,
+        "new_zone":     new_zone,
+        "message":      f"{currency_pair} zone set to {new_zone}"
+    }
 
 
 @app.get("/api/debug/breaches")
@@ -929,6 +1075,32 @@ async def startup_event():
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS amount_currency VARCHAR(3)",
             # Backfill: exposures without amount_currency default to from_currency (base currency)
             "UPDATE exposures SET amount_currency = from_currency WHERE amount_currency IS NULL",
+
+            # ── Dynamic Hedging Policy Zones ──────────────────────────────────
+            # Extend hedging_policies with zone ratios and trigger thresholds
+            "ALTER TABLE hedging_policies ADD COLUMN IF NOT EXISTS defensive_ratio FLOAT DEFAULT 0.75",
+            "ALTER TABLE hedging_policies ADD COLUMN IF NOT EXISTS opportunistic_ratio FLOAT DEFAULT 0.25",
+            "ALTER TABLE hedging_policies ADD COLUMN IF NOT EXISTS adverse_trigger_pct FLOAT DEFAULT 3.0",
+            "ALTER TABLE hedging_policies ADD COLUMN IF NOT EXISTS favourable_trigger_pct FLOAT DEFAULT 3.0",
+            "ALTER TABLE hedging_policies ADD COLUMN IF NOT EXISTS zone_auto_apply BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE hedging_policies ADD COLUMN IF NOT EXISTS zone_notify_email BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE hedging_policies ADD COLUMN IF NOT EXISTS zone_notify_inapp BOOLEAN DEFAULT TRUE",
+
+            # Audit log for all zone changes (manual and auto)
+            """CREATE TABLE IF NOT EXISTS zone_change_log (
+                id               SERIAL PRIMARY KEY,
+                company_id       INTEGER REFERENCES companies(id),
+                currency_pair    VARCHAR(10),
+                previous_zone    VARCHAR(20),
+                new_zone         VARCHAR(20),
+                trigger_type     VARCHAR(20),
+                spot_rate        FLOAT,
+                budget_rate      FLOAT,
+                pct_move         FLOAT,
+                changed_by       VARCHAR(255),
+                reason           TEXT,
+                created_at       TIMESTAMP DEFAULT NOW()
+            )""",
         ]
         for sql in migrations:
             try:

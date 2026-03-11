@@ -427,7 +427,7 @@ async def get_enriched_exposures(
     - Current corridor (latest take profit / stop loss)
     - Tranche count and list
     """
-    from birk_api import get_current_rates
+    from birk_api import get_current_rates, calculate_zone, zone_target_ratio
     ensure_tables(db)
 
     safe_id = resolve_company_id(company_id, payload)
@@ -446,6 +446,13 @@ async def get_enriched_exposures(
         for e in exposures
     ]))
     live_rates = await get_current_rates(pairs)
+
+    # Fetch active policy once — needed for zone thresholds
+    policy_row = db.execute(
+        text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"),
+        {"cid": safe_id}
+    ).fetchone()
+    active_policy = dict(policy_row._mapping) if policy_row else {}
 
     result = []
     for exp_row in exposures:
@@ -494,6 +501,28 @@ async def get_enriched_exposures(
             float(exp["amount"]), amount_currency, exp["from_currency"], budget_rate
         )
 
+        # Zone calculation — requires budget_rate and live spot
+        direction = exp.get("exposure_type") or exp.get("direction") or "payable"
+        adv_trig  = float(active_policy.get("adverse_trigger_pct") or 3.0)
+        fav_trig  = float(active_policy.get("favourable_trigger_pct") or 3.0)
+        pct_move  = 0.0
+        current_zone = "base"
+        if budget_rate and current_spot:
+            try:
+                pct_move = (current_spot - budget_rate) / budget_rate * 100
+            except Exception:
+                pct_move = 0.0
+            current_zone = calculate_zone(current_spot, budget_rate, adv_trig, fav_trig, direction)
+
+        # Zone-adjusted target ratio (falls back to base if no size-band match)
+        if total_amount_base >= 5_000_000:
+            base_ratio = float(active_policy.get("hedge_ratio_over_5m") or 1.0)
+        elif total_amount_base >= 1_000_000:
+            base_ratio = float(active_policy.get("hedge_ratio_1m_to_5m") or 1.0)
+        else:
+            base_ratio = float(active_policy.get("hedge_ratio_under_1m") or 1.0)
+        z_target_ratio = zone_target_ratio(current_zone, active_policy, base_ratio)
+
         result.append({
             # Core exposure fields
             "id":               exposure_id,
@@ -535,6 +564,11 @@ async def get_enriched_exposures(
             # Status
             "status":           status,
             "max_loss_limit":   float(exp.get("max_loss_limit") or 0),
+
+            # Dynamic zone
+            "current_zone":       current_zone,
+            "pct_move_vs_budget": round(pct_move, 2),
+            "zone_target_ratio":  z_target_ratio,
         })
 
     return result
