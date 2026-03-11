@@ -519,7 +519,7 @@ def activate_policy(
 
 
 @app.get("/api/recommendations")
-def get_recommendations(
+async def get_recommendations(
     company_id: int,
     db: Session = Depends(get_db),
     payload: dict = Depends(get_token_payload)
@@ -545,6 +545,13 @@ def get_recommendations(
         GROUP BY e.id
     """), {"cid": safe_id}).fetchall()
 
+    # Fetch live rates for all exposure pairs — needed for accurate zone calculation
+    pairs = list(dict.fromkeys([
+        f"{e._mapping['from_currency']}/{e._mapping['to_currency']}"
+        for e in exposures
+    ]))
+    live_rates = await get_current_rates(pairs)
+
     recommendations = []
     for exp_row in exposures:
         exp = exp_row._mapping
@@ -562,9 +569,11 @@ def get_recommendations(
         else:
             base_ratio = float(p["hedge_ratio_under_1m"])
 
-        # Zone-aware ratio — uses stored current_rate as proxy for live rate
+        # Zone-aware ratio — use live rate; fall back to stored current_rate
+        pair_key   = f"{exp['from_currency']}/{exp['to_currency']}"
+        rate_info  = live_rates.get(pair_key)
+        spot       = float(rate_info["rate"]) if rate_info and rate_info.get("rate") else float(exp.get("current_rate") or 0)
         direction  = exp.get("exposure_type") or exp.get("direction") or "payable"
-        spot       = float(exp.get("current_rate") or 0)
         budget     = float(exp.get("budget_rate") or 0)
         adv_trig   = float(p.get("adverse_trigger_pct") or 3.0)
         fav_trig   = float(p.get("favourable_trigger_pct") or 3.0)

@@ -583,6 +583,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
 
       <div className="space-y-2">
         {[...(adhocRec ? [adhocRec] : []), ...recommendations].map((rec) => {
+          console.log('[rec zone debug]', { id: rec.exposure_id, pair: rec.currency_pair, current_zone: rec.current_zone, zone_target_ratio: rec.zone_target_ratio, target_ratio: rec.target_ratio })
           const sentOrder   = sentOrders[rec.exposure_id]
           const customAmt   = customAmounts[rec.exposure_id]
           const displayAmt  = customAmt !== undefined ? customAmt : rec.recommended_amount
