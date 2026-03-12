@@ -1100,6 +1100,9 @@ async def startup_event():
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS amount_currency VARCHAR(3)",
             # Backfill: exposures without amount_currency default to from_currency (base currency)
             "UPDATE exposures SET amount_currency = from_currency WHERE amount_currency IS NULL",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS exposure_type VARCHAR(20) DEFAULT 'payable'",
+            # Backfill: exposures without exposure_type default to payable
+            "UPDATE exposures SET exposure_type = 'payable' WHERE exposure_type IS NULL",
 
             # ── Dynamic Hedging Policy Zones ──────────────────────────────────
             # Extend hedging_policies with zone ratios and trigger thresholds

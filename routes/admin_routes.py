@@ -90,7 +90,7 @@ def delete_company(company_id: int, admin: dict = Depends(require_admin), db: Se
 
 @router.get("/companies/{company_id}/exposures")
 def list_exposures(company_id: int, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
-    rows = db.execute(text("SELECT id, from_currency, to_currency, amount, instrument_type, exposure_type, budget_rate, description, end_date, created_at FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true) ORDER BY created_at DESC"), {"cid": company_id}).fetchall()
+    rows = db.execute(text("SELECT id, from_currency, to_currency, amount, instrument_type, COALESCE(exposure_type, 'payable') AS exposure_type, budget_rate, description, end_date, created_at FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true) ORDER BY created_at DESC"), {"cid": company_id}).fetchall()
     return {"exposures": [{"id": r._mapping["id"], "pair": f"{r._mapping['from_currency']}/{r._mapping['to_currency']}", "from_currency": r._mapping["from_currency"], "to_currency": r._mapping["to_currency"], "amount": r._mapping["amount"], "instrument_type": r._mapping["instrument_type"], "exposure_type": r._mapping["exposure_type"], "budget_rate": r._mapping["budget_rate"], "description": r._mapping["description"], "end_date": r._mapping["end_date"], "created_at": r._mapping["created_at"]} for r in rows]}
 
 @router.post("/exposures")
