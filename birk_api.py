@@ -419,6 +419,13 @@ async def update_exposure(
         raise HTTPException(status_code=404, detail="Exposure not found")
     safe_id = resolve_company_id(row._mapping["company_id"], payload)
 
+    # Accept end_date from both field names (due_date is a legacy alias)
+    end_date_val = payload_body.get("end_date") or payload_body.get("due_date") or None
+
+    # If from_currency/to_currency provided, update the pair; otherwise keep existing values
+    from_currency = payload_body.get("from_currency")
+    to_currency   = payload_body.get("to_currency")
+
     db.execute(_text("""
         UPDATE exposures SET
             reference        = :reference,
@@ -426,10 +433,13 @@ async def update_exposure(
             description      = :description,
             budget_rate      = :budget_rate,
             instrument_type  = :instrument_type,
+            exposure_type    = :exposure_type,
             direction        = :direction,
             start_date       = :start_date,
-            due_date         = :due_date,
-            amount_currency  = :amount_currency
+            end_date         = :end_date,
+            amount_currency  = :amount_currency,
+            from_currency    = COALESCE(:from_currency, from_currency),
+            to_currency      = COALESCE(:to_currency, to_currency)
         WHERE id = :id AND company_id = :company_id
     """), {
         "reference":        payload_body.get("reference"),
@@ -437,10 +447,13 @@ async def update_exposure(
         "description":      payload_body.get("description"),
         "budget_rate":      payload_body.get("budget_rate"),
         "instrument_type":  payload_body.get("instrument_type", "Spot"),
+        "exposure_type":    payload_body.get("exposure_type") or "payable",
         "direction":        payload_body.get("direction", "Buy"),
         "start_date":       payload_body.get("start_date") or None,
-        "due_date":         payload_body.get("due_date") or None,
+        "end_date":         end_date_val,
         "amount_currency":  payload_body.get("amount_currency") or None,
+        "from_currency":    from_currency,
+        "to_currency":      to_currency,
         "id":               exposure_id,
         "company_id":       safe_id
     })

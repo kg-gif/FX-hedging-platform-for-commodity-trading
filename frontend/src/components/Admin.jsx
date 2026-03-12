@@ -34,7 +34,9 @@ const CURRENCIES = ['USD','EUR','GBP','NOK','SEK','CHF','JPY','AUD','CAD','NZD',
 const CURRENCY_PAIRS = [
   'EUR/USD','GBP/USD','USD/JPY','USD/CHF','AUD/USD','USD/CAD','NZD/USD',
   'EUR/GBP','EUR/JPY','EUR/CHF','GBP/JPY','USD/MXN','USD/BRL','USD/CNY',
-  'USD/ZAR','USD/INR','USD/TRY','USD/NOK','USD/SEK','EUR/NOK','EUR/SEK','NOK/SEK'
+  'USD/ZAR','USD/INR','USD/TRY','USD/NOK','USD/SEK','EUR/NOK','EUR/SEK','NOK/SEK',
+  // Inverted pairs used by some clients
+  'JPY/USD','CHF/USD','CAD/USD','GBP/NOK','GBP/SEK','NOK/USD','SEK/USD',
 ]
 
 function useToast() {
