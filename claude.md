@@ -37,9 +37,15 @@ The founder is non-technical. Code must be clean, well-commented, and maintainab
 
 ## Key files
 
+⚠️ **FILE PATH WARNING:** There is NO `backend/` subdirectory. Backend files live at the **repo root**.
+Always use `routes/` not `backend/routes/`. Always use `birk_api.py` not `backend/birk_api.py`.
+Verify with `find . -name "filename.py"` if unsure.
+
 ```
-backend/
+(repo root)/
   birk_api.py                        # Main FastAPI app, all routers, startup migrations
+  models.py                          # SQLAlchemy ORM models
+  database.py                        # DB session setup
   routes/
     auth_routes.py                   # Login, create-user, forgot/reset password
     admin_routes.py                  # Company/exposure/user management (admin only)
