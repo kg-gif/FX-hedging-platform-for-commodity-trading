@@ -427,38 +427,43 @@ async def update_exposure(
     from_currency = payload_body.get("from_currency")
     to_currency   = payload_body.get("to_currency")
 
-    db.execute(_text("""
-        UPDATE exposures SET
-            reference        = :reference,
-            amount           = :amount,
-            description      = :description,
-            budget_rate      = :budget_rate,
-            instrument_type  = :instrument_type,
-            exposure_type    = :exposure_type,
-            direction        = :direction,
-            start_date       = :start_date,
-            end_date         = :end_date,
-            amount_currency  = :amount_currency,
-            from_currency    = COALESCE(:from_currency, from_currency),
-            to_currency      = COALESCE(:to_currency, to_currency)
-        WHERE id = :id AND company_id = :company_id
-    """), {
-        "reference":        payload_body.get("reference"),
-        "amount":           payload_body.get("amount"),
-        "description":      payload_body.get("description"),
-        "budget_rate":      payload_body.get("budget_rate"),
-        "instrument_type":  payload_body.get("instrument_type", "Spot"),
-        "exposure_type":    payload_body.get("exposure_type") or "payable",
-        "direction":        payload_body.get("direction", "Buy"),
-        "start_date":       payload_body.get("start_date") or None,
-        "end_date":         end_date_val,
-        "amount_currency":  payload_body.get("amount_currency") or None,
-        "from_currency":    from_currency,
-        "to_currency":      to_currency,
-        "id":               exposure_id,
-        "company_id":       safe_id
-    })
-    db.commit()
+    try:
+        db.execute(_text("""
+            UPDATE exposures SET
+                reference        = :reference,
+                amount           = :amount,
+                description      = :description,
+                budget_rate      = :budget_rate,
+                instrument_type  = :instrument_type,
+                exposure_type    = :exposure_type,
+                direction        = :direction,
+                start_date       = :start_date,
+                end_date         = :end_date,
+                amount_currency  = :amount_currency,
+                from_currency    = COALESCE(:from_currency, from_currency),
+                to_currency      = COALESCE(:to_currency, to_currency)
+            WHERE id = :id AND company_id = :company_id
+        """), {
+            "reference":        payload_body.get("reference"),
+            "amount":           payload_body.get("amount"),
+            "description":      payload_body.get("description"),
+            "budget_rate":      payload_body.get("budget_rate"),
+            "instrument_type":  payload_body.get("instrument_type", "Spot"),
+            "exposure_type":    payload_body.get("exposure_type") or "payable",
+            "direction":        payload_body.get("direction", "Buy"),
+            "start_date":       payload_body.get("start_date") or None,
+            "end_date":         end_date_val,
+            "amount_currency":  payload_body.get("amount_currency") or None,
+            "from_currency":    from_currency,
+            "to_currency":      to_currency,
+            "id":               exposure_id,
+            "company_id":       safe_id
+        })
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Exposure {exposure_id} update failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update exposure: {str(e)}")
 
     logger.info(f"Exposure {exposure_id} updated by {payload.get('email')}")
     return {"message": "Exposure updated", "exposure_id": exposure_id}
