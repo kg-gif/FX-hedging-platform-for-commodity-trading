@@ -37,14 +37,6 @@ class ManualExposureRequest(BaseModel):
     amount_currency: Optional[str] = None  # Which currency the amount is in (defaults to from_currency)
 
 
-class UpdateExposureRequest(BaseModel):
-    reference_number: Optional[str] = None
-    currency_pair: Optional[str] = None
-    amount: Optional[float] = Field(None, gt=0)
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    description: Optional[str] = None
-
 
 # Database dependency
 def get_db():
@@ -208,88 +200,10 @@ async def create_manual_exposure(
         raise HTTPException(status_code=500, detail=f"Failed to create exposure: {str(e)}")
 
 
-@router.put("/exposures/{exposure_id}")
-async def update_exposure(
-    exposure_id: int,
-    request: UpdateExposureRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    PUT /api/exposure-data/exposures/{exposure_id}
-    Update an existing exposure
-    """
-    try:
-        # Fetch exposure
-        exposure = db.query(Exposure).filter(Exposure.id == exposure_id).first()
-        
-        if not exposure:
-            raise HTTPException(status_code=404, detail=f"Exposure {exposure_id} not found")
-        
-        # Update fields if provided
-        if request.currency_pair:
-            currency_pair = request.currency_pair.upper().replace("/", "").replace("-", "")
-            if len(currency_pair) != 6:
-                raise HTTPException(status_code=400, detail="Currency pair must be 6 characters")
-            exposure.from_currency = currency_pair[:3]
-            exposure.to_currency = currency_pair[3:]
-        
-        if request.amount is not None:
-            exposure.amount = request.amount
-            # Recalculate USD value
-            if exposure.current_rate:
-                exposure.current_value_usd = request.amount * exposure.current_rate
-        
-        if request.start_date:
-            exposure.start_date = datetime.strptime(request.start_date, '%Y-%m-%d').date()
-        
-        if request.end_date:
-            exposure.end_date = datetime.strptime(request.end_date, '%Y-%m-%d').date()
-        
-        # Recalculate period if dates changed
-        if exposure.start_date and exposure.end_date:
-            exposure.settlement_period = (exposure.end_date - exposure.start_date).days
-            
-            # Recalculate risk level
-            if exposure.current_value_usd:
-                exposure.risk_level = calculate_risk_level(
-                    exposure.current_value_usd,
-                    exposure.settlement_period
-                )
-        
-        if request.description is not None:
-            exposure.description = request.description
-        
-        # Update timestamp
-        exposure.updated_at = datetime.utcnow()
-        
-        db.commit()
-        db.refresh(exposure)
-        
-        return {
-            'success': True,
-            'exposure': {
-                'id': exposure.id,
-                'company_id': exposure.company_id,
-                'from_currency': exposure.from_currency,
-                'to_currency': exposure.to_currency,
-                'currency_pair': f"{exposure.from_currency}{exposure.to_currency}",
-                'amount': exposure.amount,
-                'start_date': exposure.start_date.isoformat() if exposure.start_date else None,
-                'end_date': exposure.end_date.isoformat() if exposure.end_date else None,
-                'current_value_usd': exposure.current_value_usd,
-                'settlement_period': exposure.settlement_period,
-                'risk_level': exposure.risk_level.value if exposure.risk_level else 'Unknown',
-                'description': exposure.description,
-                'updated_at': exposure.updated_at.isoformat()
-            },
-            'message': 'Exposure updated successfully'
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to update exposure: {str(e)}")
+
+# NOTE: PUT /exposures/{exposure_id} is handled by the app-level endpoint in birk_api.py
+# which supports budget_rate, instrument_type, exposure_type, from_currency, to_currency
+# and enforces authentication. Do not add a duplicate router-level PUT here.
 
 
 @router.delete("/exposures/{exposure_id}")
