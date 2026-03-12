@@ -69,6 +69,9 @@ function CompaniesTab({ toast }) {
   const [saving, setSaving] = useState(false)
   const [companyForm, setCompanyForm] = useState({ name: '', base_currency: 'USD', trading_volume_monthly: '' })
   const [expForm, setExpForm] = useState({ pair: 'EUR/USD', amount: '', instrument_type: 'Forward', exposure_type: 'payable', budget_rate: '', description: '', end_date: '' })
+  const [editingExp, setEditingExp] = useState(null)   // exposure being edited
+  const [editForm, setEditForm] = useState({})
+  const [editSaving, setEditSaving] = useState(false)
 
   useEffect(() => { loadCompanies() }, [])
 
@@ -135,6 +138,50 @@ function CompaniesTab({ toast }) {
     finally { setSaving(false) }
   }
 
+  const openEditExposure = (exp, companyId) => {
+    setEditForm({
+      pair:            exp.pair,
+      amount:          exp.amount,
+      instrument_type: exp.instrument_type || 'Forward',
+      exposure_type:   exp.exposure_type   || 'payable',
+      budget_rate:     exp.budget_rate     || '',
+      end_date:        exp.end_date ? exp.end_date.split('T')[0] : '',
+      description:     exp.description     || '',
+      reference:       exp.reference       || '',
+    })
+    setEditingExp({ ...exp, company_id: companyId })
+  }
+
+  const saveEditExposure = async () => {
+    setEditSaving(true)
+    const [from, to] = editForm.pair.split('/')
+    try {
+      const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${editingExp.id}`, {
+        method: 'PUT', headers: authHeaders(),
+        body: JSON.stringify({
+          from_currency:   from,
+          to_currency:     to,
+          amount:          parseFloat(editForm.amount),
+          instrument_type: editForm.instrument_type,
+          exposure_type:   editForm.exposure_type,
+          budget_rate:     editForm.budget_rate ? parseFloat(editForm.budget_rate) : null,
+          end_date:        editForm.end_date || null,
+          description:     editForm.description,
+          reference:       editForm.reference,
+        })
+      })
+      if (r.ok) {
+        toast.show('success', `${editForm.pair} updated`)
+        setEditingExp(null)
+        loadExposures(editingExp.company_id)
+      } else {
+        const d = await r.json()
+        toast.show('error', d.detail || 'Update failed')
+      }
+    } catch { toast.show('error', 'Network error') }
+    finally { setEditSaving(false) }
+  }
+
   const deleteExposure = async (exposureId, companyId, pair) => {
     if (!window.confirm(`Delete ${pair} exposure?`)) return
     try {
@@ -164,6 +211,59 @@ function CompaniesTab({ toast }) {
           <div className="flex justify-end gap-3">
             <button onClick={() => setShowCreateCompany(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg">Cancel</button>
             <button onClick={createCompany} disabled={saving} className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-50" style={btnPrimary}>{saving ? 'Creating…' : 'Create Company'}</button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Exposure Modal */}
+      {editingExp && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4">
+            <div className="px-6 py-5" style={{ background: NAVY }}>
+              <h2 className="text-base font-bold text-white">Edit Exposure</h2>
+              <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>{editingExp.pair} · ID {editingExp.id}</p>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-2 gap-4 mb-5">
+                <Field label="Currency Pair">
+                  <select className={inputClass} value={editForm.pair} onChange={e => setEditForm({ ...editForm, pair: e.target.value })}>
+                    {CURRENCY_PAIRS.map(p => <option key={p}>{p}</option>)}
+                  </select>
+                </Field>
+                <Field label="Amount">
+                  <input type="number" className={inputClass} value={editForm.amount} onChange={e => setEditForm({ ...editForm, amount: e.target.value })} />
+                </Field>
+                <Field label="Instrument">
+                  <select className={inputClass} value={editForm.instrument_type} onChange={e => setEditForm({ ...editForm, instrument_type: e.target.value })}>
+                    <option>Forward</option><option>Spot</option><option>Option</option><option>NDF</option><option>Swap</option>
+                  </select>
+                </Field>
+                <Field label="Type">
+                  <select className={inputClass} value={editForm.exposure_type} onChange={e => setEditForm({ ...editForm, exposure_type: e.target.value })}>
+                    <option value="payable">Payable</option>
+                    <option value="receivable">Receivable</option>
+                  </select>
+                </Field>
+                <Field label="Budget Rate" hint="Optional">
+                  <input type="number" step="0.0001" className={inputClass} placeholder="1.0850" value={editForm.budget_rate} onChange={e => setEditForm({ ...editForm, budget_rate: e.target.value })} />
+                </Field>
+                <Field label="Maturity Date" hint="Optional">
+                  <input type="date" className={inputClass} value={editForm.end_date} onChange={e => setEditForm({ ...editForm, end_date: e.target.value })} />
+                </Field>
+                <Field label="Reference" className="col-span-2" hint="Optional">
+                  <input className={inputClass} placeholder="e.g. INV-2024-001" value={editForm.reference} onChange={e => setEditForm({ ...editForm, reference: e.target.value })} />
+                </Field>
+                <Field label="Description" className="col-span-2" hint="Optional">
+                  <input className={inputClass} placeholder="e.g. Q2 supplier payment" value={editForm.description} onChange={e => setEditForm({ ...editForm, description: e.target.value })} />
+                </Field>
+              </div>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setEditingExp(null)} className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg">Cancel</button>
+                <button onClick={saveEditExposure} disabled={editSaving} className="px-5 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-50" style={btnPrimary}>
+                  {editSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -205,7 +305,10 @@ function CompaniesTab({ toast }) {
                             {exp.end_date && <span className="text-xs text-gray-400">Matures: {new Date(exp.end_date).toLocaleDateString()}</span>}
                             {exp.description && <span className="text-xs text-gray-400 italic">{exp.description}</span>}
                           </div>
-                          <button onClick={() => deleteExposure(exp.id, company.id, exp.pair)} className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all"><Trash2 size={13} /></button>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => openEditExposure(exp, company.id)} className="p-1.5 rounded text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-all" title="Edit"><Edit2 size={13} /></button>
+                            <button onClick={() => deleteExposure(exp.id, company.id, exp.pair)} className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all" title="Delete"><Trash2 size={13} /></button>
+                          </div>
                         </div>
                       ))}
                     </div>
