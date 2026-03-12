@@ -4,6 +4,7 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { CurrencyPairFlags } from './CurrencyFlag'
+import { useCompany } from '../contexts/CompanyContext'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const authHeaders = () => ({
@@ -11,19 +12,17 @@ const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('auth_token')}`
 })
 
-const CURRENCY_FLAGS = {
-  'EUR':'🇪🇺','USD':'🇺🇸','GBP':'🇬🇧','JPY':'🇯🇵','CHF':'🇨🇭',
-  'CNY':'🇨🇳','INR':'🇮🇳','MXN':'🇲🇽','CAD':'🇨🇦','BRL':'🇧🇷',
-  'AUD':'🇦🇺','NZD':'🇳🇿','ZAR':'🇿🇦'
-}
+
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
 
 const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 
 function Dashboard({ onNavigate }) {
-  const [companies,         setCompanies]         = useState([])
-  const [selectedCompany,   setSelectedCompany]   = useState(null)
+  // Use the shared CompanyContext so the navbar CompanySelector drives which company is shown
+  const { selectedCompanyId, getSelectedCompany } = useCompany()
+  const selectedCompany = getSelectedCompany()
+
   const [exposures,         setExposures]         = useState([])
   const [enrichedExposures, setEnrichedExposures] = useState([])
   const [loading,           setLoading]           = useState(false)
@@ -37,24 +36,13 @@ function Dashboard({ onNavigate }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [dismissedZones,    setDismissedZones]    = useState({ defensive: false, opportunistic: false })
 
-  // On mount — load companies
-  useEffect(() => { fetchCompanies() }, [])
-
-  // When company changes — load everything
+  // When selected company changes — load everything
   useEffect(() => {
-    if (!selectedCompany) return
-    fetchExposures(selectedCompany.id)
-    fetchEnriched(selectedCompany.id)
-    fetchPolicy(selectedCompany.id)
-  }, [selectedCompany])
-
-  const fetchCompanies = async () => {
-    try {
-      const data = await fetch(`${API_BASE}/companies`, { headers: authHeaders() }).then(r => r.json())
-      setCompanies(Array.isArray(data) ? data : [])
-      if (data.length > 0) setSelectedCompany(data[0])
-    } catch { setError('Failed to fetch companies') }
-  }
+    if (!selectedCompanyId) return
+    fetchExposures(selectedCompanyId)
+    fetchEnriched(selectedCompanyId)
+    fetchPolicy(selectedCompanyId)
+  }, [selectedCompanyId])
 
   const fetchPolicy = async (companyId) => {
     try {
@@ -90,10 +78,10 @@ function Dashboard({ onNavigate }) {
   }
 
   const refreshRates = async () => {
-    if (!selectedCompany) return
+    if (!selectedCompanyId) return
     setRefreshing(true)
-    await fetchExposures(selectedCompany.id)
-    await fetchEnriched(selectedCompany.id)
+    await fetchExposures(selectedCompanyId)
+    await fetchEnriched(selectedCompanyId)
     setRefreshing(false)
   }
 
@@ -105,8 +93,8 @@ function Dashboard({ onNavigate }) {
       if (r.ok) {
         setShowEditModal(false)
         setEditingExposure(null)
-        fetchExposures(selectedCompany.id)
-        fetchEnriched(selectedCompany.id)
+        fetchExposures(selectedCompanyId)
+        fetchEnriched(selectedCompanyId)
       } else { alert('Failed to update') }
     } catch { alert('Error updating') }
   }
@@ -119,8 +107,8 @@ function Dashboard({ onNavigate }) {
       if (r.ok) {
         setShowDeleteConfirm(false)
         setDeletingExposure(null)
-        fetchExposures(selectedCompany.id)
-        fetchEnriched(selectedCompany.id)
+        fetchExposures(selectedCompanyId)
+        fetchEnriched(selectedCompanyId)
       } else { alert('Failed to delete') }
     } catch { alert('Error deleting') }
   }
@@ -461,7 +449,7 @@ function Dashboard({ onNavigate }) {
 
       {/* Exposure Register */}
       <ExposureRegister
-        companyId={selectedCompany?.id}
+        companyId={selectedCompanyId}
         onEdit={(exp) => { setEditingExposure(exp); setShowEditModal(true) }}
         onDelete={(exp) => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
         onHedgeNow={onNavigate ? (exp) => onNavigate('hedging', { focusExposure: exp }) : null}
