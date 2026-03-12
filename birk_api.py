@@ -401,11 +401,12 @@ async def update_exposure(
 ):
     from sqlalchemy import text as _text
 
-    # Auto-add new columns if not present
+    # Auto-add new columns if not present (runs on every PUT as a safety guard)
     for sql in [
         "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS start_date DATE",
         "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS due_date DATE",
         "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS direction VARCHAR(10) DEFAULT 'Buy'",
+        "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS exposure_type VARCHAR(20) DEFAULT 'payable'",
     ]:
         try:
             db.execute(_text(sql))
