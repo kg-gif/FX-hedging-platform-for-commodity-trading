@@ -407,6 +407,7 @@ async def update_exposure(
         "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS due_date DATE",
         "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS direction VARCHAR(10) DEFAULT 'Buy'",
         "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS exposure_type VARCHAR(20) DEFAULT 'payable'",
+        "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS reference VARCHAR(100)",
     ]:
         try:
             db.execute(_text(sql))
@@ -1109,6 +1110,7 @@ async def startup_event():
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS exposure_type VARCHAR(20) DEFAULT 'payable'",
             # Backfill: exposures without exposure_type default to payable
             "UPDATE exposures SET exposure_type = 'payable' WHERE exposure_type IS NULL",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS reference VARCHAR(100)",
 
             # ── Dynamic Hedging Policy Zones ──────────────────────────────────
             # Extend hedging_policies with zone ratios and trigger thresholds
