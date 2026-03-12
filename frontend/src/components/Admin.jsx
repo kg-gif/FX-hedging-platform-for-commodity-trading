@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  UserPlus, Users, Trash2, CheckCircle, AlertTriangle,
+  UserPlus, Users, Trash2, Edit2, CheckCircle, AlertTriangle,
   Building2, Plus, ChevronDown, ChevronRight
 } from 'lucide-react'
 import { NAVY, GOLD } from '../brand'
