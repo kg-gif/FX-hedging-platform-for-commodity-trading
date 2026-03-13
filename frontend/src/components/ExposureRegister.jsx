@@ -300,7 +300,8 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
         { headers: authHeaders() }
       )
       if (!res.ok) throw new Error('Failed to load')
-      setExposures(await res.json())
+      const data = await res.json()
+      setExposures(Array.isArray(data) ? data : (data.items || []))
       setPage(1)
     } catch (e) {
       setError('Failed to load exposure register')

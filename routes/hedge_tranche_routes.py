@@ -434,6 +434,12 @@ async def get_enriched_exposures(
 
     safe_id = resolve_company_id(company_id, payload)
 
+    # Fetch company base_currency for portfolio aggregation
+    company_info = db.execute(
+        text("SELECT base_currency FROM companies WHERE id = :cid"), {"cid": safe_id}
+    ).fetchone()
+    base_currency = company_info._mapping["base_currency"] if company_info else "USD"
+
     archived_filter = "" if include_archived else "AND (archived IS NULL OR archived = false)"
     exposures = db.execute(
         text(f"SELECT * FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true) {archived_filter}"),
@@ -441,14 +447,19 @@ async def get_enriched_exposures(
     ).fetchall()
 
     if not exposures:
-        return []
+        return {"items": [], "portfolio": {"total_base": 0, "hedged_base": 0, "open_base": 0, "protection_pct": 0, "base_currency": base_currency}}
 
-    # Fetch live rates for all pairs
+    # Fetch live rates for all exposure pairs + conversion pairs to base_currency
     pairs = list(dict.fromkeys([
         f"{e._mapping['from_currency']}/{e._mapping['to_currency']}"
         for e in exposures
     ]))
-    live_rates = await get_current_rates(pairs)
+    conversion_pairs = list(dict.fromkeys([
+        f"{e._mapping['from_currency']}/{base_currency}"
+        for e in exposures
+        if e._mapping['from_currency'] != base_currency
+    ]))
+    live_rates = await get_current_rates(list(dict.fromkeys(pairs + conversion_pairs)))
 
     # Fetch active policy once — needed for zone thresholds and notification prefs
     policy_row = db.execute(
@@ -664,4 +675,37 @@ async def get_enriched_exposures(
             "archive_reason":     exp.get("archive_reason") or "",
         })
 
-    return result
+    # ── Portfolio totals — convert all active exposure amounts to base_currency ──
+    portfolio_total_base  = 0.0
+    portfolio_hedged_base = 0.0
+    for item in result:
+        if item.get("archived"):
+            continue
+        from_ccy = item["from_currency"]
+        total    = item.get("total_amount") or 0.0
+        hedged   = item.get("hedged_amount") or 0.0
+        if from_ccy == base_currency:
+            portfolio_total_base  += total
+            portfolio_hedged_base += hedged
+        else:
+            conv_pair = f"{from_ccy}/{base_currency}"
+            rate_info = live_rates.get(conv_pair)
+            if rate_info and rate_info.get("rate"):
+                rate = float(rate_info["rate"])
+                portfolio_total_base  += total * rate
+                portfolio_hedged_base += hedged * rate
+            else:
+                print(f"[portfolio] WARNING: no rate for {conv_pair}, excluding from protection calc")
+
+    protection_pct = (portfolio_hedged_base / portfolio_total_base * 100) if portfolio_total_base > 0 else 0.0
+
+    return {
+        "items": result,
+        "portfolio": {
+            "total_base":     round(portfolio_total_base, 2),
+            "hedged_base":    round(portfolio_hedged_base, 2),
+            "open_base":      round(max(portfolio_total_base - portfolio_hedged_base, 0), 2),
+            "protection_pct": round(protection_pct, 1),
+            "base_currency":  base_currency,
+        }
+    }

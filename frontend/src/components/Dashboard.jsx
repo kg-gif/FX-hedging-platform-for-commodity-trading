@@ -16,6 +16,7 @@ const authHeaders = () => ({
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
 
 const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
+const fmtM    = (n) => `${(Math.abs(n) / 1_000_000).toFixed(1)}M`
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 
 function Dashboard({ onNavigate }) {
@@ -25,6 +26,7 @@ function Dashboard({ onNavigate }) {
 
   const [exposures,         setExposures]         = useState([])
   const [enrichedExposures, setEnrichedExposures] = useState([])
+  const [portfolioStats, setPortfolioStats]       = useState(null)
   const [loading,           setLoading]           = useState(false)
   const [refreshing,        setRefreshing]        = useState(false)
   const [lastUpdated,       setLastUpdated]       = useState(null)
@@ -72,7 +74,13 @@ function Dashboard({ onNavigate }) {
       const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
       if (res.ok) {
         const data = await res.json()
-        setEnrichedExposures(Array.isArray(data) ? data : [])
+        if (Array.isArray(data)) {
+          setEnrichedExposures(data)
+          setPortfolioStats(null)
+        } else {
+          setEnrichedExposures(data.items || [])
+          setPortfolioStats(data.portfolio || null)
+        }
       }
     } catch (e) { console.error('Enriched fetch failed:', e) }
   }
@@ -294,15 +302,19 @@ function Dashboard({ onNavigate }) {
                 Protection Status
               </p>
               <div className="flex items-end gap-2">
-                <ShieldCheck size={28} color={hedgePct >= 60 ? SUCCESS : WARNING} />
-                <span className="text-3xl font-bold text-white">{hedgePct.toFixed(0)}%</span>
+                <ShieldCheck size={28} color={(portfolioStats?.protection_pct ?? hedgePct) >= 60 ? SUCCESS : WARNING} />
+                <span className="text-3xl font-bold text-white">
+                  {(portfolioStats?.protection_pct ?? hedgePct).toFixed(0)}%
+                </span>
               </div>
               <div className="mt-3 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)', height: 6 }}>
                 <div className="h-full rounded-full transition-all"
-                  style={{ width: `${Math.min(hedgePct, 100)}%`, background: hedgePct >= 60 ? SUCCESS : WARNING }} />
+                  style={{ width: `${Math.min(portfolioStats?.protection_pct ?? hedgePct, 100)}%`, background: (portfolioStats?.protection_pct ?? hedgePct) >= 60 ? SUCCESS : WARNING }} />
               </div>
               <p className="text-xs mt-2" style={{ color: '#8DA4C4' }}>
-                {fmt(hedgedValue)} hedged · {fmt(unhedgedValue)} open
+                {portfolioStats
+                  ? `${portfolioStats.base_currency} ${fmtM(portfolioStats.hedged_base)} hedged · ${portfolioStats.base_currency} ${fmtM(portfolioStats.open_base)} open`
+                  : `${fmt(hedgedValue)} hedged · ${fmt(unhedgedValue)} open`}
               </p>
             </div>
 
