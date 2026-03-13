@@ -19,7 +19,88 @@ const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('auth_token')}`
 })
 
-// Format a number as currency — e.g. 1 234 567 → "1.23M" or "234K"
+// ── Tooltip component ─────────────────────────────────────────────────────────
+// CSS-only hover tooltip — no external library needed.
+// The ⓘ icon sits inline; hovering reveals a dark box above it.
+function Tip({ text }) {
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 4, verticalAlign: 'middle' }}>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 14,
+          height: 14,
+          borderRadius: '50%',
+          fontSize: 10,
+          fontWeight: 700,
+          cursor: 'default',
+          color: '#9CA3AF',
+          border: '1px solid #D1D5DB',
+          lineHeight: 1,
+          userSelect: 'none',
+        }}
+        className="tip-trigger"
+      >
+        i
+      </span>
+      <span
+        className="tip-box"
+        style={{
+          visibility: 'hidden',
+          opacity: 0,
+          position: 'absolute',
+          bottom: '120%',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: NAVY,
+          color: 'white',
+          fontSize: 11,
+          lineHeight: 1.5,
+          padding: '7px 10px',
+          borderRadius: 6,
+          maxWidth: 280,
+          width: 'max-content',
+          whiteSpace: 'normal',
+          zIndex: 100,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+          pointerEvents: 'none',
+          transition: 'opacity 0.15s ease',
+        }}
+      >
+        {text}
+        {/* small arrow pointing down */}
+        <span style={{
+          position: 'absolute',
+          top: '100%',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          border: '5px solid transparent',
+          borderTopColor: NAVY,
+        }} />
+      </span>
+      <style>{`
+        .tip-trigger:hover + .tip-box,
+        .tip-trigger:focus + .tip-box {
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+      `}</style>
+    </span>
+  )
+}
+
+// ── Helper: label + tooltip ───────────────────────────────────────────────────
+function TipLabel({ children, tip }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+      {children}<Tip text={tip} />
+    </span>
+  )
+}
+
+// ── Formatters ────────────────────────────────────────────────────────────────
 function fmtPnl(n, ccy) {
   if (n == null) return '—'
   const abs = Math.abs(n)
@@ -41,22 +122,20 @@ function pnlColor(n) {
   return '#6B7280'
 }
 
+// ── PnlBar ────────────────────────────────────────────────────────────────────
 // Horizontal bar showing P&L magnitude, centred at zero
 function PnlBar({ value, maxAbs }) {
   if (!maxAbs || value == null) return null
-  const pct = Math.min(Math.abs(value) / maxAbs * 50, 50) // max 50% of half-width
+  const pct = Math.min(Math.abs(value) / maxAbs * 50, 50)
   const isPos = value >= 0
   return (
     <div className="flex items-center h-4 w-24 mx-auto">
-      {/* negative side */}
       <div className="flex-1 flex justify-end">
         {!isPos && (
           <div style={{ width: `${pct * 2}%`, background: DANGER, height: 8, borderRadius: '4px 0 0 4px', minWidth: 2 }} />
         )}
       </div>
-      {/* centre line */}
       <div style={{ width: 1, height: 12, background: '#D1D5DB', flexShrink: 0 }} />
-      {/* positive side */}
       <div className="flex-1">
         {isPos && value !== 0 && (
           <div style={{ width: `${pct * 2}%`, background: SUCCESS, height: 8, borderRadius: '0 4px 4px 0', minWidth: 2 }} />
@@ -66,24 +145,58 @@ function PnlBar({ value, maxAbs }) {
   )
 }
 
-function SummaryCard({ label, value, sub, accent }) {
+// ── SummaryCard ───────────────────────────────────────────────────────────────
+function SummaryCard({ label, tooltip, value, sub, accent }) {
   return (
     <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">{label}</p>
+      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
+        <TipLabel tip={tooltip}>{label}</TipLabel>
+      </p>
       <p className="text-2xl font-bold" style={{ color: accent || NAVY }}>{value}</p>
       {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
     </div>
   )
 }
 
+// ── Tooltip copy ──────────────────────────────────────────────────────────────
+const TIPS = {
+  hedgedPnl:
+    'Your total portfolio P&L today vs budget rates, including locked gains from executed hedges and floating P&L on open positions. Negative means rates have moved against your budget.',
+  protectionValue:
+    'The value your hedges have saved you vs being completely unhedged at today\'s rates. Positive means your hedges are working in your favour.',
+  protectionCoverage:
+    'What percentage of your downside is protected by current hedges. Higher is better in adverse scenarios.',
+  liveRates:
+    'Current mid-market rates fetched at page load. Used to calculate floating P&L on unhedged positions.',
+  scenario:
+    'A uniform % move applied to all spot rates simultaneously from today\'s levels.',
+  unhedgedPnl:
+    'What your total P&L would be if you had zero hedges in place. Shows your raw currency exposure.',
+  hedgedPnlCol:
+    'Your actual P&L with current hedges in place. Locked P&L from executed forwards is fixed regardless of scenario.',
+  protection:
+    'The saving your hedges provide in this scenario vs being unhedged. Positive = hedges helping you.',
+  coveragePct:
+    'How much of the scenario impact is absorbed by your hedges.',
+  hedgePct:
+    'Percentage of this exposure covered by executed or confirmed hedges.',
+  pairUnhedgedPnl:
+    'P&L on this pair if fully unhedged at the scenario rate.',
+  pairHedgedPnl:
+    'Actual P&L combining locked hedge gains and floating P&L on the open portion.',
+  pairProtection:
+    'Saving from hedges on this pair in this scenario.',
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export default function Simulator() {
   const { selectedCompanyId: companyId } = useCompany()
 
-  const [data, setData]               = useState(null)
-  const [loading, setLoading]         = useState(true)
-  const [error, setError]             = useState(null)
-  const [selectedShock, setSelectedShock] = useState(0)   // shock_pct of selected row
-  const [exporting, setExporting]     = useState(false)
+  const [data, setData]                   = useState(null)
+  const [loading, setLoading]             = useState(true)
+  const [error, setError]                 = useState(null)
+  const [selectedShock, setSelectedShock] = useState(0)
+  const [exporting, setExporting]         = useState(false)
 
   useEffect(() => {
     setData(null)
@@ -110,37 +223,21 @@ export default function Simulator() {
     if (!data?.scenarios?.length) return
     setExporting(true)
     const ccy = data.base_currency
-
-    // Header
     const rows = [
       ['Scenario', 'Shock %', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Protection Value (${ccy})`, 'Protection %']
     ]
     for (const s of data.scenarios) {
-      rows.push([
-        s.label,
-        s.shock_pct,
-        s.total_unhedged_pnl,
-        s.total_hedged_pnl,
-        s.protection_value,
-        s.protection_pct,
-      ])
+      rows.push([s.label, s.shock_pct, s.total_unhedged_pnl, s.total_hedged_pnl, s.protection_value, s.protection_pct])
     }
-
-    // Per-pair detail for all scenarios
     rows.push([])
     rows.push(['--- Per-Pair Detail ---'])
     rows.push(['Scenario', 'Shock %', 'Pair', 'Hedge %', 'Total Amount', 'Hedged Amount', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Protection (${ccy})`])
     for (const s of data.scenarios) {
       for (const p of s.per_pair) {
-        rows.push([
-          s.label, s.shock_pct, p.pair, p.hedge_ratio,
-          p.total_amount, p.hedged_amount,
-          p.unhedged_pnl, p.hedged_pnl, p.protection_value
-        ])
+        rows.push([s.label, s.shock_pct, p.pair, p.hedge_ratio, p.total_amount, p.hedged_amount, p.unhedged_pnl, p.hedged_pnl, p.protection_value])
       }
     }
-
-    const csv = rows.map(r => r.join(',')).join('\n')
+    const csv  = rows.map(r => r.join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a')
@@ -151,7 +248,7 @@ export default function Simulator() {
     setExporting(false)
   }
 
-  // ── Loading / Error states ────────────────────────────────────────
+  // ── Loading / Error / Empty ───────────────────────────────────────
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: GOLD }} />
@@ -172,17 +269,14 @@ export default function Simulator() {
     <div className="bg-white rounded-xl shadow-sm p-8 text-center border border-gray-100">
       <p className="text-4xl mb-3">📊</p>
       <h3 className="text-base font-bold mb-1" style={{ color: NAVY }}>No Data Available</h3>
-      <p className="text-sm text-gray-400">
-        Add exposures with budget rates to see scenario analysis.
-      </p>
+      <p className="text-sm text-gray-400">Add exposures with budget rates to see scenario analysis.</p>
     </div>
   )
 
   const { base_currency: ccy, scenarios, current_spot_rates } = data
-  const currentScenario = scenarios.find(s => s.shock_pct === 0)
+  const currentScenario  = scenarios.find(s => s.shock_pct === 0)
   const selectedScenario = scenarios.find(s => s.shock_pct === selectedShock) || currentScenario
 
-  // Max absolute P&L across all scenarios — used to size the bar charts
   const maxAbsPnl = Math.max(...scenarios.map(s => Math.max(
     Math.abs(s.total_unhedged_pnl || 0),
     Math.abs(s.total_hedged_pnl || 0)
@@ -191,7 +285,7 @@ export default function Simulator() {
   return (
     <div className="space-y-6">
 
-      {/* ── Header ───────────────────────────────────────────────── */}
+      {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="rounded-xl shadow-md p-6" style={{ background: NAVY }}>
         <div className="flex items-center justify-between">
           <div>
@@ -210,23 +304,26 @@ export default function Simulator() {
         </div>
       </div>
 
-      {/* ── Summary Cards (current position = 0% shock) ──────────── */}
+      {/* ── Summary Cards ──────────────────────────────────────────── */}
       {currentScenario && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <SummaryCard
             label="Current Hedged P&L"
+            tooltip={TIPS.hedgedPnl}
             value={fmtPnl(currentScenario.total_hedged_pnl, ccy)}
             sub="Locked + floating at today's rates"
             accent={pnlColor(currentScenario.total_hedged_pnl)}
           />
           <SummaryCard
             label="Hedge Protection Value"
+            tooltip={TIPS.protectionValue}
             value={fmtPnl(currentScenario.protection_value, ccy)}
             sub="vs fully unhedged position"
             accent={pnlColor(currentScenario.protection_value)}
           />
           <SummaryCard
             label="Protection Coverage"
+            tooltip={TIPS.protectionCoverage}
             value={`${currentScenario.protection_pct?.toFixed(1) ?? '—'}%`}
             sub="of unhedged exposure protected"
             accent={
@@ -238,10 +335,12 @@ export default function Simulator() {
         </div>
       )}
 
-      {/* ── Live Spot Rates ───────────────────────────────────────── */}
+      {/* ── Live Spot Rates ─────────────────────────────────────────── */}
       {Object.keys(current_spot_rates).length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-5 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Live Spot Rates</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
+            <TipLabel tip={TIPS.liveRates}>Live Spot Rates</TipLabel>
+          </p>
           <div className="flex flex-wrap gap-4">
             {Object.entries(current_spot_rates).map(([pair, rate]) => (
               <div key={pair} className="text-sm">
@@ -253,7 +352,7 @@ export default function Simulator() {
         </div>
       )}
 
-      {/* ── Scenario Table ────────────────────────────────────────── */}
+      {/* ── Scenario Table ──────────────────────────────────────────── */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
           <h3 className="font-semibold text-white text-sm">Scenario Analysis</h3>
@@ -263,10 +362,24 @@ export default function Simulator() {
           <table className="min-w-full text-sm">
             <thead style={{ background: '#F4F6FA' }}>
               <tr>
-                {['Scenario', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Protection (${ccy})`, 'Coverage %', 'Visual'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider"
-                    style={{ color: NAVY, whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                  <TipLabel tip={TIPS.scenario}>Scenario</TipLabel>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                  <TipLabel tip={TIPS.unhedgedPnl}>Unhedged P&amp;L ({ccy})</TipLabel>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                  <TipLabel tip={TIPS.hedgedPnlCol}>Hedged P&amp;L ({ccy})</TipLabel>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                  <TipLabel tip={TIPS.protection}>Protection ({ccy})</TipLabel>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                  <TipLabel tip={TIPS.coveragePct}>Coverage %</TipLabel>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                  Visual
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
@@ -289,16 +402,13 @@ export default function Simulator() {
                           style={{ background: 'rgba(201,168,108,0.15)', color: GOLD }}>now</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-right whitespace-nowrap"
-                      style={{ color: pnlColor(s.total_unhedged_pnl) }}>
+                    <td className="px-4 py-3 font-mono text-right whitespace-nowrap" style={{ color: pnlColor(s.total_unhedged_pnl) }}>
                       {fmtPnl(s.total_unhedged_pnl, ccy)}
                     </td>
-                    <td className="px-4 py-3 font-mono text-right whitespace-nowrap"
-                      style={{ color: pnlColor(s.total_hedged_pnl) }}>
+                    <td className="px-4 py-3 font-mono text-right whitespace-nowrap" style={{ color: pnlColor(s.total_hedged_pnl) }}>
                       {fmtPnl(s.total_hedged_pnl, ccy)}
                     </td>
-                    <td className="px-4 py-3 font-mono text-right whitespace-nowrap"
-                      style={{ color: pnlColor(s.protection_value) }}>
+                    <td className="px-4 py-3 font-mono text-right whitespace-nowrap" style={{ color: pnlColor(s.protection_value) }}>
                       {fmtPnl(s.protection_value, ccy)}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap text-gray-600">
@@ -315,7 +425,7 @@ export default function Simulator() {
         </div>
       </div>
 
-      {/* ── Per-Pair Breakdown ───────────────────────────────────── */}
+      {/* ── Per-Pair Breakdown ──────────────────────────────────────── */}
       {selectedScenario && selectedScenario.per_pair?.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-3" style={{ background: '#F4F6FA', borderBottom: '1px solid #E5E7EB' }}>
@@ -328,10 +438,27 @@ export default function Simulator() {
             <table className="min-w-full text-sm">
               <thead style={{ background: '#F4F6FA' }}>
                 <tr>
-                  {['Pair', 'Hedge %', 'Total Exposure', 'Hedged Amount', `Unhedged P&L`, `Hedged P&L`, 'Protection'].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider"
-                      style={{ color: NAVY, whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                    Pair
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                    <TipLabel tip={TIPS.hedgePct}>Hedge %</TipLabel>
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                    Total Exposure
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                    Hedged Amount
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                    <TipLabel tip={TIPS.pairUnhedgedPnl}>Unhedged P&amp;L</TipLabel>
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                    <TipLabel tip={TIPS.pairHedgedPnl}>Hedged P&amp;L</TipLabel>
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                    <TipLabel tip={TIPS.pairProtection}>Protection</TipLabel>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -361,14 +488,22 @@ export default function Simulator() {
         </div>
       )}
 
-      {/* ── Footnote ─────────────────────────────────────────────── */}
-      <div className="rounded-lg px-4 py-3 text-xs text-gray-400"
-        style={{ background: 'rgba(26,39,68,0.04)', border: '1px solid rgba(26,39,68,0.1)' }}>
-        Scenarios apply a uniform rate shock to each pair's current spot rate.
-        Locked P&amp;L from executed hedges is scenario-independent.
-        Floating P&amp;L on open amounts is recalculated at the shocked rate.
-        All figures expressed in {ccy}.
+      {/* ── Disclaimer ─────────────────────────────────────────────── */}
+      <div style={{
+        borderTop: '1px solid #E5E7EB',
+        paddingTop: 16,
+        color: '#6B7280',
+        fontSize: 12,
+        lineHeight: 1.7,
+      }}>
+        <strong style={{ color: '#9CA3AF', fontWeight: 600 }}>Methodology: </strong>
+        Scenarios apply a uniform % shock to each pair's current spot rate simultaneously.
+        Locked P&amp;L from executed hedges is scenario-independent (already crystallised at the forward rate).
+        Floating P&amp;L on open amounts is recalculated at the shocked rate vs your budget rate.
+        Portfolio totals are converted to {ccy} using live spot rates.
+        This tool is for indicative purposes only and does not constitute financial advice.
       </div>
+
     </div>
   )
 }
