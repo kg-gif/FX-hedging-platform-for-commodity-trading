@@ -770,7 +770,7 @@ def debug_breaches(
     return [{"pair": r[0]+"/"+r[1], "pnl": r[2], "limit": r[3], "is_breach": r[2] < r[3]} for r in rows]
 
 
-@app.post("/api/debug/trigger-zone-email")
+@app.get("/api/debug/trigger-zone-email")
 async def debug_trigger_zone_email(
     secret: str = "",
     db: Session = Depends(get_db)
