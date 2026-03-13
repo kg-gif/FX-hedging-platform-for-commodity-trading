@@ -849,6 +849,226 @@ def debug_breaches(
     return [{"pair": r[0]+"/"+r[1], "pnl": r[2], "limit": r[3], "is_breach": r[2] < r[3]} for r in rows]
 
 
+@app.get("/api/simulator")
+async def get_simulator(
+    company_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Scenario simulator — shows P&L impact across 7 rate shock scenarios.
+
+    For each scenario:
+      unhedged_pnl = what the loss/gain would be with NO hedges at all
+      hedged_pnl   = actual position (locked from tranches + floating on open amount)
+      protection   = hedged_pnl - unhedged_pnl (what hedges saved/cost you)
+
+    Direction:
+      receivable (SELL): rate UP = gain  → direction_sign = +1
+      payable    (BUY):  rate UP = loss  → direction_sign = -1
+    """
+    from sqlalchemy import text as _text
+
+    safe_id = resolve_company_id(company_id, payload)
+
+    # Company base_currency for final aggregation
+    company_row = db.execute(
+        _text("SELECT base_currency FROM companies WHERE id = :cid"), {"cid": safe_id}
+    ).fetchone()
+    base_currency = company_row._mapping["base_currency"] if company_row else "USD"
+
+    # All active, non-archived exposures
+    exposures = db.execute(_text("""
+        SELECT * FROM exposures
+        WHERE company_id = :cid
+          AND (is_active IS NULL OR is_active = true)
+          AND (archived IS NULL OR archived = false)
+    """), {"cid": safe_id}).fetchall()
+
+    if not exposures:
+        return {
+            "base_currency": base_currency,
+            "current_spot_rates": {},
+            "scenarios": [],
+            "current_scenario": None,
+        }
+
+    # Build rate fetch list: exposure pairs + {from_currency}/{base_currency} for conversion
+    exp_pairs = list(dict.fromkeys([
+        f"{e._mapping['from_currency']}/{e._mapping['to_currency']}"
+        for e in exposures
+    ]))
+    conv_pairs = list(dict.fromkeys([
+        f"{e._mapping['from_currency']}/{base_currency}"
+        for e in exposures
+        if e._mapping["from_currency"] != base_currency
+    ]))
+    all_pairs  = list(dict.fromkeys(exp_pairs + conv_pairs))
+    live_rates = await get_current_rates(all_pairs)
+
+    # Fetch executed/confirmed tranches for all exposures in one query
+    exp_ids = [e._mapping["id"] for e in exposures]
+    if exp_ids:
+        placeholders = ",".join(str(i) for i in exp_ids)
+        tranche_rows = db.execute(_text(f"""
+            SELECT exposure_id, amount, rate, status
+            FROM hedge_tranches
+            WHERE exposure_id IN ({placeholders})
+              AND status IN ('executed', 'confirmed')
+        """)).fetchall()
+    else:
+        tranche_rows = []
+
+    # Group tranches by exposure_id
+    tranches_by_exp: dict = {}
+    for t in tranche_rows:
+        eid = t._mapping["exposure_id"]
+        tranches_by_exp.setdefault(eid, []).append(dict(t._mapping))
+
+    SCENARIOS = [-0.10, -0.05, -0.03, 0.00, 0.03, 0.05, 0.10]
+
+    # Pre-compute per-exposure data (exposure-level calculations are scenario-independent
+    # except for the shocked_rate)
+    exp_data = []
+    current_spot_rates = {}
+
+    for exp_row in exposures:
+        exp = exp_row._mapping
+        pair        = f"{exp['from_currency']}/{exp['to_currency']}"
+        rate_info   = live_rates.get(pair)
+        current_spot = float(rate_info["rate"]) if rate_info and rate_info.get("rate") else float(exp.get("current_rate") or 0)
+        if not current_spot:
+            print(f"[simulator] WARNING: no spot rate for {pair}, skipping")
+            continue
+
+        current_spot_rates[pair] = round(current_spot, 6)
+
+        budget_rate = float(exp.get("budget_rate") or 0)
+        raw_amount  = float(exp.get("amount") or 0)
+        from_ccy    = exp["from_currency"]
+
+        # Normalise amount to from_currency (base of pair)
+        from routes.hedge_tranche_routes import normalize_to_base
+        total_amount = normalize_to_base(
+            raw_amount,
+            exp.get("amount_currency") or from_ccy,
+            from_ccy,
+            budget_rate
+        )
+
+        tranches     = tranches_by_exp.get(exp["id"], [])
+        hedged_amount = sum(float(t["amount"] or 0) for t in tranches)
+        open_amount   = max(total_amount - hedged_amount, 0)
+        hedge_ratio   = (hedged_amount / total_amount) if total_amount > 0 else 0
+
+        # Locked P&L is independent of the shocked rate (already crystallised)
+        locked_pnl = sum(
+            (float(t["rate"] or budget_rate or 0) - (budget_rate or 0)) * float(t["amount"] or 0)
+            for t in tranches
+        )
+
+        # Direction sign: receivable benefits from rate going UP, payable is hurt by it
+        direction     = (exp.get("exposure_type") or exp.get("direction") or "payable").lower()
+        direction_sign = -1 if direction == "payable" else +1
+
+        # Conversion rate to base_currency (for final aggregation)
+        if from_ccy == base_currency:
+            to_base_rate = 1.0
+        else:
+            conv_pair = f"{from_ccy}/{base_currency}"
+            conv_info = live_rates.get(conv_pair)
+            if conv_info and conv_info.get("rate"):
+                to_base_rate = float(conv_info["rate"])
+            else:
+                print(f"[simulator] WARNING: no conversion rate {conv_pair}, excluding from totals")
+                to_base_rate = None  # will be excluded from aggregation
+
+        exp_data.append({
+            "id":            exp["id"],
+            "pair":          pair,
+            "from_currency": from_ccy,
+            "total_amount":  total_amount,
+            "hedged_amount": hedged_amount,
+            "open_amount":   open_amount,
+            "hedge_ratio":   hedge_ratio,
+            "budget_rate":   budget_rate,
+            "current_spot":  current_spot,
+            "locked_pnl":    locked_pnl,
+            "direction_sign": direction_sign,
+            "to_base_rate":   to_base_rate,
+        })
+
+    # Build scenario results
+    scenario_results = []
+    for shock in SCENARIOS:
+        per_pair     = []
+        total_unhedged_base  = 0.0
+        total_hedged_base    = 0.0
+
+        for e in exp_data:
+            budget_rate  = e["budget_rate"]
+            if not budget_rate:
+                continue  # can't calculate P&L without a budget rate
+
+            shocked_rate = e["current_spot"] * (1 + shock)
+            sign         = e["direction_sign"]
+
+            # Unhedged: what P&L would be with no hedges (all open at shocked rate)
+            unhedged_pnl = sign * (shocked_rate - budget_rate) * e["total_amount"]
+
+            # Hedged: locked portion (fixed) + floating on open amount at shocked rate
+            floating_pnl = sign * (shocked_rate - budget_rate) * e["open_amount"]
+            hedged_pnl   = e["locked_pnl"] + floating_pnl
+
+            protection_value = hedged_pnl - unhedged_pnl
+
+            per_pair.append({
+                "pair":             e["pair"],
+                "shock_pct":        round(shock * 100, 0),
+                "hedge_ratio":      round(e["hedge_ratio"] * 100, 1),
+                "total_amount":     round(e["total_amount"], 2),
+                "hedged_amount":    round(e["hedged_amount"], 2),
+                "unhedged_pnl":     round(unhedged_pnl, 2),
+                "hedged_pnl":       round(hedged_pnl, 2),
+                "protection_value": round(protection_value, 2),
+            })
+
+            # Aggregate in base_currency
+            if e["to_base_rate"] is not None:
+                total_unhedged_base += unhedged_pnl * e["to_base_rate"]
+                total_hedged_base   += hedged_pnl   * e["to_base_rate"]
+
+        total_protection = total_hedged_base - total_unhedged_base
+        protection_pct   = 0.0
+        if total_unhedged_base != 0:
+            protection_pct = abs(total_protection / total_unhedged_base) * 100
+
+        shock_pct_int = int(round(shock * 100))
+        label = (
+            "Current Position" if shock == 0.0
+            else f"{'+' if shock > 0 else ''}{shock_pct_int}% {'Favourable' if shock > 0 else 'Adverse'}"
+        )
+
+        scenario_results.append({
+            "shock_pct":           shock_pct_int,
+            "label":               label,
+            "total_unhedged_pnl":  round(total_unhedged_base, 2),
+            "total_hedged_pnl":    round(total_hedged_base, 2),
+            "protection_value":    round(total_protection, 2),
+            "protection_pct":      round(protection_pct, 1),
+            "per_pair":            per_pair,
+        })
+
+    current_scenario = next((s for s in scenario_results if s["shock_pct"] == 0), None)
+
+    return {
+        "base_currency":     base_currency,
+        "current_spot_rates": current_spot_rates,
+        "scenarios":         scenario_results,
+        "current_scenario":  current_scenario,
+    }
+
+
 
 @app.get("/api/alerts/send-daily")
 async def send_daily_alerts(
