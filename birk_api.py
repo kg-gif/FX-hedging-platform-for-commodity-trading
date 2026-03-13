@@ -731,7 +731,7 @@ async def zone_manual_override(
                     "https://api.resend.com/emails",
                     headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
                     json={
-                        "from": "Sumnohow <alerts@sumnohow.com>",
+                        "from": "Sumnohow <alerts@updates.sumnohow.com>",
                         "to": [alert_email],
                         "subject": f"Zone Override — {currency_pair} shifted to {zone_label}",
                         "html": (
@@ -842,7 +842,7 @@ async def debug_trigger_zone_email(
                     "https://api.resend.com/emails",
                     headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                     json={
-                        "from": "Sumnohow <alerts@sumnohow.com>",
+                        "from": "Sumnohow <alerts@updates.sumnohow.com>",
                         "to":   [alert_email],
                         "subject": f"[DEBUG] {pair} Zone Alert — {zone_label}",
                         "html": body_html,

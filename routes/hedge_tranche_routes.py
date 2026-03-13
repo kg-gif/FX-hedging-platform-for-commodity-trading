@@ -593,7 +593,7 @@ async def get_enriched_exposures(
                                     "https://api.resend.com/emails",
                                     headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                                     json={
-                                        "from": "Sumnohow <alerts@sumnohow.com>",
+                                        "from": "Sumnohow <alerts@updates.sumnohow.com>",
                                         "to":   [company_alert_email],
                                         "subject": f"{pair} Zone Alert — {zone_label}",
                                         "html": body_html,
