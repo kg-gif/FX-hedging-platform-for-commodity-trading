@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import { CompanyProvider, useCompany } from './contexts/CompanyContext'
+import { CompanyProvider } from './contexts/CompanyContext'
 import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
 import HedgingRecommendations from './components/HedgingRecommendations'
 import PolicySelector from './components/PolicySelector'
 import DataImportDashboard from './components/DataImportDashboard'
-import MonteCarloTab from './components/MonteCarloTab'
+import Simulator from './components/Simulator'
 import Reports from './components/Reports'
 import Settings from './components/Settings'
 import Admin from './components/Admin'
@@ -30,17 +30,9 @@ function clearAuth() {
   localStorage.removeItem('auth_user')
 }
 
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-})
-
 function AppContent({ authUser, onLogout }) {
-  const { selectedCompanyId } = useCompany()
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [exposures, setExposures] = useState([])
-  const [loadingExposures, setLoadingExposures] = useState(true)
   const [focusExposure, setFocusExposure] = useState(null)
 
   function handleNavigate(page, opts = {}) {
@@ -50,25 +42,6 @@ function AppContent({ authUser, onLogout }) {
 
   const isAdmin = authUser?.role === 'admin'
 
-  const fetchExposures = async () => {
-    try {
-      const response = await fetch(`${API_URL}/exposures?company_id=${selectedCompanyId}`, { headers: authHeaders() })
-      if (!response.ok) throw new Error('Failed to fetch')
-      const data = await response.json()
-      setExposures(data.map(exp => ({
-        ...exp,
-        currency_pair: `${exp.from_currency} / ${exp.to_currency}`
-      })))
-    } catch (error) {
-      console.error('Error fetching exposures:', error)
-    } finally {
-      setLoadingExposures(false)
-    }
-  }
-
-  useEffect(() => {
-    if (selectedCompanyId) fetchExposures()
-  }, [selectedCompanyId])
 
   const cfoNav = [
     { id: 'dashboard', name: 'Dashboard' },
@@ -112,7 +85,7 @@ function AppContent({ authUser, onLogout }) {
       case 'policy':
         return <PolicySelector onPolicyChange={() => {}} />
       case 'monte-carlo':
-        return <MonteCarloTab exposures={exposures} loading={loadingExposures} />
+        return <Simulator />
       case 'data-import':
         return <DataImportDashboard />
       case 'settings':

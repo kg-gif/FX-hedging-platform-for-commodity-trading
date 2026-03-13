@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { CurrencyPairFlags } from './CurrencyFlag'
+import { useCompany } from '../contexts/CompanyContext'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const NAVY = '#1A2744'
@@ -454,8 +455,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
 
 // ── Main Component ────────────────────────────────────────────────
 function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
-  const authUser  = JSON.parse(localStorage.getItem('auth_user') || '{}')
-  const companyId = authUser.company_id || 1
+  const { selectedCompanyId: companyId } = useCompany()
 
   const [recommendations, setRecommendations] = useState([])
   const [policy, setPolicy]                   = useState('')
@@ -471,7 +471,15 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
   const [allExposures, setAllExposures]       = useState([])
   const cardRefs = useRef({})
 
-  useEffect(() => { loadAll() }, [companyId])
+  useEffect(() => {
+    setRecommendations([])
+    setAllExposures([])
+    setSentOrders({})
+    setCustomAmounts({})
+    setExpandedId(null)
+    setError(null)
+    loadAll()
+  }, [companyId])
 
   // When navigated here via Hedge Now — expand and scroll to the target card
   // Note: do NOT call onFocusConsumed here — we need focusExposure to stay set
