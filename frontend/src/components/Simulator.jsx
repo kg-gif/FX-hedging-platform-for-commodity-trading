@@ -175,7 +175,7 @@ const TIPS = {
   hedgedPnlCol:
     'Your actual P&L with current hedges in place. Locked P&L from executed forwards is fixed regardless of scenario.',
   protection:
-    'How much your hedges helped or hurt you in this scenario vs being completely unhedged. POSITIVE = hedges reduced your loss or added gain. NEGATIVE = you locked in a worse rate than today\'s spot — the cost of certainty.',
+    'The value your hedges add or cost in this scenario. Positive = hedges reduced your loss or protected gains. Negative = rates moved in your favour and your locked hedges captured less upside than an unhedged position would have. This is the normal trade-off of hedging.',
   coveragePct:
     'How much of the scenario impact is absorbed by your hedges.',
   hedgePct:
@@ -185,7 +185,7 @@ const TIPS = {
   pairHedgedPnl:
     'Actual P&L combining locked hedge gains and floating P&L on the open portion.',
   pairProtection:
-    'How much your hedges helped or hurt you on this pair in this scenario vs being completely unhedged. POSITIVE = hedges reduced your loss or added gain. NEGATIVE = you locked in a worse rate than spot.',
+    'The value your hedges add or cost on this pair in this scenario. Positive = hedges reduced your loss or protected gains. Negative = rates moved in your favour and locked hedges captured less upside than an unhedged position. This is the normal trade-off of hedging.',
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -195,13 +195,13 @@ export default function Simulator() {
   const [data, setData]                   = useState(null)
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState(null)
-  const [selectedShock, setSelectedShock] = useState(0)
+  const [selectedShock, setSelectedShock] = useState(-5)
   const [exporting, setExporting]         = useState(false)
 
   useEffect(() => {
     setData(null)
     setError(null)
-    setSelectedShock(0)
+    setSelectedShock(-5)
     load()
   }, [companyId])
 
@@ -224,14 +224,14 @@ export default function Simulator() {
     setExporting(true)
     const ccy = data.base_currency
     const rows = [
-      ['Scenario', 'Shock %', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Hedge Impact (${ccy})`, 'Coverage %']
+      ['Scenario', 'Shock %', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Hedge Saving (${ccy})`, 'Coverage %']
     ]
     for (const s of data.scenarios) {
       rows.push([s.label, s.shock_pct, s.total_unhedged_pnl, s.total_hedged_pnl, s.protection_value, s.protection_pct])
     }
     rows.push([])
     rows.push(['--- Per-Pair Detail ---'])
-    rows.push(['Scenario', 'Shock %', 'Pair', 'Hedge %', 'Total Amount', 'Hedged Amount', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Hedge Impact (${ccy})`])
+    rows.push(['Scenario', 'Shock %', 'Pair', 'Hedge %', 'Total Amount', 'Hedged Amount', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Hedge Saving (${ccy})`])
     for (const s of data.scenarios) {
       for (const p of s.per_pair) {
         rows.push([s.label, s.shock_pct, p.pair, p.hedge_ratio, p.total_amount, p.hedged_amount, p.unhedged_pnl, p.hedged_pnl, p.protection_value])
@@ -275,7 +275,8 @@ export default function Simulator() {
 
   const { base_currency: ccy, scenarios, current_spot_rates } = data
   const currentScenario  = scenarios.find(s => s.shock_pct === 0)
-  const selectedScenario = scenarios.find(s => s.shock_pct === selectedShock) || currentScenario
+  const shockScenarios   = scenarios.filter(s => s.shock_pct !== 0)
+  const selectedScenario = scenarios.find(s => s.shock_pct === selectedShock) || shockScenarios[0]
 
   const maxAbsPnl = Math.max(...scenarios.map(s => Math.max(
     Math.abs(s.total_unhedged_pnl || 0),
@@ -315,7 +316,7 @@ export default function Simulator() {
             accent={pnlColor(currentScenario.total_hedged_pnl)}
           />
           <SummaryCard
-            label="Hedge Impact Today"
+            label="Hedge Saving Today"
             tooltip={TIPS.protectionValue}
             value={fmtPnl(currentScenario.protection_value, ccy)}
             sub="vs fully unhedged position"
@@ -372,7 +373,7 @@ export default function Simulator() {
                   <TipLabel tip={TIPS.hedgedPnlCol}>Hedged P&amp;L ({ccy})</TipLabel>
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
-                  <TipLabel tip={TIPS.protection}>Hedge Impact ({ccy})</TipLabel>
+                  <TipLabel tip={TIPS.protection}>Hedge Saving ({ccy})</TipLabel>
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
                   <TipLabel tip={TIPS.coveragePct}>Coverage %</TipLabel>
@@ -383,24 +384,19 @@ export default function Simulator() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {scenarios.map(s => {
+              {shockScenarios.map(s => {
                 const isSelected = s.shock_pct === selectedShock
-                const isCurrent  = s.shock_pct === 0
                 return (
                   <tr
                     key={s.shock_pct}
                     onClick={() => setSelectedShock(s.shock_pct)}
                     className="cursor-pointer transition-colors"
                     style={{
-                      background: isSelected ? 'rgba(201,168,108,0.10)' : isCurrent ? 'rgba(26,39,68,0.03)' : 'white',
+                      background: isSelected ? 'rgba(201,168,108,0.10)' : 'white',
                       borderLeft: isSelected ? `3px solid ${GOLD}` : '3px solid transparent',
                     }}>
                     <td className="px-4 py-3 font-semibold whitespace-nowrap" style={{ color: NAVY }}>
                       {s.label}
-                      {isCurrent && (
-                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded"
-                          style={{ background: 'rgba(201,168,108,0.15)', color: GOLD }}>now</span>
-                      )}
                     </td>
                     <td className="px-4 py-3 font-mono text-right whitespace-nowrap" style={{ color: pnlColor(s.total_unhedged_pnl) }}>
                       {fmtPnl(s.total_unhedged_pnl, ccy)}
@@ -457,7 +453,7 @@ export default function Simulator() {
                     <TipLabel tip={TIPS.pairHedgedPnl}>Hedged P&amp;L</TipLabel>
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
-                    <TipLabel tip={TIPS.pairProtection}>Hedge Impact</TipLabel>
+                    <TipLabel tip={TIPS.pairProtection}>Hedge Saving</TipLabel>
                   </th>
                 </tr>
               </thead>
