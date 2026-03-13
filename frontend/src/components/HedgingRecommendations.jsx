@@ -520,7 +520,10 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
     // Fetch all enriched exposures separately — silently, doesn't block the main load
     try {
       const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
-      if (res.ok) setAllExposures(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        setAllExposures(Array.isArray(data) ? data : (data.items || []))
+      }
     } catch (e) { console.error('Enriched fetch failed:', e) }
   }
 
