@@ -1066,6 +1066,38 @@ async def send_daily_alerts(
             results.append({"company": company_name, "email": alert_email, "status": "error", "error": str(e)})
 
     logger.info(f"Daily digest: {sent_count} emails sent")
+
+    # Fill inception rates for exposures whose start_date has now arrived
+    try:
+        from services.ecb_rates import get_cross_rate as _get_cross_rate
+        scheduled = db.execute(text("""
+            SELECT id, from_currency, to_currency, start_date
+            FROM exposures
+            WHERE inception_rate_source = 'ecb_scheduled'
+              AND start_date <= CURRENT_DATE
+              AND (is_active IS NULL OR is_active = true)
+        """)).fetchall()
+
+        import asyncio as _asyncio
+        for row in scheduled:
+            r = row._mapping
+            try:
+                rate = await _get_cross_rate(r["from_currency"], r["to_currency"], r["start_date"])
+                db.execute(text("""
+                    UPDATE exposures
+                    SET inception_rate = :rate,
+                        inception_rate_date = :dt,
+                        inception_rate_source = 'ecb_historical'
+                    WHERE id = :id
+                """), {"rate": rate, "dt": r["start_date"], "id": r["id"]})
+                db.commit()
+                print(f"[inception] scheduled fill {r['from_currency']}/{r['to_currency']} {r['start_date']}: {rate:.6f}")
+            except Exception as e:
+                print(f"[inception] scheduled fill failed for exposure {r['id']}: {e}")
+            await _asyncio.sleep(1)
+    except Exception as e:
+        logger.warning(f"Scheduled inception rate fill error: {e}")
+
     return {"message": f"Daily digest sent to {sent_count} companies", "sent": sent_count, "results": results}
 
 
@@ -1194,6 +1226,9 @@ async def startup_event():
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false",
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP",
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS archive_reason VARCHAR(500)",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS inception_rate FLOAT",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS inception_rate_date DATE",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS inception_rate_source VARCHAR(30)",
 
             # ── Dynamic Hedging Policy Zones ──────────────────────────────────
             # Extend hedging_policies with zone ratios and trigger thresholds
@@ -1231,6 +1266,76 @@ async def startup_event():
     except Exception as e:
         print(f"Migration error: {e}")
         db.rollback()
+    finally:
+        db.close()
+
+    # Backfill inception_rate for exposures that are missing it (background, non-blocking)
+    import asyncio as _asyncio
+    _asyncio.create_task(_backfill_inception_rates(SessionLocal()))
+
+
+async def _backfill_inception_rates(db):
+    """
+    Backfill inception_rate for existing exposures that have NULL inception_rate.
+    Fetches ECB historical rates. Runs as a background task on startup.
+    Limited to 1 call/second to avoid ECB rate limiting.
+    """
+    import asyncio
+    from services.ecb_rates import get_cross_rate
+    from sqlalchemy import text as _text
+    from datetime import date as _date
+
+    try:
+        rows = db.execute(_text("""
+            SELECT id, from_currency, to_currency, start_date
+            FROM exposures
+            WHERE inception_rate IS NULL
+              AND start_date IS NOT NULL
+              AND (is_active IS NULL OR is_active = true)
+            ORDER BY id
+        """)).fetchall()
+
+        for row in rows:
+            r = row._mapping
+            exp_id       = r["id"]
+            from_ccy     = r["from_currency"]
+            to_ccy       = r["to_currency"]
+            start_date   = r["start_date"]
+            today        = _date.today()
+
+            if isinstance(start_date, str):
+                from datetime import datetime as _dt
+                start_date = _dt.strptime(start_date, "%Y-%m-%d").date()
+
+            try:
+                if start_date > today:
+                    # Future date — mark as scheduled, cron will fill it later
+                    db.execute(_text("""
+                        UPDATE exposures
+                        SET inception_rate_source = 'ecb_scheduled'
+                        WHERE id = :id
+                    """), {"id": exp_id})
+                    db.commit()
+                    continue
+
+                rate = await get_cross_rate(from_ccy, to_ccy, start_date)
+                source = "live_spot" if start_date == today else "ecb_historical"
+                db.execute(_text("""
+                    UPDATE exposures
+                    SET inception_rate = :rate,
+                        inception_rate_date = :dt,
+                        inception_rate_source = :src
+                    WHERE id = :id
+                """), {"rate": rate, "dt": start_date, "src": source, "id": exp_id})
+                db.commit()
+                print(f"[inception] backfilled {from_ccy}/{to_ccy} {start_date}: {rate:.6f}")
+            except Exception as e:
+                print(f"[inception] WARNING: could not fetch rate for {from_ccy}/{to_ccy} {start_date}: {e}")
+
+            await asyncio.sleep(1)  # 1 call/second to avoid ECB rate limiting
+
+    except Exception as e:
+        print(f"[inception] backfill error: {e}")
     finally:
         db.close()
 

@@ -170,6 +170,13 @@ async def create_manual_exposure(
         })
         db.commit()
 
+        # Capture inception rate in the background (non-blocking)
+        import asyncio as _asyncio
+        from datetime import date as _date
+        _asyncio.create_task(_capture_inception_rate(
+            db_exposure.id, from_currency, to_currency, start_date_obj, rate
+        ))
+
         return {
             'success': True,
             'exposure': {
@@ -349,3 +356,52 @@ async def list_manual_exposures(company_id: int, db: Session = Depends(get_db)):
         })
     
     return {"success": True, "exposures": exposure_list, "total": len(exposure_list)}
+
+
+async def _capture_inception_rate(exposure_id: int, from_currency: str, to_currency: str, start_date, live_spot_rate: float):
+    """
+    Capture the inception rate for a newly created exposure.
+    - Past date  → fetch ECB historical close rate
+    - Today      → use the live spot already obtained at creation time
+    - Future     → mark as 'ecb_scheduled' for the cron job to fill later
+    """
+    from datetime import date as _date
+    from database import SessionLocal as _SessionLocal
+    from sqlalchemy import text as _text
+    from services.ecb_rates import get_cross_rate
+
+    db = _SessionLocal()
+    try:
+        today = _date.today()
+
+        if start_date > today:
+            db.execute(_text("""
+                UPDATE exposures SET inception_rate_source = 'ecb_scheduled' WHERE id = :id
+            """), {"id": exposure_id})
+            db.commit()
+            return
+
+        if start_date == today:
+            rate   = live_spot_rate
+            source = "live_spot"
+        else:
+            try:
+                rate   = await get_cross_rate(from_currency, to_currency, start_date)
+                source = "ecb_historical"
+            except Exception as e:
+                print(f"[inception] WARNING: ECB rate unavailable for {from_currency}/{to_currency} {start_date}: {e}")
+                return
+
+        db.execute(_text("""
+            UPDATE exposures
+            SET inception_rate = :rate,
+                inception_rate_date = :dt,
+                inception_rate_source = :src
+            WHERE id = :id
+        """), {"rate": rate, "dt": start_date, "src": source, "id": exposure_id})
+        db.commit()
+        print(f"[inception] captured {from_currency}/{to_currency} {start_date}: {rate:.6f} ({source})")
+    except Exception as e:
+        print(f"[inception] ERROR capturing for exposure {exposure_id}: {e}")
+    finally:
+        db.close()
