@@ -427,6 +427,7 @@ async def get_enriched_exposures(
     - Current corridor (latest take profit / stop loss)
     - Tranche count and list
     """
+    print("[enriched] endpoint called")
     from birk_api import get_current_rates, calculate_zone, zone_target_ratio
     ensure_tables(db)
 
@@ -530,38 +531,21 @@ async def get_enriched_exposures(
         z_target_ratio = zone_target_ratio(current_zone, active_policy, base_ratio)
 
         # ── Zone-shift detection and notification ─────────────────────────────
-        # Only act when zone is non-base AND zone_notify_email is on
+        # Send email only when zone actually changes (no time-based cooldown).
         print(f"[zone-shift] {pair}: current_zone={current_zone}, budget_rate={budget_rate}, current_spot={current_spot}, notify_email={active_policy.get('zone_notify_email')}, alert_email={company_alert_email}")
         if current_zone != "base" and active_policy.get("zone_notify_email") and budget_rate:
             try:
-                # 6-hour cooldown: only block if the last log for this company+pair was within 6 hours
                 last_log = db.execute(text("""
-                    SELECT new_zone, created_at FROM zone_change_log
+                    SELECT new_zone FROM zone_change_log
                     WHERE company_id = :cid AND currency_pair = :pair
                     ORDER BY created_at DESC LIMIT 1
                 """), {"cid": safe_id, "pair": pair}).fetchone()
 
-                last_zone = "base"
-                within_cooldown = False
-                if last_log:
-                    last_zone = last_log._mapping["new_zone"]
-                    last_ts   = last_log._mapping["created_at"]
-                    # Treat as within cooldown if the last entry was < 6 hours ago
-                    # (prevents email spam on every page load)
-                    if last_ts:
-                        from datetime import timezone
-                        now_utc = datetime.utcnow()
-                        diff_hours = (now_utc - last_ts.replace(tzinfo=None)).total_seconds() / 3600
-                        within_cooldown = diff_hours < 6
-                        print(f"[zone-shift] {pair}: last_zone={last_zone}, last_ts={last_ts}, diff_hours={diff_hours:.1f}, within_cooldown={within_cooldown}")
-                    else:
-                        print(f"[zone-shift] {pair}: last_zone={last_zone}, no timestamp found")
-                else:
-                    print(f"[zone-shift] {pair}: no previous log entry found")
+                last_zone = last_log._mapping["new_zone"] if last_log else "base"
+                print(f"[zone-shift] {pair}: last_zone={last_zone}")
 
-                # Log + notify if zone changed AND we're outside the 6-hour cooldown
-                if current_zone != last_zone or not within_cooldown:
-                    # Log the auto-detected zone change
+                if current_zone != last_zone:
+                    # Log the zone change
                     db.execute(text("""
                         INSERT INTO zone_change_log
                             (company_id, currency_pair, previous_zone, new_zone,
@@ -603,28 +587,23 @@ async def get_enriched_exposures(
                             f"<p><strong>Recommended action:</strong> {action_txt}</p>"
                             f"<p><a href='{os.getenv('FRONTEND_URL', 'https://birk-dashboard.onrender.com')}'>Review in Sumnohow →</a></p>"
                         )
-                        async def _send_zone_email(_key=resend_key, _to=company_alert_email, _subj=f"{pair} Zone Alert — {zone_label}", _html=body_html):
-                            print(f"[zone-shift] _send_zone_email firing to {_to}")
-                            try:
-                                async with _httpx.AsyncClient(timeout=10) as client:
-                                    resp = await client.post(
-                                        "https://api.resend.com/emails",
-                                        headers={"Authorization": f"Bearer {_key}", "Content-Type": "application/json"},
-                                        json={
-                                            "from": "Sumnohow <alerts@sumnohow.com>",
-                                            "to":   [_to],
-                                            "subject": _subj,
-                                            "html": _html,
-                                        },
-                                    )
-                                print(f"[zone-shift] Resend response: {resp.status_code} {resp.text}")
-                            except Exception as _exc:
-                                print(f"[zone-shift] _send_zone_email exception: {_exc}")
-                        import asyncio as _asyncio
-                        _asyncio.create_task(_send_zone_email())
-                        print(f"[zone-shift] {pair}: create_task called")
+                        try:
+                            async with _httpx.AsyncClient(timeout=10) as client:
+                                resp = await client.post(
+                                    "https://api.resend.com/emails",
+                                    headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                                    json={
+                                        "from": "Sumnohow <alerts@sumnohow.com>",
+                                        "to":   [company_alert_email],
+                                        "subject": f"{pair} Zone Alert — {zone_label}",
+                                        "html": body_html,
+                                    },
+                                )
+                            print(f"[zone-email] sent to {company_alert_email} for {pair} - {current_zone} | status={resp.status_code} body={resp.text}")
+                        except Exception as _e:
+                            print(f"[zone-email] FAILED for {pair}: {_e}")
                 else:
-                    print(f"[zone-shift] {pair}: skipped — same zone ({current_zone}) within 6-hour cooldown")
+                    print(f"[zone-shift] {pair}: skipped — zone unchanged ({current_zone})")
             except Exception as _e:
                 logger.warning(f"Zone shift detection failed for {pair}: {_e}")
                 print(f"[zone-shift] {pair}: outer exception: {_e}")
