@@ -8,7 +8,7 @@
  * Response: { base_currency, current_spot_rates, scenarios[], current_scenario }
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useCompany } from '../contexts/CompanyContext'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 
@@ -20,12 +20,25 @@ const authHeaders = () => ({
 })
 
 // ── Tooltip component ─────────────────────────────────────────────────────────
-// CSS-only hover tooltip — no external library needed.
-// The ⓘ icon sits inline; hovering reveals a dark box above it.
+// Uses position:fixed so the tooltip escapes any overflow:hidden/auto parent
+// (tables with overflow-x:auto would clip a position:absolute tooltip).
+// onMouseEnter reads the trigger's getBoundingClientRect() to anchor the box.
 function Tip({ text }) {
+  const [pos, setPos] = useState(null)
+  const triggerRef    = useRef(null)
+
+  function show() {
+    if (!triggerRef.current) return
+    const r = triggerRef.current.getBoundingClientRect()
+    setPos({ x: r.left + r.width / 2, y: r.top - 8 })
+  }
+
   return (
-    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 4, verticalAlign: 'middle' }}>
+    <span style={{ display: 'inline-block', marginLeft: 4, verticalAlign: 'middle' }}>
       <span
+        ref={triggerRef}
+        onMouseEnter={show}
+        onMouseLeave={() => setPos(null)}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -41,19 +54,15 @@ function Tip({ text }) {
           lineHeight: 1,
           userSelect: 'none',
         }}
-        className="tip-trigger"
       >
         i
       </span>
-      <span
-        className="tip-box"
-        style={{
-          visibility: 'hidden',
-          opacity: 0,
-          position: 'absolute',
-          bottom: '120%',
-          left: '50%',
-          transform: 'translateX(-50%)',
+      {pos && (
+        <span style={{
+          position: 'fixed',
+          left: pos.x,
+          top: pos.y,
+          transform: 'translate(-50%, -100%)',
           background: NAVY,
           color: 'white',
           fontSize: 11,
@@ -63,30 +72,21 @@ function Tip({ text }) {
           maxWidth: 280,
           width: 'max-content',
           whiteSpace: 'normal',
-          zIndex: 100,
+          zIndex: 9999,
           boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
           pointerEvents: 'none',
-          transition: 'opacity 0.15s ease',
-        }}
-      >
-        {text}
-        {/* small arrow pointing down */}
-        <span style={{
-          position: 'absolute',
-          top: '100%',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          border: '5px solid transparent',
-          borderTopColor: NAVY,
-        }} />
-      </span>
-      <style>{`
-        .tip-trigger:hover + .tip-box,
-        .tip-trigger:focus + .tip-box {
-          visibility: visible !important;
-          opacity: 1 !important;
-        }
-      `}</style>
+        }}>
+          {text}
+          <span style={{
+            position: 'absolute',
+            top: '100%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            border: '5px solid transparent',
+            borderTopColor: NAVY,
+          }} />
+        </span>
+      )}
     </span>
   )
 }
@@ -163,7 +163,7 @@ const TIPS = {
   hedgedPnl:
     'Your total portfolio P&L today vs budget rates, including locked gains from executed hedges and floating P&L on open positions. Negative means rates have moved against your budget.',
   protectionValue:
-    'The value your hedges have saved you vs being completely unhedged at today\'s rates. Positive means your hedges are working in your favour.',
+    'The net impact of your current hedges vs being unhedged at today\'s rates. Positive means your hedges are currently working in your favour.',
   protectionCoverage:
     'What percentage of your downside is protected by current hedges. Higher is better in adverse scenarios.',
   liveRates:
@@ -175,7 +175,7 @@ const TIPS = {
   hedgedPnlCol:
     'Your actual P&L with current hedges in place. Locked P&L from executed forwards is fixed regardless of scenario.',
   protection:
-    'The saving your hedges provide in this scenario vs being unhedged. Positive = hedges helping you.',
+    'How much your hedges helped or hurt you in this scenario vs being completely unhedged. POSITIVE = hedges reduced your loss or added gain. NEGATIVE = you locked in a worse rate than today\'s spot — the cost of certainty.',
   coveragePct:
     'How much of the scenario impact is absorbed by your hedges.',
   hedgePct:
@@ -185,7 +185,7 @@ const TIPS = {
   pairHedgedPnl:
     'Actual P&L combining locked hedge gains and floating P&L on the open portion.',
   pairProtection:
-    'Saving from hedges on this pair in this scenario.',
+    'How much your hedges helped or hurt you on this pair in this scenario vs being completely unhedged. POSITIVE = hedges reduced your loss or added gain. NEGATIVE = you locked in a worse rate than spot.',
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -224,14 +224,14 @@ export default function Simulator() {
     setExporting(true)
     const ccy = data.base_currency
     const rows = [
-      ['Scenario', 'Shock %', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Protection Value (${ccy})`, 'Protection %']
+      ['Scenario', 'Shock %', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Hedge Impact (${ccy})`, 'Coverage %']
     ]
     for (const s of data.scenarios) {
       rows.push([s.label, s.shock_pct, s.total_unhedged_pnl, s.total_hedged_pnl, s.protection_value, s.protection_pct])
     }
     rows.push([])
     rows.push(['--- Per-Pair Detail ---'])
-    rows.push(['Scenario', 'Shock %', 'Pair', 'Hedge %', 'Total Amount', 'Hedged Amount', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Protection (${ccy})`])
+    rows.push(['Scenario', 'Shock %', 'Pair', 'Hedge %', 'Total Amount', 'Hedged Amount', `Unhedged P&L (${ccy})`, `Hedged P&L (${ccy})`, `Hedge Impact (${ccy})`])
     for (const s of data.scenarios) {
       for (const p of s.per_pair) {
         rows.push([s.label, s.shock_pct, p.pair, p.hedge_ratio, p.total_amount, p.hedged_amount, p.unhedged_pnl, p.hedged_pnl, p.protection_value])
@@ -315,7 +315,7 @@ export default function Simulator() {
             accent={pnlColor(currentScenario.total_hedged_pnl)}
           />
           <SummaryCard
-            label="Hedge Protection Value"
+            label="Hedge Impact Today"
             tooltip={TIPS.protectionValue}
             value={fmtPnl(currentScenario.protection_value, ccy)}
             sub="vs fully unhedged position"
@@ -372,7 +372,7 @@ export default function Simulator() {
                   <TipLabel tip={TIPS.hedgedPnlCol}>Hedged P&amp;L ({ccy})</TipLabel>
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
-                  <TipLabel tip={TIPS.protection}>Protection ({ccy})</TipLabel>
+                  <TipLabel tip={TIPS.protection}>Hedge Impact ({ccy})</TipLabel>
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
                   <TipLabel tip={TIPS.coveragePct}>Coverage %</TipLabel>
@@ -457,7 +457,7 @@ export default function Simulator() {
                     <TipLabel tip={TIPS.pairHedgedPnl}>Hedged P&amp;L</TipLabel>
                   </th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
-                    <TipLabel tip={TIPS.pairProtection}>Protection</TipLabel>
+                    <TipLabel tip={TIPS.pairProtection}>Hedge Impact</TipLabel>
                   </th>
                 </tr>
               </thead>

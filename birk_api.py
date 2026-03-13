@@ -1022,6 +1022,9 @@ async def get_simulator(
 
             protection_value = hedged_pnl - unhedged_pnl
 
+            if safe_id == 1 and round(shock * 100) == -5:
+                print(f"[sim-check] {e['pair']}: unhedged={round(unhedged_pnl,2)}, hedged={round(hedged_pnl,2)}, protection={round(protection_value,2)}")
+
             per_pair.append({
                 "pair":             e["pair"],
                 "shock_pct":        round(shock * 100, 0),
