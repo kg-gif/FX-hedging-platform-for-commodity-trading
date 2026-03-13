@@ -413,6 +413,7 @@ def get_current_corridor(
 @router.get("/api/exposures/enriched")
 async def get_enriched_exposures(
     company_id: int,
+    include_archived: bool = False,
     db: Session = Depends(get_db),
     payload: dict = Depends(get_token_payload)
 ):
@@ -433,8 +434,9 @@ async def get_enriched_exposures(
 
     safe_id = resolve_company_id(company_id, payload)
 
+    archived_filter = "" if include_archived else "AND (archived IS NULL OR archived = false)"
     exposures = db.execute(
-        text("SELECT * FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true)"),
+        text(f"SELECT * FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true) {archived_filter}"),
         {"cid": safe_id}
     ).fetchall()
 
@@ -655,6 +657,11 @@ async def get_enriched_exposures(
             "current_zone":       current_zone,
             "pct_move_vs_budget": round(pct_move, 2),
             "zone_target_ratio":  z_target_ratio,
+
+            # Archive state
+            "archived":           bool(exp.get("archived")),
+            "archived_at":        exp["archived_at"].isoformat() if exp.get("archived_at") else None,
+            "archive_reason":     exp.get("archive_reason") or "",
         })
 
     return result

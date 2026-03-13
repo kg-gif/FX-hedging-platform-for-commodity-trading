@@ -272,11 +272,16 @@ def get_companies(
 @app.get("/companies/{company_id}/exposures", response_model=List[ExposureResponse])
 def get_company_exposures(
     company_id: int,
+    include_archived: bool = False,
     db: Session = Depends(get_db),
     payload: dict = Depends(get_token_payload)
 ):
+    from sqlalchemy import text as _text
     safe_id = resolve_company_id(company_id, payload)
-    exposures = db.query(Exposure).filter(Exposure.company_id == safe_id).all()
+    q = db.query(Exposure).filter(Exposure.company_id == safe_id)
+    if not include_archived:
+        q = q.filter(_text("(archived IS NULL OR archived = false)"))
+    exposures = q.all()
     if not exposures:
         raise HTTPException(status_code=404, detail="No exposures found for this company")
 
@@ -345,15 +350,19 @@ def api_get_fx_history(
 @app.get("/exposures")
 async def get_exposures(
     company_id: int,
+    include_archived: bool = False,
     db: Session = Depends(get_db),
     payload: dict = Depends(get_token_payload)
 ):
     """Main dashboard exposures endpoint. Viewers restricted to own company."""
     from sqlalchemy import text as _text
     safe_id = resolve_company_id(company_id, payload)
-    exposures = db.query(Exposure).filter(Exposure.company_id == safe_id).filter(
+    q = db.query(Exposure).filter(Exposure.company_id == safe_id).filter(
         _text("(is_active IS NULL OR is_active = true)")
-    ).all()
+    )
+    if not include_archived:
+        q = q.filter(_text("(archived IS NULL OR archived = false)"))
+    exposures = q.all()
 
     pairs = list(dict.fromkeys([f"{e.from_currency}/{e.to_currency}" for e in exposures]))
     rates_map = await get_current_rates(pairs)
@@ -470,6 +479,75 @@ async def update_exposure(
     return {"message": "Exposure updated", "exposure_id": exposure_id}
 
 
+@app.post("/api/exposures/{exposure_id}/archive")
+async def archive_exposure(
+    exposure_id: int,
+    payload_body: dict = {},
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """Soft-archive an exposure. Hides it from the active register but preserves all data."""
+    from sqlalchemy import text as _text
+    row = db.execute(_text("SELECT * FROM exposures WHERE id = :id"), {"id": exposure_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Exposure not found")
+    safe_id = resolve_company_id(row._mapping["company_id"], payload)
+
+    reason = payload_body.get("reason") or ""
+    db.execute(_text("""
+        UPDATE exposures SET archived = true, archived_at = NOW(), archive_reason = :reason
+        WHERE id = :id AND company_id = :cid
+    """), {"reason": reason, "id": exposure_id, "cid": safe_id})
+
+    # Audit log
+    db.execute(_text("""
+        INSERT INTO order_audit_log (company_id, exposure_id, currency_pair, action, sent_by, sent_at)
+        VALUES (:cid, :eid, :pair, :action, :by, NOW())
+    """), {
+        "cid":    safe_id,
+        "eid":    exposure_id,
+        "pair":   f"{row._mapping['from_currency']}/{row._mapping['to_currency']}",
+        "action": f"archived" + (f": {reason}" if reason else ""),
+        "by":     payload.get("email"),
+    })
+    db.commit()
+    logger.info(f"Exposure {exposure_id} archived by {payload.get('email')}")
+    return {"message": "Exposure archived", "exposure_id": exposure_id}
+
+
+@app.post("/api/exposures/{exposure_id}/unarchive")
+async def unarchive_exposure(
+    exposure_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """Restore an archived exposure back to the active register."""
+    from sqlalchemy import text as _text
+    row = db.execute(_text("SELECT * FROM exposures WHERE id = :id"), {"id": exposure_id}).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Exposure not found")
+    safe_id = resolve_company_id(row._mapping["company_id"], payload)
+
+    db.execute(_text("""
+        UPDATE exposures SET archived = false, archived_at = NULL, archive_reason = NULL
+        WHERE id = :id AND company_id = :cid
+    """), {"id": exposure_id, "cid": safe_id})
+
+    # Audit log
+    db.execute(_text("""
+        INSERT INTO order_audit_log (company_id, exposure_id, currency_pair, action, sent_by, sent_at)
+        VALUES (:cid, :eid, :pair, 'unarchived', :by, NOW())
+    """), {
+        "cid":  safe_id,
+        "eid":  exposure_id,
+        "pair": f"{row._mapping['from_currency']}/{row._mapping['to_currency']}",
+        "by":   payload.get("email"),
+    })
+    db.commit()
+    logger.info(f"Exposure {exposure_id} unarchived by {payload.get('email')}")
+    return {"message": "Exposure unarchived", "exposure_id": exposure_id}
+
+
 @app.delete("/api/exposure-data/exposures/{exposure_id}")
 def delete_exposure_alias(
     exposure_id: int,
@@ -562,6 +640,7 @@ async def get_recommendations(
         FROM exposures e
         LEFT JOIN hedge_tranches ht ON ht.exposure_id = e.id
         WHERE e.company_id = :cid AND (e.is_active IS NULL OR e.is_active = true)
+              AND (e.archived IS NULL OR e.archived = false)
         GROUP BY e.id
     """), {"cid": safe_id}).fetchall()
 
@@ -1112,6 +1191,9 @@ async def startup_event():
             # Backfill: exposures without exposure_type default to payable
             "UPDATE exposures SET exposure_type = 'payable' WHERE exposure_type IS NULL",
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS reference VARCHAR(100)",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS archive_reason VARCHAR(500)",
 
             # ── Dynamic Hedging Policy Zones ──────────────────────────────────
             # Extend hedging_policies with zone ratios and trigger thresholds
