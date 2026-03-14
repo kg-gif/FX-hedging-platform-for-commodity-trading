@@ -81,16 +81,44 @@ function TipLabel({ children, tip }) {
 
 // ── CalcSymbol ────────────────────────────────────────────────────────────────
 // Cycles + → - → = using brand symbols from the Sumnohow logo.
+// Each symbol holds for 400ms total:
+//   0ms   → fade out (opacity 1→0, CSS transition 150ms)
+//   150ms → swap symbol + fade in (opacity 0→1, CSS transition 150ms)
+// clearInterval fires automatically on unmount when calculating ends.
 function CalcSymbol() {
-  const symbols = ['+', '-', '=']
-  const [idx, setIdx] = useState(0)
+  const symbols              = ['+', '-', '=']
+  const [idx, setIdx]        = useState(0)
+  const [visible, setVisible] = useState(true)
+  const symIdxRef            = useRef(0)
+
   useEffect(() => {
-    const id = setInterval(() => setIdx(i => (i + 1) % 3), 600)
-    return () => clearInterval(id)
+    const interval = setInterval(() => {
+      // Fade out
+      setVisible(false)
+      // After 150ms: swap symbol and fade back in
+      setTimeout(() => {
+        symIdxRef.current = (symIdxRef.current + 1) % 3
+        setIdx(symIdxRef.current)
+        setVisible(true)
+      }, 150)
+    }, 400)
+
+    return () => clearInterval(interval)
   }, [])
+
   return (
-    <span style={{ color: GOLD, fontWeight: 700, fontSize: 15, marginLeft: 6,
-      display: 'inline-block', width: 14, textAlign: 'center', verticalAlign: 'middle' }}>
+    <span style={{
+      color:      GOLD,
+      fontWeight: 700,
+      fontSize:   20,
+      marginLeft: 8,
+      display:    'inline-block',
+      width:      18,
+      textAlign:  'center',
+      verticalAlign: 'middle',
+      opacity:    visible ? 1 : 0,
+      transition: 'opacity 150ms ease',
+    }}>
       {symbols[idx]}
     </span>
   )
