@@ -691,15 +691,15 @@ export default function Simulator() {
                   pointerEvents: 'none',
                 }}>
                   <div style={{
-                    background:   'rgba(255,255,255,0.85)',
-                    borderRadius: 10,
-                    padding:      '12px 24px',
+                    background:   'rgba(255,255,255,0.92)',
+                    borderRadius: 14,
+                    padding:      '20px 40px',
                     display:      'flex',
                     alignItems:   'center',
-                    boxShadow:    '0 2px 12px rgba(26,39,68,0.10)',
-                    border:       `1px solid rgba(201,168,108,0.25)`,
+                    boxShadow:    '0 4px 24px rgba(26,39,68,0.14)',
+                    border:       `1.5px solid rgba(201,168,108,0.4)`,
                   }}>
-                    <span style={{ fontSize: 13, color: '#6B7280', fontWeight: 500 }}>
+                    <span style={{ fontSize: 16, color: '#374151', fontWeight: 600, letterSpacing: '0.01em' }}>
                       Calculating scenario impact
                     </span>
                     <CalcSymbol />
