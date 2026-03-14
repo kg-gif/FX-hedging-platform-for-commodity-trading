@@ -24,7 +24,7 @@ BIRK_GREY   = HexColor('#6C757D')
 def get_claude_narrative(exp: dict, policy_name: str, rec: dict) -> str:
     try:
         pnl = exp.get('pnl', 0) or 0
-        pnl_str = f"+${abs(pnl):,.0f}" if pnl >= 0 else f"-${abs(pnl):,.0f}"
+        pnl_str = f"+{abs(pnl):,.0f}" if pnl >= 0 else f"-{abs(pnl):,.0f}"
         current_hedge_pct = (exp.get('hedge_ratio_policy', 0) or 0) * 100
         target_pct = (rec.get('target_hedge_ratio', 0) or 0) * 100
 
@@ -96,10 +96,10 @@ def get_portfolio_narrative(summary: dict, policy_name: str, breach_count: int) 
 
     except Exception:
         pnl = summary['total_pnl']
-        pnl_str = f"+${abs(pnl):,.0f}" if pnl >= 0 else f"-${abs(pnl):,.0f}"
+        pnl_str = f"+{abs(pnl):,.0f}" if pnl >= 0 else f"-{abs(pnl):,.0f}"
         return (
             f"Your FX portfolio comprises {summary['total_exposures']} active exposures "
-            f"with a total value of ${summary['total_exposure_usd']:,.0f}. "
+            f"with a total value of {summary['total_exposure_usd']:,.0f}. "
             f"The portfolio shows a total P&L of {pnl_str} under your {policy_name} policy. "
             f"Priority attention is required for the {breach_count} exposure(s) currently in breach."
         )
@@ -109,7 +109,8 @@ def generate_currency_plan_pdf(
     exposures: list,
     recommendations: list,
     active_policy: dict,
-    company_name: str = "BIRK Commodities A/S"
+    company_name: str = "BIRK Commodities A/S",
+    base_currency: str = "USD"
 ) -> bytes:
 
     buffer = io.BytesIO()
@@ -183,10 +184,10 @@ def generate_currency_plan_pdf(
                              color=BIRK_ACCENT, spaceAfter=5 * mm))
 
     # ── CALCULATE SUMMARY ────────────────────────────────────────────────────
-    total_pnl = 0.0
-    total_exp_usd = 0.0
-    breach_count = 0
-    hedge_ratios = []
+    total_pnl      = 0.0
+    total_exp_base = 0.0
+    breach_count   = 0
+    hedge_ratios   = []
 
     for exp in exposures:
         amt = exp.get('amount', 0) or 0
@@ -195,8 +196,8 @@ def generate_currency_plan_pdf(
         hr  = exp.get('hedge_ratio_policy', 0) or 0
         pnl = (cr - br) * amt
         exp['pnl'] = pnl
-        total_pnl     += pnl
-        total_exp_usd += amt * cr
+        total_pnl      += pnl
+        total_exp_base += amt * cr
         hedge_ratios.append(float(hr) * 100)
         if pnl < -50000:
             breach_count += 1
@@ -204,7 +205,7 @@ def generate_currency_plan_pdf(
     avg_hr = sum(hedge_ratios) / len(hedge_ratios) if hedge_ratios else 0
     summary = {
         'total_exposures':    len(exposures),
-        'total_exposure_usd': total_exp_usd,
+        'total_exposure_usd': total_exp_base,
         'total_pnl':          total_pnl,
         'avg_hedge_ratio':    avg_hr,
     }
@@ -212,13 +213,14 @@ def generate_currency_plan_pdf(
     # ── EXECUTIVE SUMMARY ────────────────────────────────────────────────────
     story.append(Paragraph("Executive Summary", heading1))
 
-    pnl_disp = (f"+${total_pnl:,.0f}" if total_pnl >= 0
-                else f"-${abs(total_pnl):,.0f}")
+    ccy = base_currency
+    pnl_disp = (f"+{ccy} {total_pnl:,.0f}" if total_pnl >= 0
+                else f"-{ccy} {abs(total_pnl):,.0f}")
 
     metrics = [
         ['METRIC', 'VALUE'],
         ['Total Active Exposures',  str(len(exposures))],
-        ['Total Exposure Value',    f"${total_exp_usd:,.0f}"],
+        ['Total Exposure Value',    f"{ccy} {total_exp_base:,.0f}"],
         ['Portfolio P&L',           pnl_disp],
         ['Average Hedge Coverage',  f"{avg_hr:.0f}%"],
         ['Active Policy',           policy_name],
@@ -267,7 +269,7 @@ def generate_currency_plan_pdf(
         target     = float(rec.get('target_hedge_ratio', 0) or 0) * 100
         instrument = rec.get('instrument', '3-month forward')
         action     = rec.get('action', 'REVIEW')
-        pnl_disp   = f"+${pnl:,.0f}" if pnl >= 0 else f"-${abs(pnl):,.0f}"
+        pnl_disp   = f"+{ccy} {pnl:,.0f}" if pnl >= 0 else f"-{ccy} {abs(pnl):,.0f}"
 
         hdr = Table(
             [[Paragraph(f"{i+1}.  {pair}", style('EH', fontSize=11,

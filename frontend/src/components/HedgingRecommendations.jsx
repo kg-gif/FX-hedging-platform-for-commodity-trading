@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
+import LoadingAnimation from './LoadingAnimation'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const NAVY = '#1A2744'
@@ -558,7 +559,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: GOLD }} />
+      <LoadingAnimation text="Loading recommendations…" size="medium" />
     </div>
   )
 

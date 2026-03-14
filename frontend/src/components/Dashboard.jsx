@@ -5,6 +5,7 @@ import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } fr
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
+import LoadingAnimation from './LoadingAnimation'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const authHeaders = () => ({
@@ -162,9 +163,8 @@ function Dashboard({ onNavigate }) {
   )
 
   if (loading) return (
-    <div className="text-center py-24">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto" style={{ borderColor: GOLD }} />
-      <p className="mt-4 text-gray-400 text-sm">Loading your portfolio...</p>
+    <div className="flex items-center justify-center py-24">
+      <LoadingAnimation text="Loading your portfolio…" size="large" />
     </div>
   )
 

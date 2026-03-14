@@ -11,6 +11,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useCompany } from '../contexts/CompanyContext'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
+import LoadingAnimation from './LoadingAnimation'
 
 const API_BASE        = 'https://birk-fx-api.onrender.com'
 const CALC_DELAY_MS   = 2500
@@ -75,51 +76,6 @@ function TipLabel({ children, tip }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
       {children}<Tip text={tip} />
-    </span>
-  )
-}
-
-// ── CalcSymbol ────────────────────────────────────────────────────────────────
-// Cycles + → - → = using brand symbols from the Sumnohow logo.
-// Each symbol holds for 400ms total:
-//   0ms   → fade out (opacity 1→0, CSS transition 150ms)
-//   150ms → swap symbol + fade in (opacity 0→1, CSS transition 150ms)
-// clearInterval fires automatically on unmount when calculating ends.
-function CalcSymbol() {
-  const symbols              = ['+', '-', '=']
-  const [idx, setIdx]        = useState(0)
-  const [visible, setVisible] = useState(true)
-  const symIdxRef            = useRef(0)
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Fade out
-      setVisible(false)
-      // After 150ms: swap symbol and fade back in
-      setTimeout(() => {
-        symIdxRef.current = (symIdxRef.current + 1) % 3
-        setIdx(symIdxRef.current)
-        setVisible(true)
-      }, 150)
-    }, 400)
-
-    return () => clearInterval(interval)
-  }, [])
-
-  return (
-    <span style={{
-      color:      GOLD,
-      fontWeight: 700,
-      fontSize:   20,
-      marginLeft: 8,
-      display:    'inline-block',
-      width:      18,
-      textAlign:  'center',
-      verticalAlign: 'middle',
-      opacity:    visible ? 1 : 0,
-      transition: 'opacity 150ms ease',
-    }}>
-      {symbols[idx]}
     </span>
   )
 }
@@ -693,16 +649,11 @@ export default function Simulator() {
                   <div style={{
                     background:   'rgba(255,255,255,0.92)',
                     borderRadius: 14,
-                    padding:      '20px 40px',
-                    display:      'flex',
-                    alignItems:   'center',
+                    padding:      '24px 48px',
                     boxShadow:    '0 4px 24px rgba(26,39,68,0.14)',
                     border:       `1.5px solid rgba(201,168,108,0.4)`,
                   }}>
-                    <span style={{ fontSize: 16, color: '#374151', fontWeight: 600, letterSpacing: '0.01em' }}>
-                      Calculating scenario impact
-                    </span>
-                    <CalcSymbol />
+                    <LoadingAnimation text="Calculating scenario impact" size="medium" />
                   </div>
                 </div>
               )}

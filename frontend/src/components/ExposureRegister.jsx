@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Edit2, Trash2, ChevronDown, ChevronUp, RefreshCw, Archive, ArchiveRestore } from 'lucide-react'
 import { CurrencyPairFlags } from './CurrencyFlag'
+import LoadingAnimation from './LoadingAnimation'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const NAVY    = '#1A2744'
@@ -377,7 +378,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
 
   if (loading) return (
     <div className="flex items-center justify-center h-40">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: GOLD }} />
+      <LoadingAnimation text="Loading exposures…" size="medium" />
     </div>
   )
 

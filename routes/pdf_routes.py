@@ -10,9 +10,14 @@ router = APIRouter()
 
 @router.get("/api/reports/currency-plan")
 def get_currency_plan(company_id: int = Query(1), db: Session = Depends(get_db)):
-    # ── Fetch exposures ──────────────────────────────────────────────────────
+    # ── Fetch active, non-archived exposures ────────────────────────────────
     rows = db.execute(
-        sa.text("SELECT * FROM exposures WHERE company_id = :cid"),
+        sa.text(
+            "SELECT * FROM exposures "
+            "WHERE company_id = :cid "
+            "AND is_active IS TRUE "
+            "AND (archived IS NULL OR archived = false)"
+        ),
         {"cid": company_id}
     ).fetchall()
 
@@ -58,40 +63,46 @@ def get_currency_plan(company_id: int = Query(1), db: Session = Depends(get_db))
             amt = exp.get("amount", 0) or 0
             current_hedge = float(exp.get("hedge_ratio_policy", 0) or 0)
 
-    if amt >= 5_000_000:
-        target = float(active_policy["hedge_ratio_over_5m"])
-    elif amt >= 1_000_000:
-        target = float(active_policy["hedge_ratio_1m_to_5m"])
-    else:
-        target = float(active_policy["hedge_ratio_under_1m"])
+            if amt >= 5_000_000:
+                target = float(active_policy["hedge_ratio_over_5m"])
+            elif amt >= 1_000_000:
+                target = float(active_policy["hedge_ratio_1m_to_5m"])
+            else:
+                target = float(active_policy["hedge_ratio_under_1m"])
 
-    if current_hedge < target - 0.05:
+            if current_hedge < target - 0.05:
                 action = "INCREASE HEDGE"
-    elif current_hedge > target + 0.05:
+            elif current_hedge > target + 0.05:
                 action = "REDUCE HEDGE"
-    else:
-        action = "MAINTAIN"
+            else:
+                action = "MAINTAIN"
 
-    recommendations.append({
+            recommendations.append({
                 "exposure_id":        exp["id"],
                 "target_hedge_ratio": target,
                 "instrument":         "3-month forward",
                 "action":             action,
             })
 
-    # ── Fetch company name ───────────────────────────────────────────────────
+    # ── Fetch company name and base currency ─────────────────────────────────
     try:
         co_row = db.execute(
-            sa.text("SELECT name FROM companies WHERE id = :cid LIMIT 1"),
+            sa.text("SELECT name, base_currency FROM companies WHERE id = :cid LIMIT 1"),
             {"cid": company_id}
         ).fetchone()
-        company_name = co_row._mapping["name"] if co_row else "BIRK Commodities A/S"
+        if co_row:
+            company_name  = co_row._mapping["name"]
+            base_currency = co_row._mapping.get("base_currency") or "USD"
+        else:
+            company_name  = "BIRK Commodities A/S"
+            base_currency = "USD"
     except Exception:
-        company_name = "BIRK Commodities A/S"
+        company_name  = "BIRK Commodities A/S"
+        base_currency = "USD"
 
     # ── Generate and return PDF ──────────────────────────────────────────────
     pdf_bytes = generate_currency_plan_pdf(
-        exposures, recommendations, active_policy, company_name
+        exposures, recommendations, active_policy, company_name, base_currency
     )
 
     return Response(
