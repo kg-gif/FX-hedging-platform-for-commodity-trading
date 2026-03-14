@@ -664,29 +664,50 @@ export default function Simulator() {
                 ? 'sim-border-flash 1.2s ease-out forwards' : 'none'
             }}>
 
-            {/* Label above breakdown */}
+            {/* Label above breakdown — always shows scenario name */}
             <div className="px-5 py-3 flex items-center justify-between" style={{ background: '#F4F6FA', borderBottom: '1px solid #E5E7EB' }}>
               <h3 className="font-semibold text-sm" style={{ color: NAVY }}>
-                {calculating ? (
-                  <span style={{ color: '#6B7280' }}>
-                    Calculating scenario impact<CalcSymbol />
-                  </span>
-                ) : (
-                  <>
-                    <span style={{ color: GOLD, marginRight: 6 }}>↓</span>
-                    Showing breakdown for:{' '}
-                    <span style={{ color: GOLD }}>{selectedScenario.label}</span>
-                  </>
-                )}
+                <span style={{ color: GOLD, marginRight: 6 }}>↓</span>
+                Showing breakdown for:{' '}
+                <span style={{ color: GOLD }}>{selectedScenario.label}</span>
               </h3>
-              {!calculating && (
-                <span className="text-xs" style={{ color: '#9CA3AF' }}>
-                  {selectedScenario.per_pair.length} pair{selectedScenario.per_pair.length !== 1 ? 's' : ''}
-                </span>
-              )}
+              <span className="text-xs" style={{ color: '#9CA3AF' }}>
+                {selectedScenario.per_pair.length} pair{selectedScenario.per_pair.length !== 1 ? 's' : ''}
+              </span>
             </div>
 
-            <div className="overflow-x-auto" style={{ opacity: calculating ? 0.3 : 1, filter: calculating ? 'blur(1px)' : 'none', transition: 'opacity 0.3s, filter 0.3s' }}>
+            {/* Table body wrapper — relative so the overlay can be centred inside it */}
+            <div style={{ position: 'relative' }}>
+
+              {/* Calculating overlay — centred over the table rows */}
+              {calculating && (
+                <div style={{
+                  position:   'absolute',
+                  inset:      0,
+                  display:    'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex:     10,
+                  pointerEvents: 'none',
+                }}>
+                  <div style={{
+                    background:   'rgba(255,255,255,0.85)',
+                    borderRadius: 10,
+                    padding:      '12px 24px',
+                    display:      'flex',
+                    alignItems:   'center',
+                    boxShadow:    '0 2px 12px rgba(26,39,68,0.10)',
+                    border:       `1px solid rgba(201,168,108,0.25)`,
+                  }}>
+                    <span style={{ fontSize: 13, color: '#6B7280', fontWeight: 500 }}>
+                      Calculating scenario impact
+                    </span>
+                    <CalcSymbol />
+                  </div>
+                </div>
+              )}
+
+            <div className="overflow-x-auto" style={{ opacity: calculating ? 0.25 : 1, filter: calculating ? 'blur(1.5px)' : 'none', transition: 'opacity 0.3s, filter 0.3s' }}>
               <table className="min-w-full text-sm">
                 <thead style={{ background: '#F4F6FA' }}>
                   <tr>
@@ -729,6 +750,7 @@ export default function Simulator() {
                 </tbody>
               </table>
             </div>
+            </div>{/* end position:relative wrapper */}
           </div>
         )}
 
