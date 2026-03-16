@@ -16,6 +16,37 @@
 - [ ] MC-derived corridor defaults — Run Monte Carlo simulation per exposure to derive default TP/SL corridor widths based on historical volatility and exposure tenor, rather than flat percentages. Output: 95th-percentile expected move as suggested corridor width, per currency pair and time horizon.
 - [ ] Weekend market hours flag — rate API returns interpolated/cached rates on Saturday and Sunday (markets closed Fri 5pm NY → Sun 5pm NY). Add market status check: if weekend or public holiday, show "Market Closed" indicator on dashboard and digest email, and suppress rate refresh to avoid misleading P&L movements.
 
+## 🟡 Feature Flags / Tiered Module Access
+
+**Priority:** Post-pilot
+**Description:** Gate Risk Engine modules (Sensitivity Analysis, Cash Flow-at-Risk, VaR, Revenue Impact, Hedge Optimisation) and future Reports modules behind a per-company feature flag. Allows phased rollout: pilot customers see full suite; free/lower tiers see Coming Soon.
+
+**Approach:**
+- Add `feature_flags` JSONB column to `companies` table (e.g. `{ "risk_engine": ["scenario", "sensitivity"] }`)
+- Backend: expose flags on company settings endpoint
+- Frontend: RiskEngine and Reports read flags from company context; modules not in flags show Coming Soon card
+- Admin: toggle flags per company in Admin Panel
+
+**Status:** Needs design session — define tier structure before building
+
+---
+
+## 🟡 Risk Engine Roadmap
+
+The Risk Engine tab currently has Scenario Analysis live and five modules as Coming Soon. Planned build order:
+
+| Module | Priority | Notes |
+|--------|----------|-------|
+| Sensitivity Analysis | High | Which exposures are most exposed to rate moves — table + heatmap |
+| Cash Flow-at-Risk | High | Stress-test cash positions under adverse scenarios |
+| Revenue Impact | Medium | FX drag on P&L by currency pair and quarter |
+| VaR | Medium | Portfolio-level Value-at-Risk for board packs |
+| Hedge Optimisation | Low | AI-generated portfolio-wide hedge strategy |
+
+Each module requires backend endpoints before frontend build. Sensitivity and CFaR share enriched exposure data already available. VaR requires Monte Carlo infrastructure. Hedge Optimisation requires AI integration (ANTHROPIC_API_KEY already in env).
+
+---
+
 ## 🟡 Strategic Features (Needs Design Session)
 
 - [ ] **AI Market Analysis** — AI-generated commentary on rate direction, volatility regime and optimal hedge timing per currency pair. Pulls live rates, compares to budget, flags elevated risk conditions. Output: plain-English insight card per pair on dashboard and hedging tab. Core differentiator. Requires design session.

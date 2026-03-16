@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useCompany } from '../contexts/CompanyContext'
 import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, TrendingUp, Filter, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
@@ -364,6 +364,22 @@ export default function Reports() {
   const [mtmSort, setMtmSort]         = useState({ col: 'valueDate', dir: 'asc' })
   const MTM_PAGE_SIZE = 15
 
+  // Jump nav
+  const REPORT_SECTIONS = [
+    { id: 'audit-trail',        label: 'Hedge Audit Trail'     },
+    { id: 'pnl-summary',        label: 'P&L Summary'           },
+    { id: 'policy-compliance',  label: 'Policy Compliance'     },
+    { id: 'mtm-report',         label: 'MTM Report'            },
+    { id: 'maturity-schedule',  label: 'Maturity Schedule'     },
+  ]
+  const [activeSection, setActiveSection] = useState('audit-trail')
+  const sectionRefs = useRef({})
+  function scrollToSection(id) {
+    setActiveSection(id)
+    const el = sectionRefs.current[id]
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const showToast = useCallback((msg) => {
     setToast(msg)
     setTimeout(() => setToast(null), 4000)
@@ -635,7 +651,28 @@ export default function Reports() {
         </div>
       </div>
 
+      {/* ── Jump nav ────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3 flex flex-wrap gap-2 sticky top-[73px] z-30">
+        {REPORT_SECTIONS.map(s => {
+          const isActive = activeSection === s.id
+          return (
+            <button
+              key={s.id}
+              onClick={() => scrollToSection(s.id)}
+              className="px-4 py-1.5 rounded-full text-sm font-semibold transition-all border"
+              style={isActive
+                ? { background: GOLD,    color: NAVY,      borderColor: GOLD      }
+                : { background: 'white', color: '#6B7280', borderColor: '#E5E7EB' }
+              }
+            >
+              {s.label}
+            </button>
+          )
+        })}
+      </div>
+
       {/* ── Hedge Audit Trail ─────────────────────────────────────────── */}
+      <div ref={el => { sectionRefs.current['audit-trail'] = el }} className="scroll-mt-32">
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
@@ -782,8 +819,10 @@ export default function Reports() {
           </>
         )}
       </div>
+      </div>{/* /audit-trail ref wrapper */}
 
       {/* ── P&L Summary Report ───────────────────────────────────────── */}
+      <div ref={el => { sectionRefs.current['pnl-summary'] = el }} className="scroll-mt-32">
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
@@ -926,8 +965,10 @@ export default function Reports() {
           </>
         )}
       </div>
+      </div>{/* /pnl-summary ref wrapper */}
 
       {/* ── Policy Compliance Report ──────────────────────────────────── */}
+      <div ref={el => { sectionRefs.current['policy-compliance'] = el }} className="scroll-mt-32">
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         {/* Header */}
         <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
@@ -1071,8 +1112,10 @@ export default function Reports() {
           </>
         )}
       </div>
+      </div>{/* /policy-compliance ref wrapper */}
 
       {/* ── MTM Report ──────────────────────────────────────────────────── */}
+      <div ref={el => { sectionRefs.current['mtm-report'] = el }} className="scroll-mt-32">
       <MtmReport
         rows={mtmRows}
         loading={mtmLoading}
@@ -1084,8 +1127,10 @@ export default function Reports() {
         sort={mtmSort}               setSort={setMtmSort}
         pageSize={MTM_PAGE_SIZE}
       />
+      </div>{/* /mtm-report ref wrapper */}
 
       {/* Coming Soon — Maturity Schedule only */}
+      <div ref={el => { sectionRefs.current['maturity-schedule'] = el }} className="scroll-mt-32">
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-3 flex items-center gap-3" style={{ background: NAVY }}>
           <Clock size={15} color={GOLD} />
@@ -1110,6 +1155,7 @@ export default function Reports() {
           </div>
         </div>
       </div>
+      </div>{/* /maturity-schedule ref wrapper */}
 
       {/* Toast notification */}
       {toast && (

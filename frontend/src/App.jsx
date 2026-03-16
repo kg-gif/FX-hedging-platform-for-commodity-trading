@@ -2,10 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { CompanyProvider } from './contexts/CompanyContext'
 import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
-import HedgingRecommendations from './components/HedgingRecommendations'
-import PolicySelector from './components/PolicySelector'
-import DataImportDashboard from './components/DataImportDashboard'
-import Simulator from './components/Simulator'
+import HedgingPage from './components/HedgingPage'
+import RiskEngine from './components/RiskEngine'
 import Reports from './components/Reports'
 import Settings from './components/Settings'
 import Admin from './components/Admin'
@@ -32,7 +30,6 @@ function clearAuth() {
 
 function AppContent({ authUser, onLogout }) {
   const [currentPage, setCurrentPage] = useState('dashboard')
-  const [showAdvanced, setShowAdvanced] = useState(false)
   const [focusExposure, setFocusExposure] = useState(null)
 
   function handleNavigate(page, opts = {}) {
@@ -42,68 +39,65 @@ function AppContent({ authUser, onLogout }) {
 
   const isAdmin = authUser?.role === 'admin'
 
-
-  const cfoNav = [
-    { id: 'dashboard', name: 'Dashboard' },
-    { id: 'hedging',   name: 'Hedging'   },
-    { id: 'reports',   name: 'Reports'   },
-    { id: 'settings',  name: 'Settings'  },
-    ...(isAdmin ? [{ id: 'admin', name: '⚙ Admin' }] : [])
-  ]
-
-  const advancedNav = [
-    { id: 'policy',      name: 'Policy'      },
-    { id: 'monte-carlo', name: 'Risk Sim'    },
-    { id: 'data-import', name: 'Data Import' },
+  // 5 core tabs. Admin tab appended for admin users only.
+  const navItems = [
+    { id: 'dashboard',    name: 'Dashboard'    },
+    { id: 'hedging',      name: 'Hedging'      },
+    { id: 'reports',      name: 'Reports'      },
+    { id: 'settings',     name: 'Settings'     },
+    { id: 'risk-engine',  name: 'Risk Engine'  },
+    ...(isAdmin ? [{ id: 'admin', name: '⚙ Admin' }] : []),
   ]
 
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard onNavigate={handleNavigate} />
+
       case 'hedging':
         return (
-          <div className="space-y-6">
-            <HedgingRecommendations
-              focusExposure={focusExposure}
-              onFocusConsumed={() => setFocusExposure(null)}
-            />
-            <div className="bg-white rounded-xl shadow-sm p-8 text-center border border-dashed border-gray-200">
-              <p className="text-2xl mb-3">📊</p>
-              <h3 className="text-base font-bold mb-1" style={{ color: NAVY }}>Scenario Analysis</h3>
-              <p className="text-sm text-gray-400">What-if modelling coming soon — hedge ratio simulator and corridor builder</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm p-8 text-center border border-dashed border-gray-200">
-              <p className="text-2xl mb-3">🛡️</p>
-              <h3 className="text-base font-bold mb-1" style={{ color: NAVY }}>Active Hedge Portfolio</h3>
-              <p className="text-sm text-gray-400">Track and manage executed hedge positions — coming soon</p>
-            </div>
-          </div>
+          <HedgingPage
+            focusExposure={focusExposure}
+            onFocusConsumed={() => setFocusExposure(null)}
+            onNavigate={handleNavigate}
+          />
         )
+
       case 'reports':
         return <Reports />
-      case 'policy':
-        return <PolicySelector onPolicyChange={() => {}} />
-      case 'monte-carlo':
-        return <Simulator />
-      case 'data-import':
-        return <DataImportDashboard />
+
       case 'settings':
-        return <Settings />
+        return <Settings authUser={authUser} />
+
+      case 'risk-engine':
+        return <RiskEngine />
+
       case 'admin':
-        return isAdmin ? <Admin authUser={authUser} /> : <Dashboard onNavigate={handleNavigate} />
+        return isAdmin
+          ? <Admin authUser={authUser} />
+          : <Dashboard onNavigate={handleNavigate} />
+
+      // Legacy redirects — old nav IDs land on the new location
+      case 'policy':
+        return <Settings authUser={authUser} initialSection="policy" />
+      case 'monte-carlo':
+        return <RiskEngine />
+      case 'data-import':
+        return <Settings authUser={authUser} initialSection="data-import" />
+
       default:
         return <Dashboard onNavigate={handleNavigate} />
     }
   }
 
-  const allNav = showAdvanced ? [...cfoNav, ...advancedNav] : cfoNav
-
   return (
     <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
+      {/* ── Sticky header ──────────────────────────────────────────────── */}
       <div style={{ background: NAVY }} className="shadow-xl sticky top-0 z-50">
+        {/* Logo + user row */}
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
+            {/* Logo */}
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded flex items-center justify-center"
                 style={{ border: `1px solid ${GOLD}`, background: 'rgba(201,168,108,0.08)' }}>
@@ -121,6 +115,7 @@ function AppContent({ authUser, onLogout }) {
               </div>
             </div>
 
+            {/* User controls */}
             <div className="flex items-center gap-4">
               <CompanySelector />
               <div className="flex items-center gap-3 pl-4"
@@ -143,41 +138,32 @@ function AppContent({ authUser, onLogout }) {
           </div>
         </div>
 
+        {/* Tab nav */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="container mx-auto px-6 flex items-center justify-between">
+          <div className="container mx-auto px-6">
             <nav className="flex space-x-1">
-              {allNav.map((item) => {
+              {navItems.map((item) => {
                 const active = currentPage === item.id
+                  || (item.id === 'risk-engine' && currentPage === 'monte-carlo')
+                  || (item.id === 'settings'    && ['policy', 'data-import'].includes(currentPage))
                 return (
                   <button key={item.id} onClick={() => setCurrentPage(item.id)}
                     className="flex items-center px-4 py-4 text-sm font-medium transition-all"
                     style={{
-                      color: active ? GOLD : '#8DA4C4',
+                      color:        active ? GOLD : '#8DA4C4',
                       borderBottom: active ? `2px solid ${GOLD}` : '2px solid transparent',
-                      background: 'transparent',
+                      background:   'transparent',
                     }}>
                     {item.name}
                   </button>
                 )
               })}
             </nav>
-            <button
-              onClick={() => {
-                setShowAdvanced(!showAdvanced)
-                if (showAdvanced && advancedNav.find(n => n.id === currentPage)) setCurrentPage('dashboard')
-              }}
-              className="text-xs px-3 py-1 rounded-full transition-all"
-              style={{
-                color: showAdvanced ? NAVY : '#8DA4C4',
-                background: showAdvanced ? GOLD : 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.15)'
-              }}>
-              {showAdvanced ? 'Hide Advanced' : 'Advanced'}
-            </button>
           </div>
         </div>
       </div>
 
+      {/* ── Page content ───────────────────────────────────────────────── */}
       <div className="container mx-auto px-6 py-8">
         {renderPage()}
       </div>
