@@ -25,7 +25,9 @@ def get_claude_narrative(exp: dict, policy_name: str, rec: dict) -> str:
     try:
         pnl = exp.get('pnl', 0) or 0
         pnl_str = f"+{abs(pnl):,.0f}" if pnl >= 0 else f"-{abs(pnl):,.0f}"
-        current_hedge_pct = (exp.get('hedge_ratio_policy', 0) or 0) * 100
+        # Use actual tranche coverage — same value shown in the header table
+        actual = exp.get('actual_hedge_ratio')
+        current_hedge_pct = float(actual if actual is not None else (exp.get('hedge_ratio_policy', 0) or 0)) * 100
         target_pct = (rec.get('target_hedge_ratio', 0) or 0) * 100
 
         prompt = (
