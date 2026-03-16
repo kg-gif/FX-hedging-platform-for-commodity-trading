@@ -336,6 +336,23 @@ export default function Reports() {
   const [enrichedLoading, setEnrichedLoading] = useState(true)
   const [toast, setToast]                     = useState(null)
 
+  // Audit trail pagination
+  const [auditPage, setAuditPage]     = useState(1)
+  const AUDIT_PAGE_SIZE = 15
+
+  // P&L report filters + pagination
+  const [pnlFilterPair,    setPnlFilterPair]    = useState('')
+  const [pnlFilterStatus,  setPnlFilterStatus]  = useState('')
+  const [pnlFilterPnlType, setPnlFilterPnlType] = useState('')
+  const [pnlPage,          setPnlPage]          = useState(1)
+  const PNL_PAGE_SIZE = 15
+
+  // Policy Compliance filters + pagination
+  const [compFilterPair,   setCompFilterPair]   = useState('')
+  const [compFilterStatus, setCompFilterStatus] = useState('')
+  const [compPage,         setCompPage]         = useState(1)
+  const COMP_PAGE_SIZE = 15
+
   // MTM Report state
   const [mtmRows, setMtmRows]         = useState([])   // flat list of all forward tranche MTM rows
   const [mtmLoading, setMtmLoading]   = useState(true)
@@ -521,14 +538,79 @@ export default function Reports() {
   }
 
   const clearFilters = () => {
-    setFilterPair(''); setFilterEventType(''); setFilterFromDate(''); setFilterToDate(''); setShowDeleted(true)
+    setFilterPair(''); setFilterEventType(''); setFilterFromDate(''); setFilterToDate('')
+    setShowDeleted(true); setAuditPage(1)
   }
 
   const displayed = filterEventType
     ? events.filter(e => e.event_type === filterEventType)
     : events
 
+  const auditPages   = Math.max(1, Math.ceil(displayed.length / AUDIT_PAGE_SIZE))
+  const auditPaged   = displayed.slice((auditPage - 1) * AUDIT_PAGE_SIZE, auditPage * AUDIT_PAGE_SIZE)
+
   const hasFilters = filterPair || filterEventType || filterFromDate || filterToDate || !showDeleted
+
+  // ── P&L derived data ────────────────────────────────────────────────────
+  const activeItems = useMemo(() => enrichedItems.filter(e => !e.archived), [enrichedItems])
+  const pnlPairs    = useMemo(() => [...new Set(activeItems.map(e => e.currency_pair))].sort(), [activeItems])
+
+  const pnlFiltered = useMemo(() => activeItems.filter(e => {
+    if (pnlFilterPair && e.currency_pair !== pnlFilterPair) return false
+    if (pnlFilterStatus) {
+      const s = e.status
+      if (pnlFilterStatus === 'hedged'      && s !== 'WELL_HEDGED')  return false
+      if (pnlFilterStatus === 'in_progress' && s !== 'IN_PROGRESS')  return false
+      if (pnlFilterStatus === 'open'        && s !== 'OPEN')         return false
+    }
+    if (pnlFilterPnlType === 'locked'   && (e.locked_pnl   ?? 0) === 0) return false
+    if (pnlFilterPnlType === 'floating' && (e.floating_pnl ?? 0) === 0) return false
+    return true
+  }), [activeItems, pnlFilterPair, pnlFilterStatus, pnlFilterPnlType])
+
+  const pnlPages  = Math.max(1, Math.ceil(pnlFiltered.length / PNL_PAGE_SIZE))
+  const pnlPaged  = pnlFiltered.slice((pnlPage - 1) * PNL_PAGE_SIZE, pnlPage * PNL_PAGE_SIZE)
+
+  // KPI totals always over all active items regardless of filter
+  const kpiLockedPnl   = activeItems.reduce((s, e) => s + (e.locked_pnl   ?? 0), 0)
+  const kpiFloatingPnl = activeItems.reduce((s, e) => s + (e.floating_pnl ?? 0), 0)
+  const kpiCombinedPnl = activeItems.reduce((s, e) => s + (e.combined_pnl ?? 0), 0)
+  const kpiInLoss      = activeItems.filter(e => (e.combined_pnl ?? 0) < 0).length
+
+  // ── Compliance derived data ─────────────────────────────────────────────
+  const compPairs   = useMemo(() => [...new Set(activeItems.map(e => e.currency_pair))].sort(), [activeItems])
+
+  const compFiltered = useMemo(() => activeItems.filter(e => {
+    if (compFilterPair && e.currency_pair !== compFilterPair) return false
+    if (compFilterStatus) {
+      const target = (e.zone_target_ratio ?? 0) * 100
+      const actual = e.hedge_pct ?? 0
+      const diff   = actual - target
+      const isBreached = e.status === 'BREACH'
+      if (compFilterStatus === 'breach'    && !isBreached)              return false
+      if (compFilterStatus === 'compliant' && (isBreached || Math.abs(diff) > 5)) return false
+      if (compFilterStatus === 'under'     && (isBreached || diff >= -5))         return false
+      if (compFilterStatus === 'over'      && diff <= 5)                          return false
+    }
+    return true
+  }), [activeItems, compFilterPair, compFilterStatus])
+
+  const compPages = Math.max(1, Math.ceil(compFiltered.length / COMP_PAGE_SIZE))
+  const compPaged = compFiltered.slice((compPage - 1) * COMP_PAGE_SIZE, compPage * COMP_PAGE_SIZE)
+
+  // KPI counts always over all active items
+  const kpiBreaches   = activeItems.filter(e => e.status === 'BREACH').length
+  const kpiUnder      = activeItems.filter(e => {
+    const diff = (e.hedge_pct ?? 0) - (e.zone_target_ratio ?? 0) * 100
+    return e.status !== 'BREACH' && diff < -5
+  }).length
+  const kpiCompliant  = activeItems.filter(e => {
+    const diff = (e.hedge_pct ?? 0) - (e.zone_target_ratio ?? 0) * 100
+    return e.status !== 'BREACH' && Math.abs(diff) <= 5
+  }).length
+  const kpiAvgHedge   = activeItems.length > 0
+    ? activeItems.reduce((s, e) => s + (e.hedge_pct ?? 0), 0) / activeItems.length
+    : 0
 
   return (
     <div className="space-y-5">
@@ -553,37 +635,57 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <Filter size={14} className="text-gray-400 shrink-0" />
+      {/* ── Hedge Audit Trail ─────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Header */}
+        <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
+          <div className="flex items-center gap-3">
+            <CheckCircle size={15} color={GOLD} />
+            <h3 className="font-semibold text-white text-sm">Hedge Audit Trail</h3>
+          </div>
+          <button onClick={handleDownloadCSV} disabled={csvLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+            style={{ background: GOLD, color: NAVY, minWidth: 110 }}>
+            {csvLoading
+              ? <LoadingAnimation text="Generating report" size="small" />
+              : <><Download size={12} /> Export CSV</>
+            }
+          </button>
+        </div>
 
-          <select value={filterPair} onChange={e => setFilterPair(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+        {/* Filter bar */}
+        <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3"
+          style={{ background: '#F9FAFB' }}>
+          <Filter size={13} className="text-gray-400 shrink-0" />
+
+          <select value={filterPair} onChange={e => { setFilterPair(e.target.value); setAuditPage(1) }}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
             <option value="">All Currencies</option>
             {pairs.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
 
-          <select value={filterEventType} onChange={e => setFilterEventType(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-            <option value="">All Event Types</option>
-            <option value="tranche">Tranches</option>
-            <option value="order">Orders Sent</option>
-            <option value="value_date_change">Value Date Changes</option>
+          <select value={filterEventType} onChange={e => { setFilterEventType(e.target.value); setAuditPage(1) }}
+            className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+            <option value="">All Action Types</option>
+            <option value="tranche">Hedge Executed</option>
+            <option value="order">Order Sent</option>
+            <option value="value_date_change">Value Date Changed</option>
           </select>
 
           <div className="flex items-center gap-1.5">
             <label className="text-xs text-gray-500">From</label>
-            <input type="date" value={filterFromDate} onChange={e => setFilterFromDate(e.target.value)}
-              className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+            <input type="date" value={filterFromDate}
+              onChange={e => { setFilterFromDate(e.target.value); setAuditPage(1) }}
+              className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs" />
           </div>
           <div className="flex items-center gap-1.5">
-            <label className="text-xs text-gray-500">To</label>
-            <input type="date" value={filterToDate} onChange={e => setFilterToDate(e.target.value)}
-              className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm" />
+            <label className="text-xs text-gray-500">to</label>
+            <input type="date" value={filterToDate}
+              onChange={e => { setFilterToDate(e.target.value); setAuditPage(1) }}
+              className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs" />
           </div>
 
-          <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+          <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
             <input type="checkbox" checked={showDeleted} onChange={e => setShowDeleted(e.target.checked)}
               className="rounded" />
             Include deleted
@@ -591,102 +693,99 @@ export default function Reports() {
 
           {hasFilters && (
             <button onClick={clearFilters}
-              className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-700">
-              <X size={12} /> Clear
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 border border-gray-200 rounded-lg">
+              <X size={11} /> Reset filters
             </button>
           )}
 
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-gray-400">{displayed.length} events</span>
-            <button onClick={handleDownloadCSV} disabled={csvLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
-              style={{ background: NAVY, color: 'white', minWidth: 110 }}>
-              {csvLoading
-                ? <LoadingAnimation text="Generating report" size="small" />
-                : <><Download size={12} /> Export CSV</>
-              }
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Trail Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-5 py-3 flex items-center gap-3" style={{ background: NAVY }}>
-          <CheckCircle size={15} color={GOLD} />
-          <h3 className="font-semibold text-white text-sm">Hedge Audit Trail</h3>
+          <span className="ml-auto text-xs text-gray-400">{displayed.length} events</span>
         </div>
 
+        {/* Table */}
         {loading ? (
           <div className="flex items-center justify-center h-40">
             <LoadingAnimation text="Loading audit trail…" size="medium" />
           </div>
         ) : displayed.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-sm text-gray-400">No events found matching your filters.</p>
-          </div>
+          <div className="text-center py-12 text-sm text-gray-400">No results match your filters.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm divide-y divide-gray-100">
-              <thead style={{ background: '#F4F6FA' }}>
-                <tr>
-                  {['Date / Time', 'Event', 'Currency', 'Description', 'Amount', 'Rate', 'Instrument', 'Value Date', 'Status', 'User', 'Notes'].map(h => (
-                    <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
-                      style={{ color: NAVY }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {displayed.map((ev, i) => (
-                  <tr key={i} className={`hover:bg-gray-50 ${ev.is_active === false ? 'opacity-60' : ''}`}>
-                    <td className="px-3 py-2.5 whitespace-nowrap text-xs text-gray-500">{fmtDate(ev.event_at)}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <EventBadge type={ev.event_type} />
-                        {ev.is_active === false && (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-red-50 text-red-400">deleted</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{ev.currency_pair || '—'}</td>
-                    <td className="px-3 py-2.5 text-gray-500 max-w-xs">
-                      <div className="truncate">{ev.description || '—'}</div>
-                      {ev.reference && <div className="text-xs text-gray-400">{ev.reference}</div>}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">
-                      {ev.amount ? fmt(ev.amount) : '—'}
-                      {ev.amount_currency && (
-                        <div className="text-xs text-gray-400">{ev.amount_currency}</div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">
-                      <div>{ev.execution_rate ? ev.execution_rate.toFixed(4) : '—'}</div>
-                      {ev.budget_rate && (
-                        <div className="text-xs text-gray-400">Budget: {Number(ev.budget_rate).toFixed(4)}</div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap text-gray-600">{ev.instrument || '—'}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap text-gray-600">{fmtDateOnly(ev.value_date)}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap">
-                      <StatusBadge status={ev.tranche_status} />
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{ev.created_by || '—'}</td>
-                    <td className="px-3 py-2.5 text-xs text-gray-400 max-w-xs">
-                      <div className="truncate" title={ev.notes || ev.reason || ''}>
-                        {ev.reason || ev.notes || '—'}
-                      </div>
-                      {ev.limit_rate && <div>TP: {Number(ev.limit_rate).toFixed(4)} / SL: {Number(ev.stop_rate).toFixed(4)}</div>}
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-xs divide-y divide-gray-100">
+                <thead style={{ background: '#F4F6FA' }}>
+                  <tr>
+                    {['Date / Time', 'Event', 'Currency', 'Description', 'Amount', 'Rate', 'Instrument', 'Value Date', 'Status', 'User', 'Notes'].map(h => (
+                      <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                        style={{ color: NAVY }}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {auditPaged.map((ev, i) => (
+                    <tr key={i} className={`hover:bg-gray-50 ${ev.is_active === false ? 'opacity-60' : ''}`}>
+                      <td className="px-3 py-2 whitespace-nowrap text-gray-500">{fmtDate(ev.event_at)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <EventBadge type={ev.event_type} />
+                          {ev.is_active === false && (
+                            <span className="px-1.5 py-0.5 rounded text-xs bg-red-50 text-red-400">deleted</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{ev.currency_pair || '—'}</td>
+                      <td className="px-3 py-2 text-gray-500 max-w-xs">
+                        <div className="truncate">{ev.description || '—'}</div>
+                        {ev.reference && <div className="text-gray-400">{ev.reference}</div>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right whitespace-nowrap">
+                        {ev.amount ? fmt(ev.amount) : '—'}
+                        {ev.amount_currency && <div className="text-gray-400">{ev.amount_currency}</div>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right whitespace-nowrap">
+                        <div>{ev.execution_rate ? ev.execution_rate.toFixed(4) : '—'}</div>
+                        {ev.budget_rate && <div className="text-gray-400">Budget: {Number(ev.budget_rate).toFixed(4)}</div>}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-gray-600">{ev.instrument || '—'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDateOnly(ev.value_date)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={ev.tranche_status} /></td>
+                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{ev.created_by || '—'}</td>
+                      <td className="px-3 py-2 text-gray-400 max-w-xs">
+                        <div className="truncate" title={ev.notes || ev.reason || ''}>
+                          {ev.reason || ev.notes || '—'}
+                        </div>
+                        {ev.limit_rate && <div>TP: {Number(ev.limit_rate).toFixed(4)} / SL: {Number(ev.stop_rate).toFixed(4)}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Pagination */}
+            {auditPages > 1 && (
+              <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2 text-xs">
+                <span className="text-gray-400">Page {auditPage} of {auditPages}</span>
+                <div className="ml-auto flex items-center gap-1">
+                  <button onClick={() => setAuditPage(p => Math.max(1, p - 1))} disabled={auditPage === 1}
+                    className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">← Prev</button>
+                  {Array.from({ length: auditPages }, (_, i) => i + 1).map(p => (
+                    <button key={p} onClick={() => setAuditPage(p)}
+                      className="px-2.5 py-1.5 rounded border text-xs font-semibold"
+                      style={{ background: p === auditPage ? NAVY : 'white', color: p === auditPage ? 'white' : '#6B7280', borderColor: p === auditPage ? NAVY : '#E5E7EB' }}>
+                      {p}
+                    </button>
+                  ))}
+                  <button onClick={() => setAuditPage(p => Math.min(auditPages, p + 1))} disabled={auditPage === auditPages}
+                    className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">Next →</button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* P&L Summary Report */}
+      {/* ── P&L Summary Report ───────────────────────────────────────── */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Header */}
         <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
           <div className="flex items-center gap-3">
             <TrendingUp size={15} color={GOLD} />
@@ -701,57 +800,136 @@ export default function Reports() {
             }
           </button>
         </div>
+
         {enrichedLoading ? (
           <div className="flex items-center justify-center h-32">
             <LoadingAnimation text="Loading P&L data…" size="medium" />
           </div>
-        ) : enrichedItems.length === 0 ? (
+        ) : activeItems.length === 0 ? (
           <div className="text-center py-10 text-sm text-gray-400">No active exposures found.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm divide-y divide-gray-100">
-              <thead style={{ background: '#F4F6FA' }}>
-                <tr>
-                  {['Pair', 'Total Amount', 'Hedge %', 'Budget Rate', 'Current Rate', 'Locked P&L', 'Floating P&L', 'Combined P&L'].map(h => (
-                    <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
-                      style={{ color: NAVY }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {enrichedItems.map((e, i) => {
-                  const combined = e.combined_pnl ?? 0
-                  const pnlColor = combined >= 0 ? SUCCESS : DANGER
-                  return (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="px-3 py-2.5 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{e.currency_pair}</td>
-                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">{fmt(e.total_amount)} {e.from_currency}</td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">{(e.hedge_pct ?? 0).toFixed(1)}%</td>
-                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">{(e.budget_rate ?? 0).toFixed(4)}</td>
-                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">{(e.current_spot ?? 0).toFixed(4)}</td>
-                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap"
-                        style={{ color: (e.locked_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
-                        {(e.locked_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.locked_pnl)}
-                      </td>
-                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap"
-                        style={{ color: (e.floating_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
-                        {(e.floating_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.floating_pnl)}
-                      </td>
-                      <td className="px-3 py-2.5 font-mono text-right font-bold whitespace-nowrap"
-                        style={{ color: pnlColor }}>
-                        {combined >= 0 ? '+' : ''}{fmt(combined)}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* KPI strip */}
+            <div className="grid grid-cols-4 gap-0 border-b border-gray-100">
+              {[
+                { label: 'Total Locked P&L',   value: fmtEur(kpiLockedPnl),   color: mtmColor(kpiLockedPnl),   sub: 'Crystallised from hedges' },
+                { label: 'Total Floating P&L',  value: fmtEur(kpiFloatingPnl),  color: mtmColor(kpiFloatingPnl),  sub: 'Open positions vs spot' },
+                { label: 'Total Combined P&L',  value: fmtEur(kpiCombinedPnl),  color: mtmColor(kpiCombinedPnl),  sub: 'Full portfolio position' },
+                { label: 'Exposures in Loss',   value: kpiInLoss,               color: kpiInLoss > 0 ? DANGER : SUCCESS, sub: 'Combined P&L negative' },
+              ].map((kpi, i) => (
+                <div key={i} className="px-5 py-4 border-r border-gray-100 last:border-r-0">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">{kpi.label}</p>
+                  <p className="text-lg font-bold" style={{ color: kpi.color }}>{kpi.value}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{kpi.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Filter bar */}
+            <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3"
+              style={{ background: '#F9FAFB' }}>
+              <Filter size={13} className="text-gray-400 shrink-0" />
+
+              <select value={pnlFilterPair} onChange={e => { setPnlFilterPair(e.target.value); setPnlPage(1) }}
+                className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+                <option value="">All Pairs</option>
+                {pnlPairs.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+
+              <select value={pnlFilterPnlType} onChange={e => { setPnlFilterPnlType(e.target.value); setPnlPage(1) }}
+                className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+                <option value="">All P&L Types</option>
+                <option value="locked">Has Locked P&L</option>
+                <option value="floating">Has Floating P&L</option>
+              </select>
+
+              <select value={pnlFilterStatus} onChange={e => { setPnlFilterStatus(e.target.value); setPnlPage(1) }}
+                className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+                <option value="">All Statuses</option>
+                <option value="hedged">Hedged</option>
+                <option value="in_progress">In Progress</option>
+                <option value="open">Open</option>
+              </select>
+
+              {(pnlFilterPair || pnlFilterStatus || pnlFilterPnlType) && (
+                <button onClick={() => { setPnlFilterPair(''); setPnlFilterStatus(''); setPnlFilterPnlType(''); setPnlPage(1) }}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 border border-gray-200 rounded-lg">
+                  <X size={11} /> Reset filters
+                </button>
+              )}
+              <span className="ml-auto text-xs text-gray-400">{pnlFiltered.length} exposures</span>
+            </div>
+
+            {/* Table */}
+            {pnlFiltered.length === 0 ? (
+              <div className="text-center py-10 text-sm text-gray-400">No results match your filters.</div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs divide-y divide-gray-100">
+                    <thead style={{ background: '#F4F6FA' }}>
+                      <tr>
+                        {['Pair', 'Total Amount', 'Hedge %', 'Budget Rate', 'Current Rate', 'Locked P&L', 'Floating P&L', 'Combined P&L'].map(h => (
+                          <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                            style={{ color: NAVY }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {pnlPaged.map((e, i) => {
+                        const combined = e.combined_pnl ?? 0
+                        return (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{e.currency_pair}</td>
+                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{fmt(e.total_amount)} {e.from_currency}</td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap">{(e.hedge_pct ?? 0).toFixed(1)}%</td>
+                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{(e.budget_rate ?? 0).toFixed(4)}</td>
+                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{(e.current_spot ?? 0).toFixed(4)}</td>
+                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap"
+                              style={{ color: (e.locked_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
+                              {(e.locked_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.locked_pnl)}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap"
+                              style={{ color: (e.floating_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
+                              {(e.floating_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.floating_pnl)}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-right font-bold whitespace-nowrap"
+                              style={{ color: combined >= 0 ? SUCCESS : DANGER }}>
+                              {combined >= 0 ? '+' : ''}{fmt(combined)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {pnlPages > 1 && (
+                  <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2 text-xs">
+                    <span className="text-gray-400">Page {pnlPage} of {pnlPages}</span>
+                    <div className="ml-auto flex items-center gap-1">
+                      <button onClick={() => setPnlPage(p => Math.max(1, p - 1))} disabled={pnlPage === 1}
+                        className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">← Prev</button>
+                      {Array.from({ length: pnlPages }, (_, i) => i + 1).map(p => (
+                        <button key={p} onClick={() => setPnlPage(p)}
+                          className="px-2.5 py-1.5 rounded border text-xs font-semibold"
+                          style={{ background: p === pnlPage ? NAVY : 'white', color: p === pnlPage ? 'white' : '#6B7280', borderColor: p === pnlPage ? NAVY : '#E5E7EB' }}>
+                          {p}
+                        </button>
+                      ))}
+                      <button onClick={() => setPnlPage(p => Math.min(pnlPages, p + 1))} disabled={pnlPage === pnlPages}
+                        className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">Next →</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </>
         )}
       </div>
 
-      {/* Policy Compliance Report */}
+      {/* ── Policy Compliance Report ──────────────────────────────────── */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Header */}
         <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
           <div className="flex items-center gap-3">
             <CheckCircle size={15} color={GOLD} />
@@ -766,72 +944,132 @@ export default function Reports() {
             }
           </button>
         </div>
+
         {enrichedLoading ? (
           <div className="flex items-center justify-center h-32">
             <LoadingAnimation text="Loading compliance data…" size="medium" />
           </div>
-        ) : enrichedItems.length === 0 ? (
+        ) : activeItems.length === 0 ? (
           <div className="text-center py-10 text-sm text-gray-400">No active exposures found.</div>
-        ) : (() => {
-          const onTarget = enrichedItems.filter(e => {
-            const target = (e.zone_target_ratio ?? 0) * 100
-            return Math.abs((e.hedge_pct ?? 0) - target) <= 5
-          }).length
-          return (
-            <div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm divide-y divide-gray-100">
-                  <thead style={{ background: '#F4F6FA' }}>
-                    <tr>
-                      {['Pair', 'Policy Target %', 'Actual Hedge %', 'Gap', 'Status'].map(h => (
-                        <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
-                          style={{ color: NAVY }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {enrichedItems.map((e, i) => {
-                      const target = (e.zone_target_ratio ?? 0) * 100
-                      const actual = e.hedge_pct ?? 0
-                      const diff   = actual - target
-                      const isBreached = e.status === 'BREACH'
-                      let statusLabel, statusStyle
-                      if (isBreached) {
-                        statusLabel = 'BREACH'; statusStyle = { background: '#FEE2E2', color: DANGER }
-                      } else if (Math.abs(diff) <= 5) {
-                        statusLabel = 'ON TARGET'; statusStyle = { background: '#D1FAE5', color: SUCCESS }
-                      } else if (diff < 0) {
-                        statusLabel = 'UNDER'; statusStyle = { background: '#FEF3C7', color: '#92400E' }
-                      } else {
-                        statusLabel = 'OVER'; statusStyle = { background: '#EDE9FE', color: '#5B21B6' }
-                      }
-                      return (
-                        <tr key={i} className="hover:bg-gray-50">
-                          <td className="px-3 py-2.5 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{e.currency_pair}</td>
-                          <td className="px-3 py-2.5 text-right whitespace-nowrap">{target.toFixed(0)}%</td>
-                          <td className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{actual.toFixed(1)}%</td>
-                          <td className="px-3 py-2.5 text-right whitespace-nowrap"
-                            style={{ color: diff >= 0 ? SUCCESS : DANGER }}>
-                            {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
-                          </td>
-                          <td className="px-3 py-2.5 whitespace-nowrap">
-                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={statusStyle}>
-                              {statusLabel}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="px-5 py-3 border-t border-gray-100 text-sm text-gray-500">
-                <span className="font-semibold" style={{ color: NAVY }}>{onTarget}</span> of{' '}
-                <span className="font-semibold" style={{ color: NAVY }}>{enrichedItems.length}</span> exposures within policy target
-              </div>
+        ) : (
+          <>
+            {/* KPI strip */}
+            <div className="grid grid-cols-4 gap-0 border-b border-gray-100">
+              {[
+                { label: 'Exposures in Breach',    value: kpiBreaches,              color: kpiBreaches  > 0 ? DANGER  : SUCCESS, sub: 'Outside corridor' },
+                { label: 'Under Target',           value: kpiUnder,                 color: kpiUnder     > 0 ? WARNING : SUCCESS, sub: 'Below policy minimum' },
+                { label: 'Compliant',              value: kpiCompliant,             color: kpiCompliant > 0 ? SUCCESS : '#9CA3AF', sub: 'Within ±5% of target' },
+                { label: 'Avg Hedge Coverage',     value: kpiAvgHedge.toFixed(1) + '%', color: NAVY,    sub: 'Across all exposures' },
+              ].map((kpi, i) => (
+                <div key={i} className="px-5 py-4 border-r border-gray-100 last:border-r-0">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">{kpi.label}</p>
+                  <p className="text-lg font-bold" style={{ color: kpi.color }}>{kpi.value}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{kpi.sub}</p>
+                </div>
+              ))}
             </div>
-          )
-        })()}
+
+            {/* Filter bar */}
+            <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3"
+              style={{ background: '#F9FAFB' }}>
+              <Filter size={13} className="text-gray-400 shrink-0" />
+
+              <select value={compFilterPair} onChange={e => { setCompFilterPair(e.target.value); setCompPage(1) }}
+                className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+                <option value="">All Pairs</option>
+                {compPairs.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+
+              <select value={compFilterStatus} onChange={e => { setCompFilterStatus(e.target.value); setCompPage(1) }}
+                className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+                <option value="">All Statuses</option>
+                <option value="breach">Breach</option>
+                <option value="under">Under Target</option>
+                <option value="compliant">Compliant</option>
+                <option value="over">Over Target</option>
+              </select>
+
+              {(compFilterPair || compFilterStatus) && (
+                <button onClick={() => { setCompFilterPair(''); setCompFilterStatus(''); setCompPage(1) }}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 border border-gray-200 rounded-lg">
+                  <X size={11} /> Reset filters
+                </button>
+              )}
+              <span className="ml-auto text-xs text-gray-400">{compFiltered.length} exposures</span>
+            </div>
+
+            {/* Table */}
+            {compFiltered.length === 0 ? (
+              <div className="text-center py-10 text-sm text-gray-400">No results match your filters.</div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs divide-y divide-gray-100">
+                    <thead style={{ background: '#F4F6FA' }}>
+                      <tr>
+                        {['Pair', 'Policy Target %', 'Actual Hedge %', 'Gap', 'Status'].map(h => (
+                          <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                            style={{ color: NAVY }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {compPaged.map((e, i) => {
+                        const target = (e.zone_target_ratio ?? 0) * 100
+                        const actual = e.hedge_pct ?? 0
+                        const diff   = actual - target
+                        const isBreached = e.status === 'BREACH'
+                        let statusLabel, statusStyle
+                        if (isBreached) {
+                          statusLabel = 'BREACH';    statusStyle = { background: '#FEE2E2', color: DANGER }
+                        } else if (Math.abs(diff) <= 5) {
+                          statusLabel = 'ON TARGET'; statusStyle = { background: '#D1FAE5', color: SUCCESS }
+                        } else if (diff < 0) {
+                          statusLabel = 'UNDER';     statusStyle = { background: '#FEF3C7', color: '#92400E' }
+                        } else {
+                          statusLabel = 'OVER';      statusStyle = { background: '#EDE9FE', color: '#5B21B6' }
+                        }
+                        return (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{e.currency_pair}</td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap">{target.toFixed(0)}%</td>
+                            <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">{actual.toFixed(1)}%</td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap" style={{ color: diff >= 0 ? SUCCESS : DANGER }}>
+                              {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={statusStyle}>
+                                {statusLabel}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {compPages > 1 && (
+                  <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2 text-xs">
+                    <span className="text-gray-400">Page {compPage} of {compPages}</span>
+                    <div className="ml-auto flex items-center gap-1">
+                      <button onClick={() => setCompPage(p => Math.max(1, p - 1))} disabled={compPage === 1}
+                        className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">← Prev</button>
+                      {Array.from({ length: compPages }, (_, i) => i + 1).map(p => (
+                        <button key={p} onClick={() => setCompPage(p)}
+                          className="px-2.5 py-1.5 rounded border text-xs font-semibold"
+                          style={{ background: p === compPage ? NAVY : 'white', color: p === compPage ? 'white' : '#6B7280', borderColor: p === compPage ? NAVY : '#E5E7EB' }}>
+                          {p}
+                        </button>
+                      ))}
+                      <button onClick={() => setCompPage(p => Math.min(compPages, p + 1))} disabled={compPage === compPages}
+                        className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">Next →</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
       </div>
 
       {/* ── MTM Report ──────────────────────────────────────────────────── */}

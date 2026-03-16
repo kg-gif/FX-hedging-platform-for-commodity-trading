@@ -27,11 +27,26 @@
 - [ ] **Hedge Accounting (IAS 39 / IFRS 9)** — Formal hedge designation, effectiveness testing (80-125% rule), and documentation pack. Allows listed/regulated clients to apply hedge accounting treatment and reduce P&L volatility. High complexity, high value for larger corporates. Series A feature — scope now, build later.
 - [ ] **FX Netting (Multi-Entity)** — For parent/daughter clients: identify offsetting exposures across entities before hedging. Net GBP payable in one entity against GBP receivable in another. Reduces transaction costs and facility usage. Linked to multi-company feature.
 
+## 💰 MTM-Based Billing Model
+**Priority:** Post-pilot
+**Description:** Invoice clients 30% of favourable MTM vs budget rate (monthly or quarterly). Core monetisation idea: align Sumnohow's revenue with value delivered to the CFO.
+
+**Open questions before build:**
+- Realised (at settlement) or unrealised (live MTM snapshot)?
+- Snapshot date: monthly or quarterly?
+- Dispute resolution: what audit trail is required?
+- Legal review needed on performance fee structure
+- Validate pricing model with at least 1 pilot customer first
+
+**Status:** Awaiting commercial validation
+
+---
+
 ## 🟡 Post-Pilot / Growth
 - [ ] Flag emojis in currency mix chart — Windows suppresses flag emojis, showing country code text (CH, GB, JP, EU) instead. Replace with a CSS flag library (e.g. flag-icons) across all components that display currency flags.
 - [ ] Policy override audit log — when a user deviates from policy hedge ratio, mandatory reason required before execution. Logs: who, what policy said, what was done, why, timestamp, exposure. Table: policy_override_audit_log. Required for regulatory compliance and board governance.
 - [ ] User permission tiers — currently Admin/Viewer only. Add: (1) Trader — can execute but not change policy, (2) Approver — must approve orders above threshold, (3) Read-only — dashboard and reports only. Policy overrides require Approver or Admin.
-- [ ] Get started tutorial — onboarding flow for new customers
+- [ ] **Client onboarding flow** — guided setup for new customers: (1) set base currency — explain this is the currency all P&L and protection status will be calculated in, matches their accounting currency, (2) set hedging policy, (3) add first exposure, (4) set bank details, (5) execute first hedge. Step-by-step wizard shown on first login. Skippable but resumable. Tracks completion state per company. Critical for self-serve adoption and reducing Kevin's onboarding time per pilot.
 - [ ] Google / SSO login — sign in with Google in addition to password
 - [ ] CSV bulk exposure upload — currently manual entry only
 - [ ] Self-service signup — customers create own accounts
@@ -77,3 +92,15 @@
 - [x] Hedging tab errors fixed — removed broken components, replaced with placeholder cards
 - [x] Compact recommendation cards — collapsed by default, click to expand
 - [x] ManualEntry amount field — base currency label inline, counter-value shown below
+
+## Notification Management
+
+- [ ] **Cron zone monitoring** — Add zone status check to the existing 7am UTC cron job. Every morning, check all companies for zone changes since last check. Send zone alert email if zone has changed. This ensures alerts fire even if no one logs in. Add zone summary to daily digest email.
+
+- [ ] **Notification preferences (Phase 2)** — CFO can configure per-notification-type preferences in Settings:
+  - Frequency: Immediate / Daily digest only / Weekly summary
+  - Quiet hours: e.g. no alerts between 6pm–8am
+  - Minimum severity: Only notify on Defensive, not Opportunistic
+  - Channels (future): Email (live), SMS, WhatsApp, Slack, MS Teams
+  - Per-alert-type toggles: Zone shifts, Breaches, Policy triggers, Daily digest
+  Goal: CFO gets exactly the alerts they want, nothing they don't. Critical for adoption.
