@@ -1512,6 +1512,20 @@ async def startup_event():
                 reason           TEXT,
                 created_at       TIMESTAMP DEFAULT NOW()
             )""",
+
+            # MTM (Mark-to-Market) audit log — one row written per API call for compliance
+            """CREATE TABLE IF NOT EXISTS mtm_snapshot_log (
+                id                    SERIAL PRIMARY KEY,
+                tranche_id            INTEGER,
+                exposure_id           INTEGER REFERENCES exposures(id),
+                company_id            INTEGER REFERENCES companies(id),
+                calculated_at         TIMESTAMP DEFAULT NOW(),
+                inception_rate        NUMERIC(18,6),
+                budget_rate           NUMERIC(18,6),
+                spot_rate_used        NUMERIC(18,6),
+                mtm_vs_inception_eur  NUMERIC(18,2),
+                mtm_vs_budget_eur     NUMERIC(18,2)
+            )""",
         ]
         for sql in migrations:
             try:
@@ -2052,3 +2066,170 @@ def get_hedge_trail_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=hedge-audit-trail.csv"}
     )
+
+
+# ── MTM (Mark-to-Market) endpoint ────────────────────────────────────────────
+
+@app.get("/api/tranches/mtm/{exposure_id}")
+async def get_tranche_mtm(
+    exposure_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Returns MTM (Mark-to-Market) values for all forward tranches on an exposure.
+
+    For each executed/confirmed Forward tranche, calculates:
+      MTM vs Inception = (current_spot - tranche_rate) × notional   [in EUR]
+      MTM vs Budget    = (current_spot - exposure.budget_rate) × notional [in EUR]
+
+    Results are in to_currency then converted to EUR via USD pivot.
+    Every call writes an audit row to mtm_snapshot_log (compliance requirement).
+    """
+    from sqlalchemy import text as _text
+    import traceback
+
+    try:
+        # ── 1. Fetch the exposure ──────────────────────────────────────────────
+        exp_row = db.execute(_text("""
+            SELECT id, company_id, from_currency, to_currency, budget_rate
+            FROM exposures
+            WHERE id = :eid AND is_active = true
+        """), {"eid": exposure_id}).fetchone()
+
+        if not exp_row:
+            raise HTTPException(status_code=404, detail="Exposure not found")
+
+        exp = exp_row._mapping
+        safe_company_id = resolve_company_id(int(exp["company_id"]), payload)
+
+        from_ccy   = exp["from_currency"]
+        to_ccy     = exp["to_currency"]
+        budget_rate = float(exp["budget_rate"] or 0) if exp["budget_rate"] else None
+
+        # ── 2. Fetch executed/confirmed Forward tranches ───────────────────────
+        tranche_rows = db.execute(_text("""
+            SELECT id, amount, rate, instrument, value_date, status
+            FROM hedge_tranches
+            WHERE exposure_id = :eid
+              AND status IN ('executed', 'confirmed')
+              AND LOWER(instrument) = 'forward'
+            ORDER BY id
+        """), {"eid": exposure_id}).fetchall()
+
+        if not tranche_rows:
+            return {"exposure_id": exposure_id, "tranches": []}
+
+        # ── 3. Fetch spot rate for the pair ───────────────────────────────────
+        pair = f"{from_ccy}/{to_ccy}"
+        live_rates = await get_current_rates([pair])
+        rate_info  = live_rates.get(pair)
+        spot_rate  = float(rate_info["rate"]) if rate_info and rate_info.get("rate") else None
+
+        if not spot_rate:
+            return {"exposure_id": exposure_id, "tranches": [], "error": f"No spot rate for {pair}"}
+
+        # ── 4. EUR conversion via USD pivot ────────────────────────────────────
+        # MTM result is in to_currency. Convert to EUR: to_ccy → USD → EUR.
+        # to_eur_rate = (to_ccy/USD) / (EUR/USD)
+        if to_ccy == "EUR":
+            to_eur_rate = 1.0
+        else:
+            rates_needed = [to_ccy, "EUR"] if to_ccy != "USD" else ["EUR"]
+            usd_results = await asyncio.gather(
+                *[fetch_fx_rate(c, "USD") for c in rates_needed],
+                return_exceptions=True
+            )
+            usd_map = {}
+            for c, r in zip(rates_needed, usd_results):
+                if not isinstance(r, Exception) and r is not None:
+                    usd_map[c] = float(r)
+
+            if to_ccy == "USD":
+                to_ccy_usd = 1.0
+            else:
+                to_ccy_usd = usd_map.get(to_ccy)
+
+            eur_usd = usd_map.get("EUR")
+
+            if to_ccy_usd and eur_usd:
+                to_eur_rate = to_ccy_usd / eur_usd
+            else:
+                # Fallback: no EUR conversion available
+                to_eur_rate = None
+                print(f"[mtm] WARNING: cannot convert {to_ccy} to EUR — missing USD rates. to_ccy_usd={to_ccy_usd} eur_usd={eur_usd}")
+
+        # ── 5. Calculate MTM per tranche + write audit rows ───────────────────
+        results = []
+        audit_rows = []
+
+        for t in tranche_rows:
+            tr = t._mapping
+            notional      = float(tr["amount"] or 0)
+            inception_rate = float(tr["rate"]) if tr["rate"] else None
+
+            # MTM in to_currency
+            if inception_rate is not None and spot_rate and notional:
+                mtm_vs_inception_to_ccy = (spot_rate - inception_rate) * notional
+            else:
+                mtm_vs_inception_to_ccy = None
+
+            if budget_rate is not None and spot_rate and notional:
+                mtm_vs_budget_to_ccy = (spot_rate - budget_rate) * notional
+            else:
+                mtm_vs_budget_to_ccy = None
+
+            # Convert to EUR
+            if to_eur_rate is not None:
+                mtm_vs_inception_eur = round(mtm_vs_inception_to_ccy * to_eur_rate, 2) if mtm_vs_inception_to_ccy is not None else None
+                mtm_vs_budget_eur    = round(mtm_vs_budget_to_ccy    * to_eur_rate, 2) if mtm_vs_budget_to_ccy    is not None else None
+            else:
+                mtm_vs_inception_eur = None
+                mtm_vs_budget_eur    = None
+
+            results.append({
+                "tranche_id":           tr["id"],
+                "notional":             notional,
+                "inception_rate":       inception_rate,
+                "budget_rate":          budget_rate,
+                "current_spot":         round(spot_rate, 6),
+                "mtm_vs_inception_eur": mtm_vs_inception_eur,
+                "mtm_vs_budget_eur":    mtm_vs_budget_eur,
+                "value_date":           str(tr["value_date"]) if tr["value_date"] else None,
+                "instrument":           tr["instrument"],
+                "status":               tr["status"],
+            })
+
+            # Audit row for compliance
+            audit_rows.append({
+                "tranche_id":           tr["id"],
+                "exposure_id":          exposure_id,
+                "company_id":           safe_company_id,
+                "inception_rate":       inception_rate,
+                "budget_rate":          budget_rate,
+                "spot_rate_used":       round(spot_rate, 6),
+                "mtm_vs_inception_eur": mtm_vs_inception_eur,
+                "mtm_vs_budget_eur":    mtm_vs_budget_eur,
+            })
+
+        # Write all audit rows in one batch
+        if audit_rows:
+            db.execute(_text("""
+                INSERT INTO mtm_snapshot_log
+                    (tranche_id, exposure_id, company_id, inception_rate, budget_rate,
+                     spot_rate_used, mtm_vs_inception_eur, mtm_vs_budget_eur)
+                VALUES
+                    (:tranche_id, :exposure_id, :company_id, :inception_rate, :budget_rate,
+                     :spot_rate_used, :mtm_vs_inception_eur, :mtm_vs_budget_eur)
+            """), audit_rows)
+            db.commit()
+
+        print(f"[mtm] exposure={exposure_id} pair={pair} spot={spot_rate:.4f} to_eur={to_eur_rate} tranches={len(results)}")
+        return {"exposure_id": exposure_id, "pair": pair, "spot_rate": spot_rate, "tranches": results}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[mtm] ERROR exposure={exposure_id}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="MTM calculation failed")

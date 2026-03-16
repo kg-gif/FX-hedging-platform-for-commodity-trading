@@ -87,8 +87,26 @@ function HedgeBar({ pct }) {
   )
 }
 
-function TrancheRow({ tranche, ccy }) {
+// Format a MTM value in EUR — green if positive, red if negative, grey dash if null
+function MtmCell({ value }) {
+  if (value == null) return <td className="px-3 py-2 text-gray-300">—</td>
+  const color = value >= 0 ? SUCCESS : DANGER
+  const sign  = value >= 0 ? '+' : ''
+  return (
+    <td className="px-3 py-2 font-mono font-semibold whitespace-nowrap" style={{ color }}
+      title="Mark-to-market value of this forward at today's spot rate (EUR)">
+      {sign}€{Math.abs(value).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+    </td>
+  )
+}
+
+function TrancheRow({ tranche, ccy, mtm }) {
   const statusColor = tranche.status === 'confirmed' ? SUCCESS : tranche.status === 'executed' ? GOLD : '#9CA3AF'
+
+  // MTM only shown for forward instruments that are executed/confirmed
+  const isForward = (tranche.instrument || '').toLowerCase() === 'forward'
+  const hasMtm    = isForward && (tranche.status === 'executed' || tranche.status === 'confirmed')
+
   return (
     <tr className="text-xs border-t border-gray-100">
       <td className="px-3 py-2 text-gray-400">{tranche.instrument || 'Forward'}</td>
@@ -104,6 +122,15 @@ function TrancheRow({ tranche, ccy }) {
       <td className="px-3 py-2 text-gray-400">
         {tranche.executed_at ? new Date(tranche.executed_at).toLocaleDateString('en-GB') : '—'}
       </td>
+      {/* MTM columns — only meaningful for executed/confirmed Forwards */}
+      {hasMtm
+        ? <MtmCell value={mtm?.mtm_vs_inception_eur ?? null} />
+        : <td className="px-3 py-2 text-gray-300">—</td>
+      }
+      {hasMtm
+        ? <MtmCell value={mtm?.mtm_vs_budget_eur ?? null} />
+        : <td className="px-3 py-2 text-gray-300">—</td>
+      }
     </tr>
   )
 }
@@ -279,6 +306,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState(null)
   const [expanded, setExpanded]           = useState({})
+  const [mtmData, setMtmData]             = useState({})   // { [exposureId]: { [trancheId]: mtmRow } }
   const [corridorModal, setCorridorModal] = useState(null)
   const [archiveModal, setArchiveModal]   = useState(null)
   const [searchText, setSearchText]       = useState('')
@@ -312,7 +340,22 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
   }
 
   function toggleExpand(id) {
-    setExpanded(prev => ({ ...prev, [id]: !prev[id] }))
+    const nowExpanding = !expanded[id]
+    setExpanded(prev => ({ ...prev, [id]: nowExpanding }))
+
+    // Fetch MTM data the first time an exposure row is expanded (lazy load)
+    if (nowExpanding && !mtmData[id]) {
+      fetch(`${API_BASE}/api/tranches/mtm/${id}`, { headers: authHeaders() })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data || !data.tranches) return
+          // Index by tranche_id for fast lookup in TrancheRow
+          const byId = {}
+          data.tranches.forEach(t => { byId[t.tranche_id] = t })
+          setMtmData(prev => ({ ...prev, [id]: byId }))
+        })
+        .catch(() => {/* MTM fetch failed — cells will show — */})
+    }
   }
 
   async function handleUnarchive(exp) {
@@ -674,7 +717,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                     {/* Expanded tranche detail */}
                     {expanded[exp.id] && (
                       <tr>
-                        <td colSpan={12} className="px-6 py-0 bg-gray-50">
+                        <td colSpan={14} className="px-6 py-0 bg-gray-50">
                           <div className="py-3">
                             {exp.tranches?.length > 0 ? (
                               <>
@@ -690,11 +733,18 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                                       <th className="px-3 py-1.5 text-left">Status</th>
                                       <th className="px-3 py-1.5 text-left">By</th>
                                       <th className="px-3 py-1.5 text-left">Date</th>
+                                      <th className="px-3 py-1.5 text-left" title="Mark-to-market vs forward inception rate (EUR)">MTM vs Inception</th>
+                                      <th className="px-3 py-1.5 text-left" title="Mark-to-market vs budget rate (EUR)">MTM vs Budget</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {exp.tranches.map(t => (
-                                      <TrancheRow key={t.id} tranche={t} ccy={exp.from_currency} />
+                                      <TrancheRow
+                                        key={t.id}
+                                        tranche={t}
+                                        ccy={exp.from_currency}
+                                        mtm={mtmData[exp.id]?.[t.id]}
+                                      />
                                     ))}
                                   </tbody>
                                 </table>
