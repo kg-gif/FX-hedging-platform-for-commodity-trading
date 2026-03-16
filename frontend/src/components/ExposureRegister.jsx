@@ -87,15 +87,17 @@ function HedgeBar({ pct }) {
   )
 }
 
-// Format a MTM value in EUR — green if positive, red if negative, grey dash if null
+// Format a MTM value in EUR — green (#10B981) if positive, red if negative, grey dash if null
 function MtmCell({ value }) {
   if (value == null) return <td className="px-3 py-2 text-gray-300">—</td>
-  const color = value >= 0 ? SUCCESS : DANGER
-  const sign  = value >= 0 ? '+' : ''
+  const n     = Number(value)   // coerce: guards against string values from API
+  if (isNaN(n)) return <td className="px-3 py-2 text-gray-300">—</td>
+  const color = n >= 0 ? '#10B981' : DANGER   // explicit hex — never GOLD/orange
+  const sign  = n >= 0 ? '+' : ''
   return (
     <td className="px-3 py-2 font-mono font-semibold whitespace-nowrap" style={{ color }}
       title="Mark-to-market value of this forward at today's spot rate (EUR)">
-      {sign}€{Math.abs(value).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+      {sign}€{Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}
     </td>
   )
 }

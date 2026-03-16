@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useCompany } from '../contexts/CompanyContext'
-import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, TrendingUp, Filter, X } from 'lucide-react'
+import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, TrendingUp, Filter, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import LoadingAnimation from './LoadingAnimation'
 
@@ -42,6 +42,285 @@ function StatusBadge({ status }) {
   return status ? <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${c}`}>{status}</span> : null
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+const fmtEur = (v) => {
+  if (v == null) return '—'
+  const n = Number(v)
+  if (isNaN(n)) return '—'
+  const sign = n >= 0 ? '+' : ''
+  return `${sign}€${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+}
+
+const mtmColor = (v) => {
+  const n = Number(v)
+  if (v == null || isNaN(n)) return '#9CA3AF'
+  return n >= 0 ? SUCCESS : DANGER
+}
+
+// Sortable column header for MTM table
+function SortTh({ col, label, sort, setSort, align = 'left' }) {
+  const active = sort.col === col
+  return (
+    <th
+      className={`px-3 py-2.5 text-xs font-semibold uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:opacity-80 text-${align}`}
+      style={{ color: NAVY }}
+      onClick={() => setSort({ col, dir: active && sort.dir === 'asc' ? 'desc' : 'asc' })}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active
+          ? sort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />
+          : <span style={{ width: 11, display: 'inline-block' }} />
+        }
+      </span>
+    </th>
+  )
+}
+
+// ── MTM Report component ───────────────────────────────────────────────────
+
+function MtmReport({ rows, loading, filterPair, setFilterPair, filterStatus, setFilterStatus,
+  filterFrom, setFilterFrom, filterTo, setFilterTo, page, setPage, sort, setSort, pageSize }) {
+
+  // Unique pairs for filter dropdown
+  const allPairs = useMemo(() => [...new Set(rows.map(r => r.currencyPair))].sort(), [rows])
+
+  // Apply filters
+  const filtered = useMemo(() => {
+    return rows.filter(r => {
+      if (filterPair   && r.currencyPair !== filterPair)   return false
+      if (filterStatus && r.status       !== filterStatus) return false
+      if (filterFrom   && r.valueDate    && r.valueDate < filterFrom) return false
+      if (filterTo     && r.valueDate    && r.valueDate > filterTo)   return false
+      return true
+    })
+  }, [rows, filterPair, filterStatus, filterFrom, filterTo])
+
+  // Apply sort
+  const sorted = useMemo(() => {
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const va = a[sort.col] ?? ''
+      const vb = b[sort.col] ?? ''
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir
+      return String(va).localeCompare(String(vb)) * dir
+    })
+  }, [filtered, sort])
+
+  // KPI totals (over ALL rows, not just current page)
+  const totalMtmInception = rows.reduce((s, r) => s + (Number(r.mtmVsInception) || 0), 0)
+  const totalMtmBudget    = rows.reduce((s, r) => s + (Number(r.mtmVsBudget)    || 0), 0)
+  const forwardsAtRisk    = rows.filter(r => Number(r.mtmVsBudget) < 0).length
+  const nextMaturity      = rows
+    .map(r => r.valueDate)
+    .filter(Boolean)
+    .sort()[0] || null
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const paginated  = sorted.slice((page - 1) * pageSize, page * pageSize)
+
+  const hasFilters = filterPair || filterStatus || filterFrom || filterTo
+  const resetFilters = () => {
+    setFilterPair(''); setFilterStatus(''); setFilterFrom(''); setFilterTo(''); setPage(1)
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-3 flex items-center gap-3" style={{ background: NAVY }}>
+        <TrendingUp size={15} color={GOLD} />
+        <h3 className="font-semibold text-white text-sm">Mark-to-Market Report</h3>
+        <span className="text-xs ml-auto" style={{ color: '#8DA4C4' }}>
+          Forward positions · Live spot rates · EUR equivalent
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center h-40">
+          <LoadingAnimation text="Loading MTM data…" size="medium" />
+        </div>
+      ) : (
+        <>
+          {/* KPI strip */}
+          <div className="grid grid-cols-4 gap-0 border-b border-gray-100">
+            {[
+              {
+                label: 'Total MTM vs Inception',
+                value: fmtEur(totalMtmInception),
+                color: mtmColor(totalMtmInception),
+                sub: 'All forward positions'
+              },
+              {
+                label: 'Total MTM vs Budget',
+                value: fmtEur(totalMtmBudget),
+                color: mtmColor(totalMtmBudget),
+                sub: 'vs original budget rates'
+              },
+              {
+                label: 'Forwards at Risk',
+                value: forwardsAtRisk,
+                color: forwardsAtRisk > 0 ? DANGER : SUCCESS,
+                sub: 'MTM vs budget negative'
+              },
+              {
+                label: 'Next Maturity',
+                value: nextMaturity || '—',
+                color: NAVY,
+                sub: 'Earliest value date'
+              },
+            ].map((kpi, i) => (
+              <div key={i} className="px-5 py-4 border-r border-gray-100 last:border-r-0">
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">{kpi.label}</p>
+                <p className="text-lg font-bold" style={{ color: kpi.color }}>{kpi.value}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{kpi.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Filters */}
+          <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3"
+            style={{ background: '#F9FAFB' }}>
+            <Filter size={13} className="text-gray-400 shrink-0" />
+
+            <select value={filterPair} onChange={e => { setFilterPair(e.target.value); setPage(1) }}
+              className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+              <option value="">All Pairs</option>
+              {allPairs.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+
+            <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
+              className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+              <option value="">All Statuses</option>
+              <option value="executed">Executed</option>
+              <option value="confirmed">Confirmed</option>
+            </select>
+
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs text-gray-500">Maturity from</label>
+              <input type="date" value={filterFrom}
+                onChange={e => { setFilterFrom(e.target.value); setPage(1) }}
+                className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs text-gray-500">to</label>
+              <input type="date" value={filterTo}
+                onChange={e => { setFilterTo(e.target.value); setPage(1) }}
+                className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs" />
+            </div>
+
+            {hasFilters && (
+              <button onClick={resetFilters}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1.5 border border-gray-200 rounded-lg">
+                <X size={11} /> Reset filters
+              </button>
+            )}
+
+            <span className="ml-auto text-xs text-gray-400">
+              {sorted.length} forward{sorted.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Table */}
+          {rows.length === 0 ? (
+            <div className="text-center py-12 text-sm text-gray-400">
+              No executed forward tranches found.
+            </div>
+          ) : sorted.length === 0 ? (
+            <div className="text-center py-12 text-sm text-gray-400">No results match your filters.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-100 text-xs">
+                <thead style={{ background: '#F4F6FA' }}>
+                  <tr>
+                    <SortTh col="currencyPair"  label="Pair"             sort={sort} setSort={setSort} />
+                    <SortTh col="description"   label="Description"      sort={sort} setSort={setSort} />
+                    <SortTh col="notional"      label="Notional"         sort={sort} setSort={setSort} align="right" />
+                    <SortTh col="inceptionRate" label="Inception Rate"   sort={sort} setSort={setSort} align="right" />
+                    <SortTh col="spotRate"      label="Spot Rate"        sort={sort} setSort={setSort} align="right" />
+                    <SortTh col="mtmVsInception" label="MTM vs Inception" sort={sort} setSort={setSort} align="right" />
+                    <SortTh col="mtmVsBudget"   label="MTM vs Budget"   sort={sort} setSort={setSort} align="right" />
+                    <SortTh col="valueDate"     label="Value Date"       sort={sort} setSort={setSort} />
+                    <SortTh col="status"        label="Status"           sort={sort} setSort={setSort} />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {paginated.map((r, i) => (
+                    <tr key={`${r.exposureId}-${r.trancheId}`} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{r.currencyPair}</td>
+                      <td className="px-3 py-2 text-gray-500 max-w-xs truncate">{r.description || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-right whitespace-nowrap text-gray-700">
+                        {r.notional ? r.notional.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—'}
+                        <span className="ml-1 text-gray-400">{r.fromCurrency}</span>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right whitespace-nowrap text-gray-600">
+                        {r.inceptionRate != null ? Number(r.inceptionRate).toFixed(4) : '—'}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-right whitespace-nowrap text-gray-600">
+                        {r.spotRate != null ? Number(r.spotRate).toFixed(4) : '—'}
+                      </td>
+                      <td className="px-3 py-2 font-mono font-semibold text-right whitespace-nowrap"
+                        style={{ color: mtmColor(r.mtmVsInception) }}
+                        title="Mark-to-market vs forward inception rate (EUR)">
+                        {fmtEur(r.mtmVsInception)}
+                      </td>
+                      <td className="px-3 py-2 font-mono font-semibold text-right whitespace-nowrap"
+                        style={{ color: mtmColor(r.mtmVsBudget) }}
+                        title="Mark-to-market vs budget rate (EUR)">
+                        {fmtEur(r.mtmVsBudget)}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-gray-600">{r.valueDate || '—'}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold
+                          ${r.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700'
+                          : r.status === 'executed'  ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-500'}`}>
+                          {r.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2 text-xs">
+              <span className="text-gray-400">Page {page} of {totalPages}</span>
+              <div className="ml-auto flex items-center gap-1">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">
+                  ← Prev
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                  <button key={p} onClick={() => setPage(p)}
+                    className="px-2.5 py-1.5 rounded border text-xs font-semibold"
+                    style={{
+                      background: p === page ? NAVY : 'white',
+                      color: p === page ? 'white' : '#6B7280',
+                      borderColor: p === page ? NAVY : '#E5E7EB'
+                    }}>
+                    {p}
+                  </button>
+                ))}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Main Reports component ─────────────────────────────────────────────────
+
 export default function Reports() {
   const { selectedCompanyId } = useCompany()
   const companyId = selectedCompanyId || 1
@@ -56,6 +335,17 @@ export default function Reports() {
   const [enrichedItems, setEnrichedItems]     = useState([])
   const [enrichedLoading, setEnrichedLoading] = useState(true)
   const [toast, setToast]                     = useState(null)
+
+  // MTM Report state
+  const [mtmRows, setMtmRows]         = useState([])   // flat list of all forward tranche MTM rows
+  const [mtmLoading, setMtmLoading]   = useState(true)
+  const [mtmFilterPair,   setMtmFilterPair]   = useState('')
+  const [mtmFilterStatus, setMtmFilterStatus] = useState('')
+  const [mtmFilterFrom,   setMtmFilterFrom]   = useState('')
+  const [mtmFilterTo,     setMtmFilterTo]     = useState('')
+  const [mtmPage, setMtmPage]         = useState(1)
+  const [mtmSort, setMtmSort]         = useState({ col: 'valueDate', dir: 'asc' })
+  const MTM_PAGE_SIZE = 15
 
   const showToast = useCallback((msg) => {
     setToast(msg)
@@ -82,10 +372,54 @@ export default function Reports() {
       const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
       if (res.ok) {
         const data = await res.json()
-        setEnrichedItems(Array.isArray(data) ? data : (data.items || []))
+        const items = Array.isArray(data) ? data : (data.items || [])
+        setEnrichedItems(items)
+        // Kick off MTM load now that we have exposure IDs
+        loadMtmReport(items)
       }
     } catch (e) { console.error('Failed to load enriched exposures', e) }
     finally { setEnrichedLoading(false) }
+  }
+
+  const loadMtmReport = async (exposures) => {
+    setMtmLoading(true)
+    setMtmRows([])
+    try {
+      // Fetch MTM data for each exposure in parallel; failures are silently skipped
+      const results = await Promise.allSettled(
+        exposures.map(exp =>
+          fetch(`${API_BASE}/api/tranches/mtm/${exp.id}`, { headers: authHeaders() })
+            .then(r => r.ok ? r.json() : null)
+        )
+      )
+
+      const flat = []
+      results.forEach((result, idx) => {
+        if (result.status !== 'fulfilled' || !result.value) return
+        const { tranches } = result.value
+        if (!tranches?.length) return
+        const exp = exposures[idx]
+        tranches.forEach(t => {
+          flat.push({
+            exposureId:      exp.id,
+            currencyPair:    exp.currency_pair,
+            description:     exp.description || '',
+            fromCurrency:    exp.from_currency,
+            trancheId:       t.tranche_id,
+            notional:        t.notional,
+            inceptionRate:   t.inception_rate,
+            budgetRate:      t.budget_rate,
+            spotRate:        t.current_spot,
+            mtmVsInception:  t.mtm_vs_inception_eur,
+            mtmVsBudget:     t.mtm_vs_budget_eur,
+            valueDate:       t.value_date,
+            status:          t.status,
+          })
+        })
+      })
+      setMtmRows(flat)
+    } catch (e) { console.error('Failed to load MTM report', e) }
+    finally { setMtmLoading(false) }
   }
 
   const loadTrail = async () => {
@@ -176,7 +510,7 @@ export default function Reports() {
     try {
       const hdrs = ['Pair', 'Policy Target %', 'Actual Hedge %', 'Status']
       const rows = enrichedItems.map(e => {
-        const target = (e.target_ratio ?? 0) * 100
+        const target = (e.zone_target_ratio ?? 0) * 100
         const actual = e.hedge_pct ?? 0
         const diff   = actual - target
         const status = Math.abs(diff) <= 5 ? 'ON TARGET' : diff < 0 ? 'UNDER' : 'OVER'
@@ -440,7 +774,7 @@ export default function Reports() {
           <div className="text-center py-10 text-sm text-gray-400">No active exposures found.</div>
         ) : (() => {
           const onTarget = enrichedItems.filter(e => {
-            const target = (e.target_ratio ?? 0) * 100
+            const target = (e.zone_target_ratio ?? 0) * 100
             return Math.abs((e.hedge_pct ?? 0) - target) <= 5
           }).length
           return (
@@ -457,7 +791,7 @@ export default function Reports() {
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {enrichedItems.map((e, i) => {
-                      const target = (e.target_ratio ?? 0) * 100
+                      const target = (e.zone_target_ratio ?? 0) * 100
                       const actual = e.hedge_pct ?? 0
                       const diff   = actual - target
                       const isBreached = e.status === 'BREACH'
@@ -500,34 +834,42 @@ export default function Reports() {
         })()}
       </div>
 
-      {/* Coming Soon */}
+      {/* ── MTM Report ──────────────────────────────────────────────────── */}
+      <MtmReport
+        rows={mtmRows}
+        loading={mtmLoading}
+        filterPair={mtmFilterPair}   setFilterPair={setMtmFilterPair}
+        filterStatus={mtmFilterStatus} setFilterStatus={setMtmFilterStatus}
+        filterFrom={mtmFilterFrom}   setFilterFrom={setMtmFilterFrom}
+        filterTo={mtmFilterTo}       setFilterTo={setMtmFilterTo}
+        page={mtmPage}               setPage={setMtmPage}
+        sort={mtmSort}               setSort={setMtmSort}
+        pageSize={MTM_PAGE_SIZE}
+      />
+
+      {/* Coming Soon — Maturity Schedule only */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-3 flex items-center gap-3" style={{ background: NAVY }}>
           <Clock size={15} color={GOLD} />
           <h3 className="font-semibold text-white text-sm">Coming Soon</h3>
         </div>
-        <div className="p-5 space-y-3">
-          {[
-            { icon: Calendar, title: 'Maturity Schedule',      desc: 'All upcoming hedge maturities with renewal recommendations' },
-            { icon: Clock,    title: 'Mark-to-Market Report',  desc: 'Daily MTM valuation of all open hedge positions' },
-          ].map(({ icon: Icon, title, desc }) => (
-            <div key={title} className="flex items-center justify-between py-3 px-4 border border-dashed border-gray-200 rounded-xl">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-                  style={{ background: 'rgba(26,39,68,0.06)' }}>
-                  <Icon size={14} color={NAVY} />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold" style={{ color: NAVY }}>{title}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
-                </div>
+        <div className="p-5">
+          <div className="flex items-center justify-between py-3 px-4 border border-dashed border-gray-200 rounded-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+                style={{ background: 'rgba(26,39,68,0.06)' }}>
+                <Calendar size={14} color={NAVY} />
               </div>
-              <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0"
-                style={{ background: 'rgba(201,168,108,0.12)', color: GOLD }}>
-                Coming soon
-              </span>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: NAVY }}>Maturity Schedule</p>
+                <p className="text-xs text-gray-400 mt-0.5">All upcoming hedge maturities with renewal recommendations</p>
+              </div>
             </div>
-          ))}
+            <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0"
+              style={{ background: 'rgba(201,168,108,0.12)', color: GOLD }}>
+              Coming soon
+            </span>
+          </div>
         </div>
       </div>
 
