@@ -98,6 +98,8 @@ async def get_currency_plan(company_id: int = Query(1), db: Session = Depends(ge
 
         actual_hedged  = sum(float(t._mapping["amount"] or 0) for t in tranche_rows)
         actual_hedge_ratio = (actual_hedged / total_amount) if total_amount > 0 else 0.0
+        pair = f"{from_ccy}/{to_ccy}"
+        print(f"[currency-plan] {pair}: hedged={actual_hedged:,.0f} total={total_amount:,.0f} pct={actual_hedge_ratio*100:.1f}%")
 
         # P&L: locked (crystallised) + floating (open portion vs current spot)
         locked_pnl = sum(
@@ -148,11 +150,15 @@ async def get_currency_plan(company_id: int = Query(1), db: Session = Depends(ge
         pm = policy_row._mapping
         active_policy = {
             "id":                    pm["id"],
-            "name":                  pm.get("name", "Balanced"),
+            "name":                  pm.get("policy_name") or pm.get("name") or "Balanced",
             "hedge_ratio_over_5m":   pm.get("hedge_ratio_over_5m", 0.85),
             "hedge_ratio_1m_to_5m":  pm.get("hedge_ratio_1m_to_5m", 0.65),
             "hedge_ratio_under_1m":  pm.get("hedge_ratio_under_1m", 0.45),
         }
+        print(f"[currency-plan] policy='{active_policy['name']}' "
+              f">5M={active_policy['hedge_ratio_over_5m']:.0%} "
+              f"1-5M={active_policy['hedge_ratio_1m_to_5m']:.0%} "
+              f"<1M={active_policy['hedge_ratio_under_1m']:.0%}")
 
     # ── Build recommendations (based on actual hedge ratio vs policy target) ─
     recommendations = []

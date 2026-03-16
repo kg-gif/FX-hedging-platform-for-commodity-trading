@@ -204,8 +204,10 @@ def generate_currency_plan_pdf(
         # Use base-currency amount if pre-computed; otherwise fall back to raw amount
         total_exp_base += float(exp.get('amount_in_base') or exp.get('amount', 0) or 0)
 
-        # Use actual hedge ratio from tranches if available
-        hr = float(exp.get('actual_hedge_ratio') or exp.get('hedge_ratio_policy', 0) or 0)
+        # Use actual hedge ratio from tranches if available — explicit None check
+        # because 0.0 is valid (no hedges) but Python `or` treats 0.0 as falsy
+        _ahr = exp.get('actual_hedge_ratio')
+        hr = float(_ahr if _ahr is not None else (exp.get('hedge_ratio_policy', 0) or 0))
         hedge_ratios.append(hr * 100)
 
         if pnl < -50000:
@@ -273,8 +275,9 @@ def generate_currency_plan_pdf(
         br         = exp.get('budget_rate', 0) or 0
         cr         = exp.get('current_rate', 0) or 0
         pnl        = exp.get('pnl', 0) or 0
-        # Use actual hedge ratio from tranches; fall back to policy field
-        hr_pct     = float(exp.get('actual_hedge_ratio') or exp.get('hedge_ratio_policy', 0) or 0) * 100
+        # Use actual hedge ratio from tranches; explicit None check (0.0 is valid)
+        _ahr = exp.get('actual_hedge_ratio')
+        hr_pct = float(_ahr if _ahr is not None else (exp.get('hedge_ratio_policy', 0) or 0)) * 100
         rec        = rec_lookup.get(exp.get('id'), {})
         target     = float(rec.get('target_hedge_ratio', 0) or 0) * 100
         instrument = rec.get('instrument', '3-month forward')

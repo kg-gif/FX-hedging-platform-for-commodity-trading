@@ -622,6 +622,16 @@ async def get_recommendations(
     db: Session = Depends(get_db),
     payload: dict = Depends(get_token_payload)
 ):
+    try:
+        return await _get_recommendations_impl(company_id, db, payload)
+    except Exception as e:
+        print(f"[recommendations] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+async def _get_recommendations_impl(company_id: int, db, payload: dict):
     from sqlalchemy import text
     safe_id = resolve_company_id(company_id, payload)
 
@@ -704,6 +714,7 @@ async def get_recommendations(
                 "base_ratio":         base_ratio,
             })
 
+    print(f"[recommendations] company={safe_id} policy={p.get('policy_name','?')} found {len(recommendations)} recs")
     return {"company_id": safe_id, "policy": p["policy_name"], "recommendations": recommendations}
 
 
