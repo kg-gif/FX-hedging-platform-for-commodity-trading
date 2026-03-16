@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useCompany } from '../contexts/CompanyContext'
 import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, TrendingUp, Filter, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
+import LoadingAnimation from './LoadingAnimation'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 const authHeaders = () => ({
@@ -50,6 +51,12 @@ export default function Reports() {
   const [events, setEvents]                   = useState([])
   const [loading, setLoading]                 = useState(true)
   const [pairs, setPairs]                     = useState([])
+  const [toast, setToast]                     = useState(null)
+
+  const showToast = useCallback((msg) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 4000)
+  }, [])
 
   // Filters
   const [filterPair,        setFilterPair]        = useState('')
@@ -84,6 +91,7 @@ export default function Reports() {
 
   const handleDownloadPDF = async () => {
     setDownloading(true)
+    showToast('Your export is being prepared. It will download automatically.')
     try {
       const res = await fetch(`${API_BASE}/api/reports/currency-plan?company_id=${companyId}`, { headers: authHeaders() })
       if (!res.ok) throw new Error('Failed')
@@ -99,6 +107,7 @@ export default function Reports() {
 
   const handleDownloadCSV = async () => {
     setCsvLoading(true)
+    showToast('Your export is being prepared. It will download automatically.')
     try {
       const params = new URLSearchParams({ company_id: companyId, include_deleted: showDeleted })
       if (filterPair)     params.set('currency_pair', filterPair)
@@ -140,9 +149,11 @@ export default function Reports() {
           </div>
           <button onClick={handleDownloadPDF} disabled={downloading}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50"
-            style={{ background: GOLD, color: NAVY }}>
-            <FileText size={14} />
-            {downloading ? 'Generating...' : 'Currency Plan PDF'}
+            style={{ background: GOLD, color: NAVY, minWidth: 170 }}>
+            {downloading
+              ? <LoadingAnimation text="Generating report" size="small" />
+              : <><FileText size={14} /> Currency Plan PDF</>
+            }
           </button>
         </div>
       </div>
@@ -194,9 +205,11 @@ export default function Reports() {
             <span className="text-xs text-gray-400">{displayed.length} events</span>
             <button onClick={handleDownloadCSV} disabled={csvLoading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
-              style={{ background: NAVY, color: 'white' }}>
-              <Download size={12} />
-              {csvLoading ? 'Downloading...' : 'Export CSV'}
+              style={{ background: NAVY, color: 'white', minWidth: 110 }}>
+              {csvLoading
+                ? <LoadingAnimation text="Generating report" size="small" />
+                : <><Download size={12} /> Export CSV</>
+              }
             </button>
           </div>
         </div>
@@ -211,7 +224,7 @@ export default function Reports() {
 
         {loading ? (
           <div className="flex items-center justify-center h-40">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: GOLD }} />
+            <LoadingAnimation text="Loading audit trail…" size="medium" />
           </div>
         ) : displayed.length === 0 ? (
           <div className="text-center py-12">
@@ -309,6 +322,21 @@ export default function Reports() {
           ))}
         </div>
       </div>
+
+      {/* Toast notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+          background: NAVY, color: 'white', borderRadius: 10,
+          padding: '12px 20px', fontSize: 13, fontWeight: 500,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+          display: 'flex', alignItems: 'center', gap: 10, maxWidth: 360,
+          borderLeft: `4px solid ${GOLD}`,
+        }}>
+          <Download size={14} color={GOLD} style={{ flexShrink: 0 }} />
+          {toast}
+        </div>
+      )}
 
     </div>
   )
