@@ -893,18 +893,31 @@ async def get_simulator(
             "current_scenario": None,
         }
 
-    # Build rate fetch list: exposure pairs + {from_currency}/{base_currency} for conversion
-    exp_pairs = list(dict.fromkeys([
+    # Build rate fetch list: exposure pairs only (cross-rate conversion uses USD pivot below)
+    exp_pairs  = list(dict.fromkeys([
         f"{e._mapping['from_currency']}/{e._mapping['to_currency']}"
         for e in exposures
     ]))
-    conv_pairs = list(dict.fromkeys([
-        f"{e._mapping['from_currency']}/{base_currency}"
-        for e in exposures
+    live_rates = await get_current_rates(exp_pairs)
+
+    # Fetch USD rates for all currencies needed for base_currency conversion (USD pivot)
+    unique_from_ccys = list(dict.fromkeys([
+        e._mapping["from_currency"] for e in exposures
         if e._mapping["from_currency"] != base_currency
     ]))
-    all_pairs  = list(dict.fromkeys(exp_pairs + conv_pairs))
-    live_rates = await get_current_rates(all_pairs)
+    ccys_for_usd = list(dict.fromkeys(
+        unique_from_ccys + ([base_currency] if base_currency != "USD" else [])
+    ))
+    usd_rate_map: dict = {}
+    if ccys_for_usd:
+        usd_results = await asyncio.gather(
+            *[fetch_fx_rate(ccy, "USD") for ccy in ccys_for_usd],
+            return_exceptions=True
+        )
+        for ccy, rate_val in zip(ccys_for_usd, usd_results):
+            if not isinstance(rate_val, Exception) and rate_val is not None:
+                usd_rate_map[ccy] = float(rate_val)
+    base_usd = usd_rate_map.get(base_currency, 1.0) if base_currency != "USD" else 1.0
 
     # Fetch executed/confirmed tranches for all exposures in one query
     exp_ids = [e._mapping["id"] for e in exposures]
@@ -961,27 +974,37 @@ async def get_simulator(
         open_amount   = max(total_amount - hedged_amount, 0)
         hedge_ratio   = (hedged_amount / total_amount) if total_amount > 0 else 0
 
-        # Locked P&L is independent of the shocked rate (already crystallised)
-        locked_pnl = sum(
+        # Direction sign: receivable (SELL) gains when rate goes UP; payable (BUY) loses.
+        # Check exposure_type first ("payable"/"receivable"), then direction ("Buy"/"Sell").
+        exp_type_raw   = (exp.get("exposure_type") or "").lower()
+        direction_raw  = (exp.get("direction") or "").lower()
+        if exp_type_raw in ("receivable", "receive", "sell"):
+            direction_sign = +1
+        elif exp_type_raw in ("payable", "pay", "buy"):
+            direction_sign = -1
+        elif direction_raw == "sell":
+            direction_sign = +1   # Sell = receivable
+        else:
+            direction_sign = -1   # Buy / default = payable
+
+        # Locked P&L — already crystallised from executed tranches.
+        # Apply direction_sign so payable and receivable P&L have consistent sign convention.
+        locked_pnl = direction_sign * sum(
             (float(t["rate"] or budget_rate or 0) - (budget_rate or 0)) * float(t["amount"] or 0)
             for t in tranches
         )
 
-        # Direction sign: receivable benefits from rate going UP, payable is hurt by it
-        direction     = (exp.get("exposure_type") or exp.get("direction") or "payable").lower()
-        direction_sign = -1 if direction == "payable" else +1
-
-        # Conversion rate to base_currency (for final aggregation)
+        # Conversion rate to base_currency — USD pivot avoids stale/inverted cross-rates.
+        # from_ccy/base = (from_ccy/USD) / (base/USD)
         if from_ccy == base_currency:
             to_base_rate = 1.0
+        elif from_ccy == "USD":
+            to_base_rate = (1.0 / base_usd) if base_usd else None
         else:
-            conv_pair = f"{from_ccy}/{base_currency}"
-            conv_info = live_rates.get(conv_pair)
-            if conv_info and conv_info.get("rate"):
-                to_base_rate = float(conv_info["rate"])
-            else:
-                print(f"[simulator] WARNING: no conversion rate {conv_pair}, excluding from totals")
-                to_base_rate = None  # will be excluded from aggregation
+            from_usd = usd_rate_map.get(from_ccy)
+            to_base_rate = (from_usd / base_usd) if (from_usd and base_usd) else None
+            if to_base_rate is None:
+                print(f"[simulator] WARNING: no USD rate for {from_ccy}, excluding from totals")
 
         exp_data.append({
             "id":            exp["id"],

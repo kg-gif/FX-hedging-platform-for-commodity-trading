@@ -676,27 +676,36 @@ async def get_enriched_exposures(
         })
 
     # ── Portfolio totals — convert all active exposure amounts to base_currency ──
-    # Fetch conversion rates fresh from the API (bypassing DB cache) to avoid stale
-    # or direction-inverted rates.  fetch_fx_rate(A, B) → "how many B per 1 A" which
-    # is exactly what we need for:  amount_in_A × rate = amount_in_B  (base_currency).
-    fresh_conv_rates: dict = {}
+    # Use USD as pivot to avoid stale or direction-inverted direct cross-rates.
+    # Formula: from_ccy_per_base = from_ccy_USD / base_USD
+    #          converted = amount × from_ccy_per_base
+    # e.g. GBP→EUR: GBP/USD=1.27, EUR/USD=1.10 → GBP/EUR = 1.27/1.10 = 1.154
+    import asyncio as _asyncio
+
     unique_from_ccys = list(dict.fromkeys([
         item["from_currency"]
         for item in result
         if not item.get("archived") and item["from_currency"] != base_currency
     ]))
-    if unique_from_ccys:
-        import asyncio as _asyncio
-        fresh_results = await _asyncio.gather(
-            *[fetch_fx_rate(ccy, base_currency) for ccy in unique_from_ccys],
+
+    # Currencies whose USD rate we need: all non-base from_ccys + base_currency (if not USD)
+    ccys_for_usd = list(dict.fromkeys(
+        unique_from_ccys + ([base_currency] if base_currency != "USD" else [])
+    ))
+    usd_rate_map: dict = {}  # {currency: how_many_USD_per_1_unit}
+    if ccys_for_usd:
+        usd_results = await _asyncio.gather(
+            *[fetch_fx_rate(ccy, "USD") for ccy in ccys_for_usd],
             return_exceptions=True
         )
-        for ccy, rate_val in zip(unique_from_ccys, fresh_results):
+        for ccy, rate_val in zip(ccys_for_usd, usd_results):
             if isinstance(rate_val, Exception) or rate_val is None:
-                print(f"[portfolio] WARNING: could not fetch fresh rate for {ccy}/{base_currency}")
+                print(f"[portfolio] WARNING: could not fetch {ccy}/USD")
             else:
-                fresh_conv_rates[ccy] = float(rate_val)
-                print(f"[portfolio] fresh rate {ccy}/{base_currency} = {rate_val:.6f}")
+                usd_rate_map[ccy] = float(rate_val)
+                print(f"[portfolio] {ccy}/USD = {rate_val:.6f}")
+
+    base_usd = usd_rate_map.get(base_currency, 1.0) if base_currency != "USD" else 1.0
 
     portfolio_total_base  = 0.0
     portfolio_hedged_base = 0.0
@@ -706,30 +715,22 @@ async def get_enriched_exposures(
         from_ccy = item["from_currency"]
         total    = item.get("total_amount") or 0.0
         hedged   = item.get("hedged_amount") or 0.0
+
         if from_ccy == base_currency:
-            converted = total
-            portfolio_total_base  += total
-            portfolio_hedged_base += hedged
-            print(f"[conversion] {item.get('currency_pair','?')}: {total:,.0f} {from_ccy} (same as base) = {total:,.0f} {base_currency}")
+            rate = 1.0
+        elif from_ccy == "USD":
+            rate = (1.0 / base_usd) if base_usd else None
         else:
-            rate = fresh_conv_rates.get(from_ccy)
-            if rate:
-                converted = total * rate
-                portfolio_total_base  += converted
-                portfolio_hedged_base += hedged * rate
-                print(f"[conversion] {item.get('currency_pair','?')}: {total:,.0f} {from_ccy} × {rate:.6f} = {converted:,.0f} {base_currency}")
-            else:
-                # Fall back to cached rate if fresh fetch failed
-                conv_pair = f"{from_ccy}/{base_currency}"
-                rate_info = live_rates.get(conv_pair)
-                if rate_info and rate_info.get("rate"):
-                    rate = float(rate_info["rate"])
-                    converted = total * rate
-                    portfolio_total_base  += converted
-                    portfolio_hedged_base += hedged * rate
-                    print(f"[conversion] {item.get('currency_pair','?')}: {total:,.0f} {from_ccy} × {rate:.6f} (cached) = {converted:,.0f} {base_currency}")
-                else:
-                    print(f"[portfolio] WARNING: no rate for {from_ccy}/{base_currency}, excluding from total")
+            from_usd = usd_rate_map.get(from_ccy)
+            rate = (from_usd / base_usd) if (from_usd and base_usd) else None
+
+        if rate is not None:
+            converted = total * rate
+            portfolio_total_base  += converted
+            portfolio_hedged_base += hedged * rate
+            print(f"[conversion] {item.get('currency_pair','?')}: {total:,.0f} {from_ccy} × {rate:.6f} = {converted:,.0f} {base_currency}")
+        else:
+            print(f"[portfolio] WARNING: no USD rate for {from_ccy}, excluding from total")
 
     protection_pct = (portfolio_hedged_base / portfolio_total_base * 100) if portfolio_total_base > 0 else 0.0
 

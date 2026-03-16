@@ -48,9 +48,13 @@ export default function Reports() {
 
   const [downloading, setDownloading]         = useState(false)
   const [csvLoading, setCsvLoading]           = useState(false)
+  const [pnlCsvLoading, setPnlCsvLoading]     = useState(false)
+  const [compCsvLoading, setCompCsvLoading]   = useState(false)
   const [events, setEvents]                   = useState([])
   const [loading, setLoading]                 = useState(true)
   const [pairs, setPairs]                     = useState([])
+  const [enrichedItems, setEnrichedItems]     = useState([])
+  const [enrichedLoading, setEnrichedLoading] = useState(true)
   const [toast, setToast]                     = useState(null)
 
   const showToast = useCallback((msg) => {
@@ -66,8 +70,23 @@ export default function Reports() {
   const [showDeleted,       setShowDeleted]        = useState(true)
 
   useEffect(() => {
-    if (companyId) loadTrail()
+    if (companyId) {
+      loadTrail()
+      loadEnriched()
+    }
   }, [companyId, filterPair, filterFromDate, filterToDate, showDeleted])
+
+  const loadEnriched = async () => {
+    setEnrichedLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
+      if (res.ok) {
+        const data = await res.json()
+        setEnrichedItems(Array.isArray(data) ? data : (data.items || []))
+      }
+    } catch (e) { console.error('Failed to load enriched exposures', e) }
+    finally { setEnrichedLoading(false) }
+  }
 
   const loadTrail = async () => {
     setLoading(true)
@@ -123,6 +142,48 @@ export default function Reports() {
       window.URL.revokeObjectURL(url)
     } catch { alert('Failed to download CSV.') }
     finally { setCsvLoading(false) }
+  }
+
+  const downloadCsv = (filename, headers, rows) => {
+    const lines = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))]
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+    const url  = window.URL.createObjectURL(blob)
+    const a    = document.createElement('a'); a.href = url
+    a.download = filename; document.body.appendChild(a); a.click(); a.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const handleDownloadPnlCsv = () => {
+    setPnlCsvLoading(true)
+    try {
+      const hdrs = ['Pair', 'Total Amount', 'Hedge %', 'Budget Rate', 'Current Rate', 'Locked P&L', 'Floating P&L', 'Combined P&L']
+      const rows = enrichedItems.map(e => [
+        e.currency_pair,
+        e.total_amount,
+        (e.hedge_pct ?? 0).toFixed(1) + '%',
+        (e.budget_rate ?? 0).toFixed(4),
+        (e.current_spot ?? 0).toFixed(4),
+        (e.locked_pnl ?? 0).toFixed(2),
+        (e.floating_pnl ?? 0).toFixed(2),
+        (e.combined_pnl ?? 0).toFixed(2),
+      ])
+      downloadCsv(`pnl-summary-${new Date().toISOString().split('T')[0]}.csv`, hdrs, rows)
+    } finally { setPnlCsvLoading(false) }
+  }
+
+  const handleDownloadComplianceCsv = () => {
+    setCompCsvLoading(true)
+    try {
+      const hdrs = ['Pair', 'Policy Target %', 'Actual Hedge %', 'Status']
+      const rows = enrichedItems.map(e => {
+        const target = (e.target_ratio ?? 0) * 100
+        const actual = e.hedge_pct ?? 0
+        const diff   = actual - target
+        const status = Math.abs(diff) <= 5 ? 'ON TARGET' : diff < 0 ? 'UNDER' : 'OVER'
+        return [e.currency_pair, target.toFixed(0) + '%', actual.toFixed(1) + '%', status]
+      })
+      downloadCsv(`policy-compliance-${new Date().toISOString().split('T')[0]}.csv`, hdrs, rows)
+    } finally { setCompCsvLoading(false) }
   }
 
   const clearFilters = () => {
@@ -290,18 +351,165 @@ export default function Reports() {
         )}
       </div>
 
+      {/* P&L Summary Report */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
+          <div className="flex items-center gap-3">
+            <TrendingUp size={15} color={GOLD} />
+            <h3 className="font-semibold text-white text-sm">P&L Summary Report</h3>
+          </div>
+          <button onClick={handleDownloadPnlCsv} disabled={pnlCsvLoading || enrichedLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+            style={{ background: GOLD, color: NAVY, minWidth: 110 }}>
+            {pnlCsvLoading
+              ? <LoadingAnimation text="Generating report" size="small" />
+              : <><Download size={12} /> Export CSV</>
+            }
+          </button>
+        </div>
+        {enrichedLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <LoadingAnimation text="Loading P&L data…" size="medium" />
+          </div>
+        ) : enrichedItems.length === 0 ? (
+          <div className="text-center py-10 text-sm text-gray-400">No active exposures found.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm divide-y divide-gray-100">
+              <thead style={{ background: '#F4F6FA' }}>
+                <tr>
+                  {['Pair', 'Total Amount', 'Hedge %', 'Budget Rate', 'Current Rate', 'Locked P&L', 'Floating P&L', 'Combined P&L'].map(h => (
+                    <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                      style={{ color: NAVY }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {enrichedItems.map((e, i) => {
+                  const combined = e.combined_pnl ?? 0
+                  const pnlColor = combined >= 0 ? SUCCESS : DANGER
+                  return (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-3 py-2.5 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{e.currency_pair}</td>
+                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">{fmt(e.total_amount)} {e.from_currency}</td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap">{(e.hedge_pct ?? 0).toFixed(1)}%</td>
+                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">{(e.budget_rate ?? 0).toFixed(4)}</td>
+                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap">{(e.current_spot ?? 0).toFixed(4)}</td>
+                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap"
+                        style={{ color: (e.locked_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
+                        {(e.locked_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.locked_pnl)}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-right whitespace-nowrap"
+                        style={{ color: (e.floating_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
+                        {(e.floating_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.floating_pnl)}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-right font-bold whitespace-nowrap"
+                        style={{ color: pnlColor }}>
+                        {combined >= 0 ? '+' : ''}{fmt(combined)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Policy Compliance Report */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
+          <div className="flex items-center gap-3">
+            <CheckCircle size={15} color={GOLD} />
+            <h3 className="font-semibold text-white text-sm">Policy Compliance Report</h3>
+          </div>
+          <button onClick={handleDownloadComplianceCsv} disabled={compCsvLoading || enrichedLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+            style={{ background: GOLD, color: NAVY, minWidth: 110 }}>
+            {compCsvLoading
+              ? <LoadingAnimation text="Generating report" size="small" />
+              : <><Download size={12} /> Export CSV</>
+            }
+          </button>
+        </div>
+        {enrichedLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <LoadingAnimation text="Loading compliance data…" size="medium" />
+          </div>
+        ) : enrichedItems.length === 0 ? (
+          <div className="text-center py-10 text-sm text-gray-400">No active exposures found.</div>
+        ) : (() => {
+          const onTarget = enrichedItems.filter(e => {
+            const target = (e.target_ratio ?? 0) * 100
+            return Math.abs((e.hedge_pct ?? 0) - target) <= 5
+          }).length
+          return (
+            <div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm divide-y divide-gray-100">
+                  <thead style={{ background: '#F4F6FA' }}>
+                    <tr>
+                      {['Pair', 'Policy Target %', 'Actual Hedge %', 'Gap', 'Status'].map(h => (
+                        <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                          style={{ color: NAVY }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {enrichedItems.map((e, i) => {
+                      const target = (e.target_ratio ?? 0) * 100
+                      const actual = e.hedge_pct ?? 0
+                      const diff   = actual - target
+                      const isBreached = e.status === 'BREACH'
+                      let statusLabel, statusStyle
+                      if (isBreached) {
+                        statusLabel = 'BREACH'; statusStyle = { background: '#FEE2E2', color: DANGER }
+                      } else if (Math.abs(diff) <= 5) {
+                        statusLabel = 'ON TARGET'; statusStyle = { background: '#D1FAE5', color: SUCCESS }
+                      } else if (diff < 0) {
+                        statusLabel = 'UNDER'; statusStyle = { background: '#FEF3C7', color: '#92400E' }
+                      } else {
+                        statusLabel = 'OVER'; statusStyle = { background: '#EDE9FE', color: '#5B21B6' }
+                      }
+                      return (
+                        <tr key={i} className="hover:bg-gray-50">
+                          <td className="px-3 py-2.5 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{e.currency_pair}</td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap">{target.toFixed(0)}%</td>
+                          <td className="px-3 py-2.5 text-right font-semibold whitespace-nowrap">{actual.toFixed(1)}%</td>
+                          <td className="px-3 py-2.5 text-right whitespace-nowrap"
+                            style={{ color: diff >= 0 ? SUCCESS : DANGER }}>
+                            {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
+                          </td>
+                          <td className="px-3 py-2.5 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={statusStyle}>
+                              {statusLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-5 py-3 border-t border-gray-100 text-sm text-gray-500">
+                <span className="font-semibold" style={{ color: NAVY }}>{onTarget}</span> of{' '}
+                <span className="font-semibold" style={{ color: NAVY }}>{enrichedItems.length}</span> exposures within policy target
+              </div>
+            </div>
+          )
+        })()}
+      </div>
+
       {/* Coming Soon */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-3 flex items-center gap-3" style={{ background: NAVY }}>
-          <TrendingUp size={15} color={GOLD} />
+          <Clock size={15} color={GOLD} />
           <h3 className="font-semibold text-white text-sm">Coming Soon</h3>
         </div>
         <div className="p-5 space-y-3">
           {[
-            { icon: TrendingUp,  title: 'P&L Report',                 desc: 'Realised and unrealised P&L vs budget rate across all exposures and periods' },
-            { icon: CheckCircle, title: 'Hedge Effectiveness Report',  desc: 'How well your hedges protected against actual market moves' },
-            { icon: Calendar,    title: 'Maturity Schedule',           desc: 'All upcoming hedge maturities with renewal recommendations' },
-            { icon: Clock,       title: 'Mark-to-Market Report',       desc: 'Daily MTM valuation of all open hedge positions' },
+            { icon: Calendar, title: 'Maturity Schedule',      desc: 'All upcoming hedge maturities with renewal recommendations' },
+            { icon: Clock,    title: 'Mark-to-Market Report',  desc: 'Daily MTM valuation of all open hedge positions' },
           ].map(({ icon: Icon, title, desc }) => (
             <div key={title} className="flex items-center justify-between py-3 px-4 border border-dashed border-gray-200 rounded-xl">
               <div className="flex items-center gap-3">

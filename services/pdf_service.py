@@ -65,23 +65,24 @@ def get_claude_narrative(exp: dict, policy_name: str, rec: dict) -> str:
         )
 
 
-def get_portfolio_narrative(summary: dict, policy_name: str, breach_count: int) -> str:
+def get_portfolio_narrative(summary: dict, policy_name: str, breach_count: int, base_currency: str = "USD") -> str:
+    ccy = base_currency
     try:
         pnl = summary['total_pnl']
-        pnl_str = f"+${abs(pnl):,.0f}" if pnl >= 0 else f"-${abs(pnl):,.0f}"
+        pnl_str = f"+{ccy} {abs(pnl):,.0f}" if pnl >= 0 else f"-{ccy} {abs(pnl):,.0f}"
 
         prompt = (
             f"You are a senior FX risk analyst writing an executive summary for a CFO.\n\n"
             f"Portfolio overview:\n"
             f"- Total FX exposures: {summary['total_exposures']}\n"
-            f"- Total exposure value: ${summary['total_exposure_usd']:,.0f}\n"
+            f"- Total exposure value: {ccy} {summary['total_exposure_base']:,.0f}\n"
             f"- Total P&L: {pnl_str}\n"
             f"- Active policy: {policy_name}\n"
             f"- Exposures in breach: {breach_count}\n"
             f"- Average hedge coverage: {summary['avg_hedge_ratio']:.0f}%\n\n"
             f"Write exactly 3 sentences covering overall portfolio health, "
             f"the key risk concern, and the recommended priority action. "
-            f"Quantify risks where possible.\n\n"
+            f"Quantify risks where possible. Use {ccy} as the currency symbol.\n\n"
             f"CRITICAL: Do not use any markdown formatting. No asterisks, no hash symbols, "
             f"no bold, no headers. Plain sentences only."
         )
@@ -96,10 +97,10 @@ def get_portfolio_narrative(summary: dict, policy_name: str, breach_count: int) 
 
     except Exception:
         pnl = summary['total_pnl']
-        pnl_str = f"+{abs(pnl):,.0f}" if pnl >= 0 else f"-{abs(pnl):,.0f}"
+        pnl_str = f"+{ccy} {abs(pnl):,.0f}" if pnl >= 0 else f"-{ccy} {abs(pnl):,.0f}"
         return (
             f"Your FX portfolio comprises {summary['total_exposures']} active exposures "
-            f"with a total value of {summary['total_exposure_usd']:,.0f}. "
+            f"with a total value of {ccy} {summary['total_exposure_base']:,.0f}. "
             f"The portfolio shows a total P&L of {pnl_str} under your {policy_name} policy. "
             f"Priority attention is required for the {breach_count} exposure(s) currently in breach."
         )
@@ -190,22 +191,28 @@ def generate_currency_plan_pdf(
     hedge_ratios   = []
 
     for exp in exposures:
-        amt = exp.get('amount', 0) or 0
-        br  = exp.get('budget_rate', 1) or 1
-        cr  = exp.get('current_rate', 1) or 1
-        hr  = exp.get('hedge_ratio_policy', 0) or 0
-        pnl = (cr - br) * amt
+        # Use pre-computed P&L (locked + floating) if available; fall back to simple calc
+        pnl = exp.get('pnl') if exp.get('pnl') is not None else (
+            (float(exp.get('current_rate', 0) or 0) - float(exp.get('budget_rate', 0) or 0))
+            * float(exp.get('amount', 0) or 0)
+        )
         exp['pnl'] = pnl
-        total_pnl      += pnl
-        total_exp_base += amt * cr
-        hedge_ratios.append(float(hr) * 100)
+        total_pnl += pnl
+
+        # Use base-currency amount if pre-computed; otherwise fall back to raw amount
+        total_exp_base += float(exp.get('amount_in_base') or exp.get('amount', 0) or 0)
+
+        # Use actual hedge ratio from tranches if available
+        hr = float(exp.get('actual_hedge_ratio') or exp.get('hedge_ratio_policy', 0) or 0)
+        hedge_ratios.append(hr * 100)
+
         if pnl < -50000:
             breach_count += 1
 
     avg_hr = sum(hedge_ratios) / len(hedge_ratios) if hedge_ratios else 0
     summary = {
         'total_exposures':    len(exposures),
-        'total_exposure_usd': total_exp_base,
+        'total_exposure_base': total_exp_base,
         'total_pnl':          total_pnl,
         'avg_hedge_ratio':    avg_hr,
     }
@@ -224,7 +231,7 @@ def generate_currency_plan_pdf(
         ['Portfolio P&L',           pnl_disp],
         ['Average Hedge Coverage',  f"{avg_hr:.0f}%"],
         ['Active Policy',           policy_name],
-        ['Exposures in Breach',     str(breach_count)],
+        ['Exposures Requiring Action', str(breach_count)],
     ]
     mt = Table(metrics, colWidths=[95 * mm, 79 * mm])
     mt.setStyle(TableStyle([
@@ -244,7 +251,7 @@ def generate_currency_plan_pdf(
 
     story.append(Paragraph("Portfolio Risk Assessment", heading2))
     story.append(Paragraph(
-        get_portfolio_narrative(summary, policy_name, breach_count), body))
+        get_portfolio_narrative(summary, policy_name, breach_count, base_currency), body))
 
     # ── PER-EXPOSURE RECOMMENDATIONS ─────────────────────────────────────────
     story.append(PageBreak())
@@ -264,7 +271,8 @@ def generate_currency_plan_pdf(
         br         = exp.get('budget_rate', 0) or 0
         cr         = exp.get('current_rate', 0) or 0
         pnl        = exp.get('pnl', 0) or 0
-        hr_pct     = float(exp.get('hedge_ratio_policy', 0) or 0) * 100
+        # Use actual hedge ratio from tranches; fall back to policy field
+        hr_pct     = float(exp.get('actual_hedge_ratio') or exp.get('hedge_ratio_policy', 0) or 0) * 100
         rec        = rec_lookup.get(exp.get('id'), {})
         target     = float(rec.get('target_hedge_ratio', 0) or 0) * 100
         instrument = rec.get('instrument', '3-month forward')
