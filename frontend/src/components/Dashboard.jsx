@@ -20,6 +20,165 @@ const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0
 const fmtM    = (n) => `${(Math.abs(n) / 1_000_000).toFixed(1)}M`
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 
+// ── Portfolio Summary Strip ───────────────────────────────────────────────────
+
+function PortfolioSummaryStrip({ summary, loading }) {
+  // Format a EUR amount compactly: ±€1.2M  or  ±€842K
+  const fmtEur = (v) => {
+    if (v == null) return '—'
+    const n = Number(v)
+    if (isNaN(n)) return '—'
+    const sign = n >= 0 ? '+' : '-'
+    const abs  = Math.abs(n)
+    if (abs >= 1_000_000) return `${sign}€${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${sign}€${(abs / 1_000).toFixed(0)}K`
+    return `${sign}€${abs.toFixed(0)}`
+  }
+  const fmtEurPlain = (v) => {
+    if (v == null) return '—'
+    const abs = Math.abs(Number(v))
+    if (isNaN(abs)) return '—'
+    if (abs >= 1_000_000) return `€${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `€${(abs / 1_000).toFixed(0)}K`
+    return `€${abs.toFixed(0)}`
+  }
+  const pnlColor = (v) => {
+    if (v == null) return 'white'
+    return Number(v) >= 0 ? '#10B981' : '#EF4444'
+  }
+
+  // Format next maturity notional
+  const fmtNotional = (n, ccy) => {
+    if (n == null) return '—'
+    const abs = Math.abs(Number(n))
+    if (abs >= 1_000_000) return `${ccy} ${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${ccy} ${(abs / 1_000).toFixed(0)}K`
+    return `${ccy} ${abs.toFixed(0)}`
+  }
+  const fmtValueDate = (s) => {
+    if (!s) return '—'
+    const d = new Date(s)
+    if (isNaN(d)) return s
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
+  const fmtTranchId = (id) => `TRN-${String(id).padStart(5, '0')}`
+
+  // Skeleton shimmer card
+  const Skeleton = () => (
+    <div className="flex-1 min-w-0 animate-pulse" style={{ minWidth: 100 }}>
+      <div className="h-2.5 w-16 rounded mb-3" style={{ background: 'rgba(255,255,255,0.15)' }} />
+      <div className="h-6 w-24 rounded mb-1.5" style={{ background: 'rgba(255,255,255,0.2)' }} />
+      <div className="h-2 w-12 rounded" style={{ background: 'rgba(255,255,255,0.1)' }} />
+    </div>
+  )
+
+  const nm = summary?.next_maturity
+
+  const cards = loading ? null : [
+    {
+      label: 'Total Exposure',
+      value: fmtEurPlain(summary?.total_exposure_eur),
+      color: 'white',
+      sub:   'All active exposures',
+    },
+    {
+      label: 'Hedged',
+      value: fmtEurPlain(summary?.hedged_eur),
+      color: 'white',
+      sub:   'Executed + confirmed',
+    },
+    {
+      label: 'Open / Unhedged',
+      value: fmtEurPlain(summary?.open_eur),
+      color: 'white',
+      sub:   'Not yet hedged',
+    },
+    {
+      label: 'Locked P&L',
+      value: fmtEur(summary?.locked_pnl_eur),
+      color: pnlColor(summary?.locked_pnl_eur),
+      sub:   'Crystallised from hedges',
+    },
+    {
+      label: 'Floating P&L',
+      value: fmtEur(summary?.floating_pnl_eur),
+      color: pnlColor(summary?.floating_pnl_eur),
+      sub:   'Open positions vs spot',
+    },
+    {
+      label: 'Portfolio P&L',
+      value: fmtEur(summary?.portfolio_pnl_eur),
+      color: pnlColor(summary?.portfolio_pnl_eur),
+      sub:   'Locked + floating',
+    },
+  ]
+
+  return (
+    <div
+      className="rounded-xl flex items-stretch overflow-hidden"
+      style={{ background: NAVY, height: 88, minHeight: 88 }}
+    >
+      {loading ? (
+        // Skeleton shimmer — 7 equal slots
+        <div className="flex w-full">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="flex-1 flex flex-col justify-center px-5 py-0"
+              style={{ borderRight: i < 6 ? '1px solid rgba(255,255,255,0.12)' : 'none' }}>
+              <Skeleton />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex w-full">
+          {/* KPI cards 1-6 */}
+          {cards.map((card, i) => (
+            <div key={i} className="flex-1 flex flex-col justify-center px-5 py-0"
+              style={{ borderRight: '1px solid rgba(255,255,255,0.12)', minWidth: 0 }}>
+              <p className="truncate uppercase tracking-wider font-semibold"
+                style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', marginBottom: 4 }}>
+                {card.label}
+              </p>
+              <p className="truncate font-bold leading-none"
+                style={{ fontSize: 20, color: card.color }}>
+                {card.value}
+              </p>
+              <p className="truncate mt-1" style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+                {card.sub}
+              </p>
+            </div>
+          ))}
+
+          {/* Next Maturity card — wider, 3-line value */}
+          <div className="flex flex-col justify-center px-5 py-0" style={{ minWidth: 160, maxWidth: 200 }}>
+            <p className="uppercase tracking-wider font-semibold"
+              style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', marginBottom: 4 }}>
+              Next Maturity
+            </p>
+            {nm ? (
+              <>
+                <p className="font-bold leading-tight"
+                  style={{ fontSize: 16, color: 'white' }}>
+                  {fmtValueDate(nm.value_date)}
+                </p>
+                <p className="leading-tight mt-0.5"
+                  style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                  {nm.pair} · {fmtNotional(nm.notional, nm.currency)}
+                </p>
+                <p className="leading-tight"
+                  style={{ fontSize: 11, color: GOLD }}>
+                  {fmtTranchId(nm.tranche_id)}
+                </p>
+              </>
+            ) : (
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.35)' }}>—</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Dashboard({ onNavigate }) {
   // Use the shared CompanyContext so the navbar CompanySelector drives which company is shown
   const { selectedCompanyId, getSelectedCompany } = useCompany()
@@ -38,6 +197,8 @@ function Dashboard({ onNavigate }) {
   const [showEditModal,     setShowEditModal]     = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [dismissedZones,    setDismissedZones]    = useState({ defensive: false, opportunistic: false })
+  const [summary,           setSummary]           = useState(null)
+  const [summaryLoading,    setSummaryLoading]    = useState(true)
 
   // When selected company changes — load everything
   useEffect(() => {
@@ -45,7 +206,17 @@ function Dashboard({ onNavigate }) {
     fetchExposures(selectedCompanyId)
     fetchEnriched(selectedCompanyId)
     fetchPolicy(selectedCompanyId)
+    fetchSummary(selectedCompanyId)
   }, [selectedCompanyId])
+
+  const fetchSummary = async (companyId) => {
+    setSummaryLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/dashboard/summary?company_id=${companyId}`, { headers: authHeaders() })
+      if (res.ok) setSummary(await res.json())
+    } catch (e) { console.error('Summary fetch failed:', e) }
+    finally { setSummaryLoading(false) }
+  }
 
   const fetchPolicy = async (companyId) => {
     try {
@@ -89,8 +260,11 @@ function Dashboard({ onNavigate }) {
   const refreshRates = async () => {
     if (!selectedCompanyId) return
     setRefreshing(true)
-    await fetchExposures(selectedCompanyId)
-    await fetchEnriched(selectedCompanyId)
+    await Promise.all([
+      fetchExposures(selectedCompanyId),
+      fetchEnriched(selectedCompanyId),
+      fetchSummary(selectedCompanyId),
+    ])
     setRefreshing(false)
   }
 
@@ -170,6 +344,9 @@ function Dashboard({ onNavigate }) {
 
   return (
     <div className="space-y-4">
+
+      {/* ── Portfolio Summary Strip ──────────────────────────────────────── */}
+      <PortfolioSummaryStrip summary={summary} loading={summaryLoading} />
 
       {/* Breach banner */}
       {breaches.length > 0 && (
