@@ -81,7 +81,7 @@ function SortTh({ col, label, sort, setSort, align = 'left' }) {
 // ── MTM Report component ───────────────────────────────────────────────────
 
 function MtmReport({ rows, loading, filterPair, setFilterPair, filterStatus, setFilterStatus,
-  filterFrom, setFilterFrom, filterTo, setFilterTo, page, setPage, sort, setSort, pageSize }) {
+  filterFrom, setFilterFrom, filterTo, setFilterTo, page, setPage, sort, setSort, pageSize, mcRiskIds = new Set() }) {
 
   // Unique pairs for filter dropdown
   const allPairs = useMemo(() => [...new Set(rows.map(r => r.currencyPair))].sort(), [rows])
@@ -243,6 +243,7 @@ function MtmReport({ rows, loading, filterPair, setFilterPair, filterStatus, set
                     <SortTh col="mtmVsBudget"   label="MTM vs Budget"   sort={sort} setSort={setSort} align="right" />
                     <SortTh col="valueDate"     label="Value Date"       sort={sort} setSort={setSort} />
                     <SortTh col="status"        label="Status"           sort={sort} setSort={setSort} />
+                    <th className="px-3 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">MC Risk</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -278,6 +279,14 @@ function MtmReport({ rows, loading, filterPair, setFilterPair, filterStatus, set
                           : 'bg-gray-100 text-gray-500'}`}>
                           {r.status}
                         </span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {mcRiskIds.has(r.trancheId) && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700"
+                            title="MTM loss exceeds margin call alert threshold">
+                            AT RISK
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -356,6 +365,7 @@ export default function Reports() {
   // MTM Report state
   const [mtmRows, setMtmRows]         = useState([])   // flat list of all forward tranche MTM rows
   const [mtmLoading, setMtmLoading]   = useState(true)
+  const [mcRiskIds,  setMcRiskIds]    = useState(new Set())  // tranche_ids currently at MC risk
   const [mtmFilterPair,   setMtmFilterPair]   = useState('')
   const [mtmFilterStatus, setMtmFilterStatus] = useState('')
   const [mtmFilterFrom,   setMtmFilterFrom]   = useState('')
@@ -396,8 +406,19 @@ export default function Reports() {
     if (companyId) {
       loadTrail()
       loadEnriched()
+      loadMcRisk()
     }
   }, [companyId, filterPair, filterFromDate, filterToDate, showDeleted])
+
+  const loadMcRisk = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { headers: authHeaders() })
+      if (res.ok) {
+        const data = await res.json()
+        setMcRiskIds(new Set((data.tranches || []).map(t => t.tranche_id)))
+      }
+    } catch (e) { console.error('[mc-risk] fetch error:', e) }
+  }
 
   const loadEnriched = async () => {
     setEnrichedLoading(true)
@@ -1126,6 +1147,7 @@ export default function Reports() {
         page={mtmPage}               setPage={setMtmPage}
         sort={mtmSort}               setSort={setMtmSort}
         pageSize={MTM_PAGE_SIZE}
+        mcRiskIds={mcRiskIds}
       />
       </div>{/* /mtm-report ref wrapper */}
 

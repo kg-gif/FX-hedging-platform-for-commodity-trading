@@ -199,6 +199,7 @@ function Dashboard({ onNavigate }) {
   const [dismissedZones,    setDismissedZones]    = useState({ defensive: false, opportunistic: false })
   const [summary,           setSummary]           = useState(null)
   const [summaryLoading,    setSummaryLoading]    = useState(true)
+  const [mcRisk,            setMcRisk]            = useState(null)
 
   // When selected company changes — load everything
   useEffect(() => {
@@ -207,7 +208,15 @@ function Dashboard({ onNavigate }) {
     fetchEnriched(selectedCompanyId)
     fetchPolicy(selectedCompanyId)
     fetchSummary(selectedCompanyId)
+    fetchMcRisk(selectedCompanyId)
   }, [selectedCompanyId])
+
+  const fetchMcRisk = async (companyId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { headers: authHeaders() })
+      if (res.ok) setMcRisk(await res.json())
+    } catch (e) { console.error('[mc-risk] fetch error:', e) }
+  }
 
   const fetchSummary = async (companyId) => {
     setSummaryLoading(true)
@@ -367,6 +376,23 @@ function Dashboard({ onNavigate }) {
             </span>
             <span className="text-sm text-gray-600">
               {breaches.map(e => `${e.from_currency}/${e.to_currency}`).join(', ')}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Margin call risk banner */}
+      {mcRisk && mcRisk.at_risk_count > 0 && (
+        <div className="rounded-xl px-5 py-4 flex items-center gap-3"
+          style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.5)' }}>
+          <AlertTriangle size={20} color={DANGER} />
+          <div>
+            <span className="font-bold text-sm" style={{ color: DANGER }}>
+              Margin Call Risk — {mcRisk.at_risk_count} tranche{mcRisk.at_risk_count > 1 ? 's' : ''} at risk
+              {' '}(€{(mcRisk.total_exposure_at_risk_eur / 1000).toFixed(0)}K exposure){' '}
+            </span>
+            <span className="text-sm text-gray-600">
+              MTM loss exceeds {mcRisk.threshold_pct}% threshold. Review in MTM Report.
             </span>
           </div>
         </div>

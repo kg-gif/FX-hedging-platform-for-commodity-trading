@@ -89,6 +89,10 @@ class ZoneConfigRequest(BaseModel):
     zone_notify_email:      Optional[bool]  = None
     zone_notify_inapp:      Optional[bool]  = None
 
+class AlertPrefsRequest(BaseModel):
+    mc_alert_threshold_pct: Optional[float] = None   # e.g. 2.0 = 2% of notional
+    mc_alert_recipients:    Optional[str]   = None   # "all" | "admins_only"
+
 
 # ── Policy seed helper ───────────────────────────────────────────────────────
 
@@ -139,6 +143,12 @@ def get_settings(company_id: int, db: Session = Depends(get_db), payload: dict =
         raise HTTPException(status_code=404, detail="Company not found")
     policy = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"), {"cid": safe_id}).fetchone()
     p = dict(policy._mapping) if policy else {}
+    # Alert prefs — stored directly on companies row
+    mc_row = db.execute(
+        text("SELECT mc_alert_threshold_pct, mc_alert_recipients FROM companies WHERE id = :cid"),
+        {"cid": safe_id},
+    ).fetchone()
+    mc = mc_row._mapping if mc_row else {}
     return {
         "company": {"id": company.id, "name": company.name, "base_currency": company.base_currency, "trading_volume_monthly": company.trading_volume_monthly},
         "bank": {"bank_name": company.bank_name, "bank_contact_name": company.bank_contact_name, "bank_email": company.bank_email},
@@ -153,6 +163,10 @@ def get_settings(company_id: int, db: Session = Depends(get_db), payload: dict =
             "zone_notify_email":     p.get("zone_notify_email", True),
             "zone_notify_inapp":     p.get("zone_notify_inapp", True),
         } if p else None,
+        "alert_prefs": {
+            "mc_alert_threshold_pct": float(mc.get("mc_alert_threshold_pct") or 2.0),
+            "mc_alert_recipients":    mc.get("mc_alert_recipients") or "all",
+        },
         "approved_pairs": sorted(list(APPROVED_PAIRS))
     }
 
@@ -193,6 +207,24 @@ def update_notification_settings(company_id: int, request: NotificationSettingsR
     company.updated_at = datetime.utcnow()
     db.commit()
     return {"success": True, "message": "Notification settings updated"}
+
+@router.put("/{company_id}/alerts")
+def update_alert_prefs(company_id: int, request: AlertPrefsRequest, db: Session = Depends(get_db), payload: dict = Depends(get_token_payload)):
+    safe_id = resolve_company_id(company_id, payload)
+    updates = {}
+    if request.mc_alert_threshold_pct is not None:
+        updates["mc_alert_threshold_pct"] = max(0.1, min(50.0, request.mc_alert_threshold_pct))
+    if request.mc_alert_recipients is not None:
+        if request.mc_alert_recipients not in ("all", "admins_only"):
+            raise HTTPException(status_code=400, detail="mc_alert_recipients must be 'all' or 'admins_only'")
+        updates["mc_alert_recipients"] = request.mc_alert_recipients
+    if not updates:
+        return {"success": True, "message": "No changes"}
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    updates["cid"] = safe_id
+    db.execute(text(f"UPDATE companies SET {set_clause} WHERE id = :cid"), updates)
+    db.commit()
+    return {"success": True, "message": "Alert preferences updated"}
 
 @router.put("/{company_id}/zones")
 def update_zone_config(

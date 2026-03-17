@@ -134,6 +134,7 @@ export default function Settings({ authUser, initialSection }) {
     zone_notify_email:      true,
     zone_notify_inapp:      true,
   })
+  const [alertPrefs, setAlertPrefs] = useState({ mc_alert_threshold_pct: 2.0, mc_alert_recipients: 'all' })
 
   useEffect(() => { loadAll() }, [companyId])
 
@@ -169,6 +170,11 @@ export default function Settings({ authUser, initialSection }) {
         zone_auto_apply:        zc.zone_auto_apply        ?? false,
         zone_notify_email:      zc.zone_notify_email      ?? true,
         zone_notify_inapp:      zc.zone_notify_inapp      ?? true,
+      })
+      const ap = sRes.alert_prefs
+      if (ap) setAlertPrefs({
+        mc_alert_threshold_pct: ap.mc_alert_threshold_pct ?? 2.0,
+        mc_alert_recipients:    ap.mc_alert_recipients    ?? 'all',
       })
       setPolicies(pRes.policies || [])
       setAuditLog(aRes.audit_log || [])
@@ -461,6 +467,57 @@ export default function Settings({ authUser, initialSection }) {
           </div>
         </div>
       )}
+
+      {/* ── Alert Preferences ─────────────────────────────────────────── */}
+      <div className="rounded-xl p-5 mt-6" style={{ background: '#F8F9FC', border: '1px solid #E2E8F0' }}>
+        <h4 className="text-sm font-bold mb-1" style={{ color: NAVY }}>Alert Preferences</h4>
+        <p className="text-xs text-gray-400 mb-4">Configure when margin call risk alerts are triggered and who receives them.</p>
+        <div className="grid grid-cols-1 gap-4 max-w-md">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Margin Call Alert Threshold (% of notional)
+            </label>
+            <input
+              type="number" min="0.1" max="50" step="0.1"
+              value={alertPrefs.mc_alert_threshold_pct}
+              onChange={e => setAlertPrefs(p => ({ ...p, mc_alert_threshold_pct: parseFloat(e.target.value) || 2.0 }))}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-400"
+            />
+            <p className="text-xs text-gray-400 mt-1">Alert fires when unrealised MTM loss exceeds this % of forward notional (default: 2%).</p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Alert Recipients</label>
+            <select
+              value={alertPrefs.mc_alert_recipients}
+              onChange={e => setAlertPrefs(p => ({ ...p, mc_alert_recipients: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-400"
+            >
+              <option value="all">All company users</option>
+              <option value="admins_only">Admins only</option>
+            </select>
+          </div>
+        </div>
+        <button
+          onClick={async () => {
+            setSaving('alert-prefs')
+            try {
+              const r = await fetch(`${API_BASE}/api/settings/${companyId}/alerts`, {
+                method: 'PUT',
+                headers: authHeaders(),
+                body: JSON.stringify(alertPrefs),
+              })
+              if (r.ok) showMsg('success', 'Alert preferences saved')
+              else showMsg('error', 'Failed to save alert preferences')
+            } catch { showMsg('error', 'Failed to save alert preferences') }
+            finally { setSaving(null) }
+          }}
+          disabled={saving === 'alert-prefs'}
+          className="mt-4 flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold transition-all"
+          style={{ background: NAVY, opacity: saving === 'alert-prefs' ? 0.6 : 1 }}
+        >
+          <Save size={14} />{saving === 'alert-prefs' ? 'Saving…' : 'Save Alert Preferences'}
+        </button>
+      </div>
     </div>
   )
 

@@ -49,6 +49,7 @@ from routes.hedging_routes_fastapi import router as hedging_router
 from routes.hedge_tranche_routes import router as tranche_router
 from routes.data_import_routes_fastapi import router as data_import_router
 from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
+from routes.margin_call_routes import router as margin_call_router
 
 Base.metadata.create_all(bind=engine)
 print("✅ Database ready")
@@ -80,6 +81,7 @@ app.include_router(pdf_router)
 app.include_router(settings_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
+app.include_router(margin_call_router)
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 import logging
@@ -1379,6 +1381,22 @@ async def send_daily_alerts(
 
     logger.info(f"Daily digest: {sent_count} emails sent")
 
+    # Run margin call checks for all companies
+    try:
+        from routes.margin_call_routes import send_margin_call_alerts_for_company as _mc_alerts
+        mc_db = SessionLocal()
+        try:
+            all_cids = db.execute(text("SELECT id FROM companies")).fetchall()
+            for row in all_cids:
+                try:
+                    await _mc_alerts(row._mapping["id"], mc_db)
+                except Exception as e:
+                    logger.error(f"[mc-alert] daily cron failed company={row._mapping['id']}: {e}")
+        finally:
+            mc_db.close()
+    except Exception as e:
+        logger.error(f"[mc-alert] daily cron import error: {e}")
+
     # Fill inception rates for exposures whose start_date has now arrived
     try:
         from services.ecb_rates import get_cross_rate as _get_cross_rate
@@ -1588,6 +1606,24 @@ async def startup_event():
                 spot_rate_used        NUMERIC(18,6),
                 mtm_vs_inception_eur  NUMERIC(18,2),
                 mtm_vs_budget_eur     NUMERIC(18,2)
+            )""",
+            # notional_eur added later — needed for MC risk % calculation
+            "ALTER TABLE mtm_snapshot_log ADD COLUMN IF NOT EXISTS notional_eur NUMERIC(18,2)",
+
+            # ── Margin Call Awareness — Phase 1 ───────────────────────────────
+            # Per-company MC alert settings stored on companies table
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS mc_alert_threshold_pct DECIMAL(5,2) DEFAULT 2.0",
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS mc_alert_recipients VARCHAR(20) DEFAULT 'all'",
+            # Alert history — 24h cooldown checked before sending each email
+            """CREATE TABLE IF NOT EXISTS margin_call_alert_log (
+                id              SERIAL PRIMARY KEY,
+                company_id      INTEGER REFERENCES companies(id),
+                tranche_id      INTEGER,
+                triggered_at    TIMESTAMP DEFAULT NOW(),
+                mtm_loss_eur    DECIMAL(18,2),
+                threshold_pct   DECIMAL(5,2),
+                spot_rate_used  DECIMAL(18,6),
+                alert_sent      BOOLEAN DEFAULT FALSE
             )""",
         ]
         for sql in migrations:
@@ -2250,6 +2286,12 @@ async def get_tranche_mtm(
                 mtm_vs_inception_eur = None
                 mtm_vs_budget_eur    = None
 
+            # notional_eur — used by the margin call risk % calculation.
+            # Formula: notional (in from_ccy) × (from_ccy/to_ccy) × (to_ccy/EUR)
+            #        = notional × spot_rate × to_eur_rate
+            # This works because spot_rate = from_ccy/to_ccy and to_eur_rate = to_ccy/EUR.
+            notional_eur = round(notional * spot_rate * to_eur_rate, 2) if (spot_rate and to_eur_rate) else None
+
             results.append({
                 "tranche_id":           tr["id"],
                 "notional":             notional,
@@ -2273,6 +2315,7 @@ async def get_tranche_mtm(
                 "spot_rate_used":       round(spot_rate, 6),
                 "mtm_vs_inception_eur": mtm_vs_inception_eur,
                 "mtm_vs_budget_eur":    mtm_vs_budget_eur,
+                "notional_eur":         notional_eur,
             })
 
         # Write all audit rows in one batch
@@ -2280,12 +2323,17 @@ async def get_tranche_mtm(
             db.execute(_text("""
                 INSERT INTO mtm_snapshot_log
                     (tranche_id, exposure_id, company_id, inception_rate, budget_rate,
-                     spot_rate_used, mtm_vs_inception_eur, mtm_vs_budget_eur)
+                     spot_rate_used, mtm_vs_inception_eur, mtm_vs_budget_eur, notional_eur)
                 VALUES
                     (:tranche_id, :exposure_id, :company_id, :inception_rate, :budget_rate,
-                     :spot_rate_used, :mtm_vs_inception_eur, :mtm_vs_budget_eur)
+                     :spot_rate_used, :mtm_vs_inception_eur, :mtm_vs_budget_eur, :notional_eur)
             """), audit_rows)
             db.commit()
+
+        # Trigger margin call risk check in the background after each MTM fetch
+        import asyncio as _asyncio
+        from routes.margin_call_routes import trigger_margin_call_check as _mc_trigger
+        _asyncio.create_task(_mc_trigger(safe_company_id))
 
         print(f"[mtm] exposure={exposure_id} pair={pair} spot={spot_rate:.4f} to_eur={to_eur_rate} tranches={len(results)}")
         return {"exposure_id": exposure_id, "pair": pair, "spot_rate": spot_rate, "tranches": results}
