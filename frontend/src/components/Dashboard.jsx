@@ -213,9 +213,17 @@ function Dashboard({ onNavigate }) {
     setSummaryLoading(true)
     try {
       const res = await fetch(`${API_BASE}/api/dashboard/summary?company_id=${companyId}`, { headers: authHeaders() })
-      if (res.ok) setSummary(await res.json())
-    } catch (e) { console.error('Summary fetch failed:', e) }
-    finally { setSummaryLoading(false) }
+      if (res.ok) {
+        setSummary(await res.json())
+      } else {
+        const body = await res.text().catch(() => '')
+        console.error(`[dashboard/summary] HTTP ${res.status}:`, body)
+      }
+    } catch (e) {
+      console.error('[dashboard/summary] fetch error:', e)
+    } finally {
+      setSummaryLoading(false)
+    }
   }
 
   const fetchPolicy = async (companyId) => {
