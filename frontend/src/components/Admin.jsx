@@ -4,6 +4,7 @@ import {
   Building2, Plus, ChevronDown, ChevronRight
 } from 'lucide-react'
 import { NAVY, GOLD } from '../brand'
+import { useCompany } from '../contexts/CompanyContext'
 
 const API_BASE = 'https://birk-fx-api.onrender.com'
 
@@ -350,11 +351,20 @@ function CompaniesTab({ toast }) {
 
 // ── UsersTab — password removed, system generates it and emails customer ──
 function UsersTab({ authUser, toast }) {
+  const { selectedCompanyId } = useCompany()
+  const isSuperAdmin = ['superadmin', 'admin'].includes(authUser?.role)
+
   const [users, setUsers] = useState([])
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ email: '', company_id: 1, role: 'viewer' })
+  // Default company_id from context so the form pre-selects the company currently being viewed
+  const [form, setForm] = useState({ email: '', company_id: selectedCompanyId || authUser?.company_id || '', role: 'viewer' })
+
+  // Keep form in sync when admin switches company in the top-nav selector
+  useEffect(() => {
+    if (selectedCompanyId) setForm(f => ({ ...f, company_id: selectedCompanyId }))
+  }, [selectedCompanyId])
 
   useEffect(() => { loadData() }, [])
 
@@ -381,7 +391,8 @@ function UsersTab({ authUser, toast }) {
       const data = await r.json()
       if (r.ok) {
         toast.show('success', `${form.email} created — welcome email sent`)
-        setForm({ email: '', company_id: companies[0]?.id || 1, role: 'viewer' })
+        // Reset to the currently-viewed company, not always company[0]
+        setForm({ email: '', company_id: selectedCompanyId || companies[0]?.id || '', role: 'viewer' })
         loadData()
       } else {
         toast.show('error', data.detail || 'Failed')
@@ -396,7 +407,20 @@ function UsersTab({ authUser, toast }) {
     try {
       const r = await fetch(`${API_BASE}/api/admin/users/${userId}`, { method: 'DELETE', headers: authHeaders() })
       if (r.ok) { toast.show('success', `${email} deleted`); loadData() }
+      else { const d = await r.json(); toast.show('error', d.detail || 'Delete failed') }
     } catch { toast.show('error', 'Network error') }
+  }
+
+  // Friendly display labels for roles
+  const roleLabel = (role) => {
+    if (role === 'superadmin') return 'super admin'
+    if (role === 'admin')      return 'company admin'
+    return 'viewer'
+  }
+  const roleBadgeClass = (role) => {
+    if (role === 'superadmin') return 'bg-red-50 text-red-600'
+    if (role === 'admin')      return 'bg-purple-50 text-purple-600'
+    return 'bg-gray-100 text-gray-500'
   }
 
   if (loading) return <div className="text-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto" style={{ borderColor: GOLD }} /></div>
@@ -414,17 +438,18 @@ function UsersTab({ authUser, toast }) {
               placeholder="cfo@clientcompany.com"
               onChange={e => setForm({ ...form, email: e.target.value })} />
           </Field>
-          <Field label="Company">
+          <Field label="Company" hint={!isSuperAdmin ? 'Fixed to your company' : undefined}>
             <select className={inputClass} value={form.company_id}
+              disabled={!isSuperAdmin}
               onChange={e => setForm({ ...form, company_id: parseInt(e.target.value) })}>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </Field>
-          <Field label="Role">
+          <Field label="Role" hint="Super Admin role is never assignable here — set in DB only">
             <select className={inputClass} value={form.role}
               onChange={e => setForm({ ...form, role: e.target.value })}>
-              <option value="viewer">Viewer — dashboard only</option>
-              <option value="admin">Admin — full access</option>
+              <option value="viewer">Viewer — read and operate</option>
+              <option value="admin">Company Admin — manage users and settings</option>
             </select>
           </Field>
         </div>
@@ -448,7 +473,9 @@ function UsersTab({ authUser, toast }) {
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold" style={{ color: NAVY }}>{u.email}</p>
                       {u.email === authUser.email && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(201,168,108,0.15)', color: GOLD }}>You</span>}
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-purple-50 text-purple-600' : 'bg-gray-100 text-gray-500'}`}>{u.role}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${roleBadgeClass(u.role)}`}>
+                        {roleLabel(u.role)}
+                      </span>
                     </div>
                     <p className="text-xs text-gray-400 mt-0.5">{u.company_name} · {new Date(u.created_at).toLocaleDateString()}</p>
                   </div>

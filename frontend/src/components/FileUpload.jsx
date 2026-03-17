@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import { Upload, CheckCircle, XCircle, AlertCircle, FileSpreadsheet, Info } from 'lucide-react';
 import { NAVY, GOLD, STYLES } from '../brand';
 
+const API_BASE = 'https://birk-fx-api.onrender.com';
+
 const FileUpload = ({ companyId, onUploadSuccess }) => {
   const [dragActive, setDragActive]     = useState(false);
   const [uploading, setUploading]       = useState(false);
@@ -39,7 +41,11 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('company_id', companyId);
-      const response = await fetch('/api/exposure-data/upload', { method: 'POST', body: formData });
+      const response = await fetch(`${API_BASE}/api/exposure-data/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` },
+        body: formData,
+      });
       const result   = await response.json();
       if (result.success) {
         setUploadResult(result);
@@ -56,7 +62,7 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
 
   const downloadTemplate = async (format) => {
     try {
-      const response = await fetch(`/api/exposure-data/template/${format}`);
+      const response = await fetch(`${API_BASE}/api/exposure-data/template/${format}`);
       const blob = await response.blob();
       const url  = window.URL.createObjectURL(blob);
       const a    = document.createElement('a');

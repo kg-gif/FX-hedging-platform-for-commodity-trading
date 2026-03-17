@@ -37,7 +37,7 @@ function AppContent({ authUser, onLogout }) {
     if (opts.focusExposure) setFocusExposure(opts.focusExposure)
   }
 
-  const isAdmin = authUser?.role === 'admin'
+  const isAdmin = ['superadmin', 'company_admin', 'admin'].includes(authUser?.role)
 
   // 5 core tabs. Admin tab appended for admin users only.
   const navItems = [
@@ -117,7 +117,7 @@ function AppContent({ authUser, onLogout }) {
 
             {/* User controls */}
             <div className="flex items-center gap-4">
-              <CompanySelector />
+              <CompanySelector authUser={authUser} />
               <div className="flex items-center gap-3 pl-4"
                 style={{ borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
                 <div className="text-right hidden sm:block">

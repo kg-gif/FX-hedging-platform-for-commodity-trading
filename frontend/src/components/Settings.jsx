@@ -91,7 +91,7 @@ function ZoneSummaryCard({ policies, zones }) {
 export default function Settings({ authUser, initialSection }) {
   const { selectedCompanyId } = useCompany()
   const companyId = selectedCompanyId || 1
-  const isAdmin = authUser?.role === 'admin'
+  const isAdmin = ['superadmin', 'company_admin', 'admin'].includes(authUser?.role)
 
   // ── Sidebar sections ─────────────────────────────────────────────────────
   const NAV_ITEMS = [
@@ -172,6 +172,10 @@ export default function Settings({ authUser, initialSection }) {
       })
       setPolicies(pRes.policies || [])
       setAuditLog(aRes.audit_log || [])
+      // Backend auto-seeded defaults for a new company — surface a soft info message
+      if (pRes.auto_created) {
+        showMsg('info', 'Default policy applied — Balanced. Customise below.')
+      }
     } catch {
       showMsg('error', 'Failed to load settings')
     } finally {
@@ -562,11 +566,13 @@ export default function Settings({ authUser, initialSection }) {
       {/* Toast */}
       {message && (
         <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg flex items-center gap-2 text-sm font-semibold ${
-          message.type === 'success'
-            ? 'bg-green-50 text-green-800 border border-green-200'
-            : 'bg-red-50 text-red-800 border border-red-200'
+          message.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200'
+          : message.type === 'info'  ? 'bg-blue-50 text-blue-800 border border-blue-200'
+          :                            'bg-red-50 text-red-800 border border-red-200'
         }`}>
-          {message.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+          {message.type === 'success' ? <CheckCircle size={16} />
+          : message.type === 'info'   ? <CheckCircle size={16} />
+          : <AlertTriangle size={16} />}
           {message.text}
         </div>
       )}

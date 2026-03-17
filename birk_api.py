@@ -31,7 +31,14 @@ def get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(_secur
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 def resolve_company_id(requested_id: int, payload: dict) -> int:
-    if payload.get("role") == "admin":
+    """
+    Three-tier role resolution:
+      superadmin / admin (legacy)  — platform-level, can access any company_id
+      company_admin                — company-level admin, restricted to own company
+      company_user / viewer (legacy) — read-only, restricted to own company
+    """
+    role = payload.get("role", "")
+    if role in ("superadmin", "admin"):   # "admin" kept for existing tokens
         return requested_id
     token_company_id = payload.get("company_id")
     if not token_company_id:
@@ -260,7 +267,7 @@ def get_companies(
     Admins see all companies.
     Viewers see only their own company.
     """
-    if payload.get("role") == "admin":
+    if payload.get("role") in ("admin", "superadmin"):
         return db.query(Company).all()
     else:
         company_id = payload.get("company_id")
@@ -582,6 +589,44 @@ def get_policy(
     }
 
 
+def _create_default_policies(db, company_id: int) -> None:
+    """
+    Insert three default hedging policies (Conservative / Balanced / Opportunistic)
+    for a company that has none yet.  Balanced is set active so zone updates work
+    immediately.  Called by GET /api/policies and PUT /zones when no policy exists.
+    """
+    from sqlalchemy import text as _text
+    defaults = [
+        {"company_id": company_id, "policy_name": "Conservative",  "policy_type": "CONSERVATIVE",
+         "hedge_ratio_over_5m": 0.85, "hedge_ratio_1m_to_5m": 0.70, "hedge_ratio_under_1m": 0.50,
+         "material_exposure_threshold": 1000000, "de_minimis_threshold": 500000,
+         "budget_breach_threshold_pct": 0.05, "opportunistic_trigger_threshold": 0.05,
+         "trailing_stop_trigger": 0.03, "is_active": False},
+        {"company_id": company_id, "policy_name": "Balanced",       "policy_type": "BALANCED",
+         "hedge_ratio_over_5m": 0.65, "hedge_ratio_1m_to_5m": 0.50, "hedge_ratio_under_1m": 0.30,
+         "material_exposure_threshold": 1000000, "de_minimis_threshold": 500000,
+         "budget_breach_threshold_pct": 0.08, "opportunistic_trigger_threshold": 0.08,
+         "trailing_stop_trigger": 0.05, "is_active": True},
+        {"company_id": company_id, "policy_name": "Opportunistic",  "policy_type": "OPPORTUNISTIC",
+         "hedge_ratio_over_5m": 0.40, "hedge_ratio_1m_to_5m": 0.25, "hedge_ratio_under_1m": 0.10,
+         "material_exposure_threshold": 1000000, "de_minimis_threshold": 500000,
+         "budget_breach_threshold_pct": 0.12, "opportunistic_trigger_threshold": 0.12,
+         "trailing_stop_trigger": 0.08, "is_active": False},
+    ]
+    for p in defaults:
+        db.execute(_text("""
+            INSERT INTO hedging_policies
+            (company_id, policy_name, policy_type, hedge_ratio_over_5m, hedge_ratio_1m_to_5m,
+             hedge_ratio_under_1m, material_exposure_threshold, de_minimis_threshold,
+             budget_breach_threshold_pct, opportunistic_trigger_threshold, trailing_stop_trigger, is_active)
+            VALUES
+            (:company_id, :policy_name, :policy_type, :hedge_ratio_over_5m, :hedge_ratio_1m_to_5m,
+             :hedge_ratio_under_1m, :material_exposure_threshold, :de_minimis_threshold,
+             :budget_breach_threshold_pct, :opportunistic_trigger_threshold, :trailing_stop_trigger, :is_active)
+        """), p)
+    db.commit()
+
+
 @app.get("/api/policies")
 def get_all_policies(
     company_id: int,
@@ -591,13 +636,23 @@ def get_all_policies(
     from sqlalchemy import text
     safe_id = resolve_company_id(company_id, payload)
     results = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid"), {"cid": safe_id}).fetchall()
+
+    auto_created = False
+    if not results:
+        # No policies at all — silently seed defaults so the UI never shows an empty state
+        _create_default_policies(db, safe_id)
+        results = db.execute(text("SELECT * FROM hedging_policies WHERE company_id = :cid"), {"cid": safe_id}).fetchall()
+        auto_created = True
+        print(f"[policies] Auto-created default policies for company_id={safe_id}")
+
     return {
         "policies": [{
             "id": r._mapping["id"], "policy_name": r._mapping["policy_name"],
             "policy_type": r._mapping["policy_type"], "hedge_ratio_over_5m": r._mapping["hedge_ratio_over_5m"],
             "hedge_ratio_1m_to_5m": r._mapping["hedge_ratio_1m_to_5m"], "hedge_ratio_under_1m": r._mapping["hedge_ratio_under_1m"],
             "is_active": r._mapping["is_active"]
-        } for r in results]
+        } for r in results],
+        "auto_created": auto_created,
     }
 
 
@@ -1512,6 +1567,14 @@ async def startup_event():
                 reason           TEXT,
                 created_at       TIMESTAMP DEFAULT NOW()
             )""",
+
+            # ── Three-tier admin roles ─────────────────────────────────────────
+            # parent_company_id supports subsidiary / umbrella account relationships
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS parent_company_id INTEGER REFERENCES companies(id)",
+            # Widen role column to fit "superadmin" / "company_admin" / "company_user"
+            "ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(30)",
+            # Promote the platform owner to superadmin
+            "UPDATE users SET role = 'superadmin' WHERE email = 'kg@sumnohow.com' AND role IN ('admin', 'viewer')",
 
             # MTM (Mark-to-Market) audit log — one row written per API call for compliance
             """CREATE TABLE IF NOT EXISTS mtm_snapshot_log (

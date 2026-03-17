@@ -1,61 +1,60 @@
 import React from 'react'
 import { useCompany } from '../contexts/CompanyContext'
+import { GOLD } from '../brand'
 
-const CompanySelector = () => {
-  const { 
-    companies, 
-    selectedCompanyId, 
-    selectCompany, 
-    loading,
-    error,
-    getSelectedCompany 
-  } = useCompany()
+/**
+ * CompanySelector — shown in the top nav.
+ * - superadmin: full dropdown to switch between all companies.
+ * - company_admin / viewer: static company name badge (no switching).
+ */
+const CompanySelector = ({ authUser }) => {
+  const { companies, selectedCompanyId, selectCompany, loading, getSelectedCompany } = useCompany()
+
+  const isSuperAdmin = ['superadmin', 'admin'].includes(authUser?.role)
 
   if (loading) {
     return (
-      <div className="flex items-center space-x-2 text-gray-600">
-        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-        <span className="text-sm">Loading companies...</span>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="text-red-600 text-sm">
-        Error loading companies
+      <div className="flex items-center gap-2">
+        <div className="animate-spin rounded-full h-4 w-4 border-b-2" style={{ borderColor: GOLD }} />
+        <span className="text-xs" style={{ color: '#8DA4C4' }}>Loading…</span>
       </div>
     )
   }
 
   const selectedCompany = getSelectedCompany()
 
+  // Non-superadmin: read-only company name
+  if (!isSuperAdmin) {
+    return selectedCompany ? (
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium px-3 py-1.5 rounded-lg"
+          style={{ color: '#8DA4C4', border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)' }}>
+          {selectedCompany.name}
+        </span>
+      </div>
+    ) : null
+  }
+
+  // Superadmin: interactive dropdown to switch companies
   return (
-    <div className="flex items-center space-x-3">
-      <span className="text-sm font-medium text-gray-700">Company:</span>
+    <div className="flex items-center gap-2">
+      <span className="text-xs font-medium" style={{ color: '#8DA4C4' }}>Company:</span>
       <select
         value={selectedCompanyId || ''}
-        onChange={(e) => selectCompany(parseInt(e.target.value))}
-        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-gray-900 font-medium cursor-pointer hover:border-gray-400 transition-colors"
+        onChange={e => selectCompany(parseInt(e.target.value))}
+        className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer focus:outline-none"
+        style={{
+          background: 'rgba(255,255,255,0.06)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          color: 'white',
+        }}
       >
-        {companies.map((company) => (
-          <option key={company.id} value={company.id}>
-            {company.name}
+        {companies.map(c => (
+          <option key={c.id} value={c.id} style={{ background: '#1A2744', color: 'white' }}>
+            {c.name}
           </option>
         ))}
       </select>
-      
-      {selectedCompany && (
-        <div className="flex items-center space-x-2 text-sm text-gray-600">
-          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded">
-            {selectedCompany.base_currency}
-          </span>
-          <span className="text-gray-400">•</span>
-          <span>
-            ${(selectedCompany.trading_volume_monthly / 1_000_000).toFixed(1)}M monthly
-          </span>
-        </div>
-      )}
     </div>
   )
 }

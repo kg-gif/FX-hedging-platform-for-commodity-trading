@@ -6,14 +6,28 @@ NOW WITH CRUD: Create, Read, Update, Delete
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Depends
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from datetime import datetime
 import io
+import csv
+import os
 
 from models import Exposure, Company, RiskLevel
 from database import SessionLocal, get_live_fx_rate, calculate_risk_level
+
+# ── Inline auth ───────────────────────────────────────────────────────────────
+_security = HTTPBearer()
+
+def _get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> dict:
+    from jose import JWTError, jwt
+    SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
+    try:
+        return jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 router = APIRouter(prefix="/api/exposure-data", tags=["Exposure Data"])
 
@@ -51,38 +65,204 @@ def get_db():
 async def upload_file(
     file: UploadFile = File(...),
     company_id: int = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    payload: dict = Depends(_get_token_payload),
 ):
     """
     POST /api/exposure-data/upload
-    Upload CSV/Excel file with exposure data
+    Parse a CSV file and insert rows as FX exposures.
+
+    Expected CSV columns (header row required):
+      reference_number, currency_pair, amount, start_date, end_date,
+      description (optional), budget_rate (optional), exposure_type (optional)
+
+    currency_pair format: EURUSD or EUR/USD
+    date format: YYYY-MM-DD
     """
     try:
-        # Validate company exists
+        # Verify company exists and caller can access it
         company = db.query(Company).filter(Company.id == company_id).first()
         if not company:
             raise HTTPException(status_code=404, detail=f"Company {company_id} not found")
-        
-        # Read file content
+
+        # Enforce multi-tenancy — non-superadmin users can only upload to their own company
+        role = payload.get("role", "")
+        token_cid = payload.get("company_id")
+        if role not in ("superadmin", "admin", "company_admin") and int(token_cid or 0) != company_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
         contents = await file.read()
-        
-        # Parse file based on extension
-        result = {
-            'success': True,
-            'filename': file.filename,
-            'exposures': [],
-            'saved_to_database': 0
+        filename  = file.filename or "upload.csv"
+
+        # Decode bytes — try UTF-8 with BOM fallback
+        try:
+            text = contents.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = contents.decode("latin-1")
+
+        reader = csv.DictReader(io.StringIO(text))
+
+        # Normalise header names (lowercase, strip whitespace)
+        if reader.fieldnames is None:
+            raise HTTPException(status_code=400, detail="Empty file or missing header row")
+
+        required_cols = {"reference_number", "currency_pair", "amount", "start_date", "end_date"}
+        headers = {h.strip().lower().replace(" ", "_") for h in reader.fieldnames}
+        missing = required_cols - headers
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required columns: {', '.join(sorted(missing))}"
+            )
+
+        saved     = 0
+        warnings  = []
+        total_amt = 0.0
+        currencies: set = set()
+        periods: list   = []
+
+        from sqlalchemy import text as _text
+
+        for i, raw_row in enumerate(reader, start=2):  # row 1 is header
+            # Normalise keys
+            row = {k.strip().lower().replace(" ", "_"): (v.strip() if v else "") for k, v in raw_row.items()}
+
+            # Skip fully empty rows
+            if not any(row.values()):
+                continue
+
+            try:
+                # Currency pair
+                pair = row["currency_pair"].upper().replace("/", "").replace("-", "")
+                if len(pair) != 6:
+                    warnings.append(f"Row {i}: invalid currency_pair '{row['currency_pair']}' — skipped")
+                    continue
+                from_currency = pair[:3]
+                to_currency   = pair[3:]
+
+                # Amount
+                amount_str = row["amount"].replace(",", "")
+                amount = float(amount_str)
+                if amount <= 0:
+                    warnings.append(f"Row {i}: amount must be > 0 — skipped")
+                    continue
+
+                # Dates
+                start_date = datetime.strptime(row["start_date"], "%Y-%m-%d").date()
+                end_date   = datetime.strptime(row["end_date"],   "%Y-%m-%d").date()
+                if end_date <= start_date:
+                    warnings.append(f"Row {i}: end_date must be after start_date — skipped")
+                    continue
+                period_days = (end_date - start_date).days
+
+                # Optional fields
+                description   = row.get("description", "") or ""
+                reference     = row.get("reference_number", f"IMP-{i}")
+                exposure_type = (row.get("exposure_type", "payable") or "payable").lower()
+                budget_rate_str = row.get("budget_rate", "")
+                budget_rate     = float(budget_rate_str) if budget_rate_str else None
+
+                # FX rate (live)
+                try:
+                    rate = get_live_fx_rate(from_currency, to_currency)
+                except Exception:
+                    rate = 1.0
+                    warnings.append(f"Row {i}: could not fetch live rate for {pair} — defaulted to 1.0")
+
+                usd_value = amount * rate
+                risk      = calculate_risk_level(usd_value, period_days)
+
+                # Insert exposure
+                db.execute(_text("""
+                    INSERT INTO exposures
+                      (company_id, from_currency, to_currency, amount, amount_currency,
+                       start_date, end_date, initial_rate, current_rate, current_value_usd,
+                       settlement_period, risk_level, description, budget_rate,
+                       reference, exposure_type, instrument_type, is_active, created_at, updated_at)
+                    VALUES
+                      (:cid, :from_ccy, :to_ccy, :amount, :amount_ccy,
+                       :start_date, :end_date, :rate, :rate, :usd_value,
+                       :period, :risk, :desc, :budget_rate,
+                       :reference, :exp_type, 'Forward', true, NOW(), NOW())
+                """), {
+                    "cid":        company_id,
+                    "from_ccy":   from_currency,
+                    "to_ccy":     to_currency,
+                    "amount":     amount,
+                    "amount_ccy": from_currency,
+                    "start_date": start_date,
+                    "end_date":   end_date,
+                    "rate":       rate,
+                    "usd_value":  usd_value,
+                    "period":     period_days,
+                    "risk":       risk.value,
+                    "desc":       description,
+                    "budget_rate": budget_rate,
+                    "reference":  reference,
+                    "exp_type":   exposure_type,
+                })
+
+                saved     += 1
+                total_amt += amount
+                currencies.add(from_currency)
+                periods.append(period_days)
+
+            except (ValueError, KeyError) as row_err:
+                warnings.append(f"Row {i}: {row_err} — skipped")
+                continue
+
+        db.commit()
+        print(f"[upload] company_id={company_id} — {saved} exposures imported from '{filename}'")
+
+        avg_period = round(sum(periods) / len(periods)) if periods else 0
+
+        return {
+            "success":   True,
+            "filename":  filename,
+            "row_count": saved,
+            "summary": {
+                "total_exposures":   saved,
+                "total_amount":      round(total_amt, 2),
+                "unique_currencies": len(currencies),
+                "avg_period_days":   avg_period,
+            },
+            "validation_warnings": warnings,
         }
-        
-        # TODO: Add CSV/Excel parsing logic here
-        # For now, return placeholder
-        
-        return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@router.get("/template/{format}")
+def download_template(format: str):
+    """
+    GET /api/exposure-data/template/csv   — CSV template
+    GET /api/exposure-data/template/xlsx  — same CSV content, xlsx MIME
+    """
+    template_csv = (
+        "reference_number,currency_pair,amount,start_date,end_date,description,budget_rate,exposure_type\n"
+        "EXP-001,EUR/USD,1000000,2025-01-15,2025-06-30,European supplier payment,1.08,payable\n"
+        "EXP-002,GBP/USD,500000,2025-02-01,2025-08-01,UK revenue receivable,1.27,receivable\n"
+        "EXP-003,USD/NOK,3000000,2025-03-01,2025-09-01,Norwegian gas contract,,payable\n"
+    )
+    fmt = format.lower()
+    if fmt == "csv":
+        media_type = "text/csv"
+        filename   = "exposure_template.csv"
+    elif fmt in ("xlsx", "xls"):
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename   = f"exposure_template.{fmt}"
+    else:
+        raise HTTPException(status_code=400, detail="Format must be csv or xlsx")
+
+    return StreamingResponse(
+        io.BytesIO(template_csv.encode("utf-8")),
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 @router.post("/manual")
 async def create_manual_exposure(

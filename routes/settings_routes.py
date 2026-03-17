@@ -46,7 +46,9 @@ def get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(securi
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 def resolve_company_id(requested_id: int, payload: dict) -> int:
-    if payload.get("role") == "admin":
+    """superadmin / admin (legacy) bypass; all other roles are restricted to own company."""
+    role = payload.get("role", "")
+    if role in ("superadmin", "admin"):
         return requested_id
     token_company_id = payload.get("company_id")
     if not token_company_id:
@@ -86,6 +88,46 @@ class ZoneConfigRequest(BaseModel):
     zone_auto_apply:        Optional[bool]  = None
     zone_notify_email:      Optional[bool]  = None
     zone_notify_inapp:      Optional[bool]  = None
+
+
+# ── Policy seed helper ───────────────────────────────────────────────────────
+
+def _seed_default_policies(db, company_id: int) -> None:
+    """
+    Insert Conservative / Balanced (active) / Opportunistic defaults for a
+    company that has no hedging policies yet.  Called on-demand so newly
+    onboarded companies never hit a 404 when saving zone config.
+    """
+    defaults = [
+        {"company_id": company_id, "policy_name": "Conservative",  "policy_type": "CONSERVATIVE",
+         "hedge_ratio_over_5m": 0.85, "hedge_ratio_1m_to_5m": 0.70, "hedge_ratio_under_1m": 0.50,
+         "material_exposure_threshold": 1000000, "de_minimis_threshold": 500000,
+         "budget_breach_threshold_pct": 0.05, "opportunistic_trigger_threshold": 0.05,
+         "trailing_stop_trigger": 0.03, "is_active": False},
+        {"company_id": company_id, "policy_name": "Balanced",       "policy_type": "BALANCED",
+         "hedge_ratio_over_5m": 0.65, "hedge_ratio_1m_to_5m": 0.50, "hedge_ratio_under_1m": 0.30,
+         "material_exposure_threshold": 1000000, "de_minimis_threshold": 500000,
+         "budget_breach_threshold_pct": 0.08, "opportunistic_trigger_threshold": 0.08,
+         "trailing_stop_trigger": 0.05, "is_active": True},
+        {"company_id": company_id, "policy_name": "Opportunistic",  "policy_type": "OPPORTUNISTIC",
+         "hedge_ratio_over_5m": 0.40, "hedge_ratio_1m_to_5m": 0.25, "hedge_ratio_under_1m": 0.10,
+         "material_exposure_threshold": 1000000, "de_minimis_threshold": 500000,
+         "budget_breach_threshold_pct": 0.12, "opportunistic_trigger_threshold": 0.12,
+         "trailing_stop_trigger": 0.08, "is_active": False},
+    ]
+    for p in defaults:
+        db.execute(text("""
+            INSERT INTO hedging_policies
+            (company_id, policy_name, policy_type, hedge_ratio_over_5m, hedge_ratio_1m_to_5m,
+             hedge_ratio_under_1m, material_exposure_threshold, de_minimis_threshold,
+             budget_breach_threshold_pct, opportunistic_trigger_threshold, trailing_stop_trigger, is_active)
+            VALUES
+            (:company_id, :policy_name, :policy_type, :hedge_ratio_over_5m, :hedge_ratio_1m_to_5m,
+             :hedge_ratio_under_1m, :material_exposure_threshold, :de_minimis_threshold,
+             :budget_breach_threshold_pct, :opportunistic_trigger_threshold, :trailing_stop_trigger, :is_active)
+        """), p)
+    db.commit()
+    print(f"[settings] Auto-seeded default policies for company_id={company_id}")
 
 # ── Endpoints ────────────────────────────────────────────────────
 
@@ -169,7 +211,15 @@ def update_zone_config(
         {"cid": safe_id}
     ).fetchone()
     if not policy:
-        raise HTTPException(status_code=404, detail="No active policy found for this company")
+        # No policies exist yet — auto-seed defaults (Balanced active) then re-query.
+        # Avoids the 404 "No active policy found" error for newly onboarded companies.
+        _seed_default_policies(db, safe_id)
+        policy = db.execute(
+            text("SELECT id FROM hedging_policies WHERE company_id = :cid AND is_active = true"),
+            {"cid": safe_id}
+        ).fetchone()
+    if not policy:
+        raise HTTPException(status_code=500, detail="Could not create default policies")
 
     policy_id = policy._mapping["id"]
 

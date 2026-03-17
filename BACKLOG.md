@@ -2,6 +2,7 @@
 
 ## 🔴 Next Up (Pilot Critical)
 - [ ] Pilot readiness end-to-end test — full customer journey walkthrough as a CFO would see it
+- [ ] **File Upload — Exposure Import** *(In progress)* — CSV/Excel upload now parses rows and inserts exposures. Remaining: end-to-end test with real file from pilot customer; review field mapping with Kevin; add error-row download (rows that failed validation). See `routes/data_import_routes_fastapi.py`.
 
 ## 🟡 Needs Scoping / Ideation
 - [ ] Exposure register logic — review what fields are shown, how P&L is calculated, what "correct" looks like for pilot customers. Needs design session.
@@ -55,8 +56,27 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 - [ ] **Budget Rate Calculation (AI-Assisted)** — AI suggests a defensible budget rate per currency pair based on forward curve, historical volatility, and hedge tenor. Clearly labelled as a suggestion — final rate set by the CFO. Reduces manual research time. Must not be positioned as a recommendation or it creates liability.
 - [ ] **Multi-Company (Parent/Daughter)** — Parent entity sees consolidated group exposure + P&L across all subsidiaries. Daughter entities see only their own data. Group-level hedging can offset subsidiary positions before execution (netting). Architecture change required — design session before building. High enterprise value.
 - [ ] **Exposure Forecasting (AI)** — Upload 12-24 months of AP/AR history to forecast next 12 months of FX exposure by currency pair. Output: projected exposure by month, suggested hedge plan, timing and amounts. AI layer requires sufficient historical data — capture data now, build forecasting after 2-3 pilots have 6+ months of data.
+- [ ] **Forward Rate Projections** — Show 30/60/90-day forward rates for each currency pair on the dashboard and exposure register. Use forward curve (interest rate differential method) as a proxy. Helps CFO understand where rates are "priced to go" vs current budget rate, supporting hedging timing decisions. Prerequisite for Forecasting feature.
 - [ ] **Hedge Accounting (IAS 39 / IFRS 9)** — Formal hedge designation, effectiveness testing (80-125% rule), and documentation pack. Allows listed/regulated clients to apply hedge accounting treatment and reduce P&L volatility. High complexity, high value for larger corporates. Series A feature — scope now, build later.
 - [ ] **FX Netting (Multi-Entity)** — For parent/daughter clients: identify offsetting exposures across entities before hedging. Net GBP payable in one entity against GBP receivable in another. Reduces transaction costs and facility usage. Linked to multi-company feature.
+
+## 💰 Revenue Forecasting
+**Priority:** Post-pilot
+**Description:** Forward-looking FX impact on revenues and costs.
+**Inputs:** budget rates, exposure schedule, rate forecasts (manual + API)
+**Outputs:** Forecasted P&L, cash flow projections, variance vs budget
+**Dependency:** Cash Flow-at-Risk module (Risk Engine)
+**Status:** Backlog
+
+---
+
+## 🏢 Parent/Daughter Company Relationships
+**Priority:** Pre-scale
+**Description:** UI to link subsidiary companies to a parent. Parent company admin sees consolidated view across all children. Daughter entities see only their own data.
+**DB column:** `parent_company_id` already added to `companies` table (migration runs on startup).
+**Status:** DB ready, UI in backlog
+
+---
 
 ## 💰 MTM-Based Billing Model
 **Priority:** Post-pilot
@@ -70,6 +90,15 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 - Validate pricing model with at least 1 pilot customer first
 
 **Status:** Awaiting commercial validation
+
+---
+
+## 🔒 Feature Flags / Tiered Module Access
+**Priority:** Pre-scale
+**Description:** Per-company feature flags for module access control.
+**Tiers:** Starter / Growth / Enterprise
+**DB:** Add `features JSONB` column to `companies` table — gates Risk Engine modules, Reports sections, and future premium features.
+**Status:** Architect DB column now, UI in backlog
 
 ---
 

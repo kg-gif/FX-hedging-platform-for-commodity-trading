@@ -21,11 +21,15 @@ def get_db():
         db.close()
 
 def require_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """
+    Allow superadmin (platform-level), company_admin (company-level),
+    and legacy "admin" role.  Rejects company_user / viewer / unknown.
+    """
     from jose import JWTError, jwt
     SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
     try:
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
-        if payload.get("role") != "admin":
+        if payload.get("role") not in ("superadmin", "admin", "company_admin"):
             raise HTTPException(status_code=403, detail="Admin access required")
         return payload
     except JWTError:
@@ -55,15 +59,24 @@ class CreateUserRequest(BaseModel):
 
 @router.get("/companies")
 def list_companies(admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
-    rows = db.execute(text("""
+    # superadmin / legacy admin → all companies; company_admin → own company only
+    base_sql = """
         SELECT c.id, c.name, c.base_currency, c.trading_volume_monthly, c.created_at,
                COUNT(DISTINCT e.id) as exposure_count, COUNT(DISTINCT u.id) as user_count
         FROM companies c
         LEFT JOIN exposures e ON e.company_id = c.id
         LEFT JOIN users u ON u.company_id = c.id
+        {where}
         GROUP BY c.id, c.name, c.base_currency, c.trading_volume_monthly, c.created_at
         ORDER BY c.id ASC
-    """)).fetchall()
+    """
+    if admin.get("role") in ("superadmin", "admin"):
+        rows = db.execute(text(base_sql.format(where=""))).fetchall()
+    else:
+        cid = int(admin.get("company_id", 0))
+        rows = db.execute(
+            text(base_sql.format(where="WHERE c.id = :cid")), {"cid": cid}
+        ).fetchall()
     return {"companies": [{"id": r._mapping["id"], "name": r._mapping["name"], "base_currency": r._mapping["base_currency"], "trading_volume_monthly": r._mapping["trading_volume_monthly"], "created_at": r._mapping["created_at"], "exposure_count": r._mapping["exposure_count"], "user_count": r._mapping["user_count"]} for r in rows]}
 
 @router.post("/companies")
@@ -116,12 +129,32 @@ def delete_exposure(exposure_id: int, admin: dict = Depends(require_admin), db: 
 
 @router.get("/users")
 def list_users(admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
-    rows = db.execute(text("SELECT u.id, u.email, u.role, u.created_at, c.name as company_name, c.id as company_id FROM users u LEFT JOIN companies c ON u.company_id = c.id ORDER BY u.created_at DESC")).fetchall()
+    # superadmin / legacy admin → all users; company_admin → own company's users only
+    if admin.get("role") in ("superadmin", "admin"):
+        rows = db.execute(text(
+            "SELECT u.id, u.email, u.role, u.created_at, c.name as company_name, c.id as company_id "
+            "FROM users u LEFT JOIN companies c ON u.company_id = c.id ORDER BY u.created_at DESC"
+        )).fetchall()
+    else:
+        cid = int(admin.get("company_id", 0))
+        rows = db.execute(text(
+            "SELECT u.id, u.email, u.role, u.created_at, c.name as company_name, c.id as company_id "
+            "FROM users u LEFT JOIN companies c ON u.company_id = c.id "
+            "WHERE u.company_id = :cid ORDER BY u.created_at DESC"
+        ), {"cid": cid}).fetchall()
     return {"users": [{"id": r._mapping["id"], "email": r._mapping["email"], "role": r._mapping["role"], "created_at": r._mapping["created_at"], "company_name": r._mapping["company_name"], "company_id": r._mapping["company_id"]} for r in rows]}
 
 @router.post("/users")
 async def create_user(request: CreateUserRequest, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
     import bcrypt, secrets, httpx
+
+    # Block superadmin role from being assigned via API — only set directly in DB
+    if request.role == "superadmin":
+        raise HTTPException(status_code=400, detail="superadmin role cannot be assigned via the API")
+
+    # company_admin: force company_id to their own company, regardless of what was sent
+    if admin.get("role") not in ("superadmin", "admin"):
+        request.company_id = int(admin.get("company_id", 0))
 
     # Check email not already taken
     existing = db.execute(
@@ -245,6 +278,13 @@ async def create_user(request: CreateUserRequest, admin: dict = Depends(require_
 
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
+    # company_admin: verify the target user belongs to their company
+    if admin.get("role") not in ("superadmin", "admin"):
+        target = db.execute(
+            text("SELECT company_id FROM users WHERE id = :id"), {"id": user_id}
+        ).fetchone()
+        if not target or int(target._mapping["company_id"]) != int(admin.get("company_id", 0)):
+            raise HTTPException(status_code=403, detail="Cannot delete users outside your company")
     db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
     db.commit()
     return {"message": f"User {user_id} deleted"}
