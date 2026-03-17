@@ -68,19 +68,28 @@ def check_margin_call_risk(
     mtm_vs_inception_eur: float,
     notional_eur: float,
     threshold_pct: float,
+    instrument_type: str = "forward",
 ) -> bool:
     """
     Returns True if a forward tranche is AT RISK of a margin call.
 
     Conditions (all must be true):
-      1. MTM vs inception is negative (position has moved against you)
-      2. The loss as a % of notional >= configured threshold
+      1. Instrument is a forward (see instrument guard below)
+      2. MTM vs inception is negative (position has moved against you)
+      3. The loss as a % of notional >= configured threshold
 
     Args:
         mtm_vs_inception_eur: Unrealised P&L in EUR vs inception rate (negative = loss)
         notional_eur:         Tranche notional in EUR
         threshold_pct:        Alert threshold, e.g. 2.0 = 2% of notional
+        instrument_type:      Instrument type string; defaults to "forward"
     """
+    # Margin call risk applies to forward contracts only.
+    # Spot transactions settle in T+2 and carry no ongoing margin obligation.
+    # Options: excluded in Phase 1, revisit if clients use vanilla options.
+    if instrument_type.lower() != "forward":
+        return False
+
     if mtm_vs_inception_eur is None or notional_eur is None or notional_eur <= 0:
         return False
     if mtm_vs_inception_eur >= 0:
