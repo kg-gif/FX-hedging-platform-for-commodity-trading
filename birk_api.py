@@ -272,7 +272,7 @@ def get_companies(
     Viewers see only their own company.
     """
     if payload.get("role") in ("admin", "superadmin"):
-        return db.query(Company).all()
+        return db.query(Company).order_by(Company.id).all()
     else:
         company_id = payload.get("company_id")
         if not company_id:
@@ -1514,11 +1514,9 @@ async def startup_event():
             print("✅ Database seeded successfully!")
         else:
             print(f"ℹ️ Database already contains {company_count} companies")
-            first_company = db.query(Company).first()
-            if first_company and first_company.name != "BIRK Commodities A/S":
-                first_company.name = "BIRK Commodities A/S"
-                first_company.updated_at = datetime.utcnow()
-                db.commit()
+            # NOTE: Do NOT rename any company here. Company names are user-controlled
+            # data and renaming on startup causes data corruption when a superadmin
+            # has renamed a company via the Settings or Admin panel.
 
     except Exception as e:
         print(f"✗ Error during startup: {e}")
