@@ -136,15 +136,25 @@ export default function Settings({ authUser, initialSection }) {
   })
   const [alertPrefs, setAlertPrefs] = useState({ mc_alert_threshold_pct: 2.0, mc_alert_recipients: 'all' })
 
+  // ── Trading Facilities state ──────────────────────────────────────────────
+  const [facilities,      setFacilities]      = useState([])
+  const [facilityForm,    setFacilityForm]    = useState({
+    bank_name: '', facility_limit_eur: '', facility_type: 'fx_forward',
+    contact_name: '', contact_email: '', notes: '',
+  })
+  const [editingFacility, setEditingFacility] = useState(null)   // facility id being edited inline
+  const [facilityEdit,    setFacilityEdit]    = useState({})     // edit form state
+
   useEffect(() => { loadAll() }, [companyId])
 
   const loadAll = async () => {
     setLoading(true)
     try {
-      const [sRes, pRes, aRes] = await Promise.all([
+      const [sRes, pRes, aRes, fRes] = await Promise.all([
         fetch(`${API_BASE}/api/settings/${companyId}`,         { headers: authHeaders() }).then(r => r.json()),
         fetch(`${API_BASE}/api/policies?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json()),
         fetch(`${API_BASE}/api/settings/${companyId}/audit`,   { headers: authHeaders() }).then(r => r.json()),
+        fetch(`${API_BASE}/api/facilities/${companyId}`,       { headers: authHeaders() }).then(r => r.ok ? r.json() : { facilities: [] }),
       ])
       setSettings(sRes)
       setCompany({
@@ -178,6 +188,7 @@ export default function Settings({ authUser, initialSection }) {
       })
       setPolicies(pRes.policies || [])
       setAuditLog(aRes.audit_log || [])
+      setFacilities(fRes.facilities || [])
       // Backend auto-seeded defaults for a new company — surface a soft info message
       if (pRes.auto_created) {
         showMsg('info', 'Default policy applied — Balanced. Customise below.')
@@ -251,6 +262,57 @@ export default function Settings({ authUser, initialSection }) {
   }
 
   const CURRENCIES = ['USD','EUR','GBP','NOK','SEK','CHF','JPY','AUD','CAD','NZD']
+
+  // ── Facility helpers ──────────────────────────────────────────────────────
+
+  const createFacility = async () => {
+    if (!facilityForm.bank_name || !facilityForm.facility_limit_eur) {
+      showMsg('error', 'Bank name and facility limit are required')
+      return
+    }
+    try {
+      const r = await fetch(`${API_BASE}/api/facilities`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ ...facilityForm, company_id: companyId, facility_limit_eur: parseFloat(facilityForm.facility_limit_eur) }),
+      })
+      const data = await r.json()
+      if (data.success) {
+        showMsg('success', 'Facility added')
+        setFacilities(prev => [...prev, data.facility])
+        setFacilityForm({ bank_name: '', facility_limit_eur: '', facility_type: 'fx_forward', contact_name: '', contact_email: '', notes: '' })
+      } else { showMsg('error', data.detail || 'Failed to add facility') }
+    } catch { showMsg('error', 'Network error') }
+  }
+
+  const saveFacilityEdit = async (id) => {
+    try {
+      const r = await fetch(`${API_BASE}/api/facilities/${id}`, {
+        method: 'PUT', headers: authHeaders(),
+        body: JSON.stringify({
+          ...facilityEdit,
+          facility_limit_eur: facilityEdit.facility_limit_eur ? parseFloat(facilityEdit.facility_limit_eur) : undefined,
+        }),
+      })
+      const data = await r.json()
+      if (data.success) {
+        showMsg('success', 'Facility updated')
+        setFacilities(prev => prev.map(f => f.id === id ? { ...f, ...facilityEdit } : f))
+        setEditingFacility(null)
+      } else { showMsg('error', data.detail || 'Update failed') }
+    } catch { showMsg('error', 'Network error') }
+  }
+
+  const deleteFacility = async (id) => {
+    if (!window.confirm('Soft-delete this facility? Existing tranche links are preserved.')) return
+    try {
+      const r = await fetch(`${API_BASE}/api/facilities/${id}`, { method: 'DELETE', headers: authHeaders() })
+      const data = await r.json()
+      if (data.success) {
+        showMsg('success', 'Facility removed')
+        setFacilities(prev => prev.filter(f => f.id !== id))
+      } else { showMsg('error', data.detail || 'Delete failed') }
+    } catch { showMsg('error', 'Network error') }
+  }
 
   // ── Section renderers ────────────────────────────────────────────────────
 
@@ -521,36 +583,180 @@ export default function Settings({ authUser, initialSection }) {
     </div>
   )
 
-  const renderBank = () => (
-    <div>
-      <h3 className="text-base font-bold mb-2" style={{ color: NAVY }}>Bank Details</h3>
-      <p className="text-xs text-gray-400 mb-5">Appears on Currency Plan PDF sent to bank</p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <Field label="Bank Name">
-          <input className={inputClass} value={bank.bank_name}
-            onChange={e => setBank({ ...bank, bank_name: e.target.value })}
-            placeholder="e.g., HSBC, Barclays" />
-        </Field>
-        <Field label="Relationship Manager">
-          <input className={inputClass} value={bank.bank_contact_name}
-            onChange={e => setBank({ ...bank, bank_contact_name: e.target.value })}
-            placeholder="Full name" />
-        </Field>
-        <Field label="Bank Contact Email">
-          <input type="email" className={inputClass} value={bank.bank_email}
-            onChange={e => setBank({ ...bank, bank_email: e.target.value })}
-            placeholder="rm@bank.com" />
-        </Field>
+  const renderBank = () => {
+    const fmtLimit = (n) => {
+      const v = Number(n)
+      if (v >= 1_000_000) return `EUR ${(v / 1_000_000).toFixed(1)}M`
+      if (v >= 1_000)     return `EUR ${(v / 1_000).toFixed(0)}K`
+      return `EUR ${v.toFixed(0)}`
+    }
+    const statusColor = (s) => s === 'CRITICAL' ? '#EF4444' : s === 'WARNING' ? '#F59E0B' : '#10B981'
+
+    return (
+      <div>
+        <h3 className="text-base font-bold mb-2" style={{ color: NAVY }}>Bank Details</h3>
+        <p className="text-xs text-gray-400 mb-5">Appears on Currency Plan PDF sent to bank</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <Field label="Bank Name">
+            <input className={inputClass} value={bank.bank_name}
+              onChange={e => setBank({ ...bank, bank_name: e.target.value })}
+              placeholder="e.g., HSBC, Barclays" />
+          </Field>
+          <Field label="Relationship Manager">
+            <input className={inputClass} value={bank.bank_contact_name}
+              onChange={e => setBank({ ...bank, bank_contact_name: e.target.value })}
+              placeholder="Full name" />
+          </Field>
+          <Field label="Bank Contact Email">
+            <input type="email" className={inputClass} value={bank.bank_email}
+              onChange={e => setBank({ ...bank, bank_email: e.target.value })}
+              placeholder="rm@bank.com" />
+          </Field>
+        </div>
+        <div className="flex justify-end mt-6 mb-10">
+          <button onClick={() => save('bank', bank)} disabled={saving === 'bank'}
+            className="flex items-center gap-2 px-5 py-2 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+            style={{ background: NAVY }}>
+            <Save size={14} />{saving === 'bank' ? 'Saving…' : 'Save Bank Details'}
+          </button>
+        </div>
+
+        {/* ── Trading Facilities ─────────────────────────────────────────── */}
+        <div className="border-t border-gray-100 pt-8">
+          <h3 className="text-base font-bold mb-1" style={{ color: NAVY }}>Trading Facilities</h3>
+          <p className="text-xs text-gray-400 mb-5">
+            FX credit lines per bank. Utilisation is calculated from open forward positions.
+          </p>
+
+          {/* Existing facilities table */}
+          {facilities.length > 0 && (
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wider" style={{ color: '#6B7280' }}>
+                    <th className="pb-2 pr-4">Bank</th>
+                    <th className="pb-2 pr-4">Limit</th>
+                    <th className="pb-2 pr-4">Type</th>
+                    <th className="pb-2 pr-4">Contact</th>
+                    <th className="pb-2 pr-4">Status</th>
+                    <th className="pb-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {facilities.map(fac => (
+                    <tr key={fac.id}>
+                      {editingFacility === fac.id ? (
+                        <>
+                          <td className="py-2 pr-3">
+                            <input className={inputClass} value={facilityEdit.bank_name ?? fac.bank_name}
+                              onChange={e => setFacilityEdit(p => ({ ...p, bank_name: e.target.value }))} />
+                          </td>
+                          <td className="py-2 pr-3">
+                            <input type="number" className={inputClass}
+                              value={facilityEdit.facility_limit_eur ?? fac.facility_limit_eur}
+                              onChange={e => setFacilityEdit(p => ({ ...p, facility_limit_eur: e.target.value }))} />
+                          </td>
+                          <td className="py-2 pr-3">
+                            <select className={inputClass}
+                              value={facilityEdit.facility_type ?? fac.facility_type}
+                              onChange={e => setFacilityEdit(p => ({ ...p, facility_type: e.target.value }))}>
+                              <option value="fx_forward">FX Forward</option>
+                              <option value="fx_option">FX Option</option>
+                              <option value="multi_product">Multi-product</option>
+                            </select>
+                          </td>
+                          <td className="py-2 pr-3">
+                            <input className={inputClass}
+                              value={facilityEdit.contact_name ?? fac.contact_name ?? ''}
+                              onChange={e => setFacilityEdit(p => ({ ...p, contact_name: e.target.value }))} />
+                          </td>
+                          <td className="py-2 pr-3 text-xs text-gray-400">—</td>
+                          <td className="py-2">
+                            <div className="flex gap-2">
+                              <button onClick={() => saveFacilityEdit(fac.id)}
+                                className="text-xs px-3 py-1 rounded font-semibold text-white"
+                                style={{ background: NAVY }}>Save</button>
+                              <button onClick={() => setEditingFacility(null)}
+                                className="text-xs px-3 py-1 rounded font-semibold border border-gray-200 text-gray-500">Cancel</button>
+                            </div>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="py-2.5 pr-4 font-semibold" style={{ color: NAVY }}>{fac.bank_name}</td>
+                          <td className="py-2.5 pr-4 text-gray-600">{fmtLimit(fac.facility_limit_eur)}</td>
+                          <td className="py-2.5 pr-4 text-gray-400 capitalize">{(fac.facility_type || '').replace('_', ' ')}</td>
+                          <td className="py-2.5 pr-4 text-gray-500 text-xs">{fac.contact_name || '—'}</td>
+                          <td className="py-2.5 pr-4">
+                            <span className="text-xs font-bold" style={{ color: statusColor('NORMAL') }}>Active</span>
+                          </td>
+                          <td className="py-2.5">
+                            <div className="flex gap-2">
+                              <button onClick={() => { setEditingFacility(fac.id); setFacilityEdit({}) }}
+                                className="text-xs px-3 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Edit</button>
+                              <button onClick={() => deleteFacility(fac.id)}
+                                className="text-xs px-3 py-1 rounded border text-red-500 border-red-200 hover:bg-red-50">Remove</button>
+                            </div>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Add facility form */}
+          <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+            <p className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: NAVY }}>Add Facility</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Bank Name">
+                <input className={inputClass} placeholder="e.g., DNB, Nordea"
+                  value={facilityForm.bank_name}
+                  onChange={e => setFacilityForm(p => ({ ...p, bank_name: e.target.value }))} />
+              </Field>
+              <Field label="Facility Limit (EUR)">
+                <input type="number" className={inputClass} placeholder="e.g., 10000000"
+                  value={facilityForm.facility_limit_eur}
+                  onChange={e => setFacilityForm(p => ({ ...p, facility_limit_eur: e.target.value }))} />
+              </Field>
+              <Field label="Facility Type">
+                <select className={inputClass} value={facilityForm.facility_type}
+                  onChange={e => setFacilityForm(p => ({ ...p, facility_type: e.target.value }))}>
+                  <option value="fx_forward">FX Forward</option>
+                  <option value="fx_option">FX Option</option>
+                  <option value="multi_product">Multi-product</option>
+                </select>
+              </Field>
+              <Field label="Contact Name (optional)">
+                <input className={inputClass} placeholder="Relationship manager"
+                  value={facilityForm.contact_name}
+                  onChange={e => setFacilityForm(p => ({ ...p, contact_name: e.target.value }))} />
+              </Field>
+              <Field label="Contact Email (optional)">
+                <input type="email" className={inputClass} placeholder="rm@bank.com"
+                  value={facilityForm.contact_email}
+                  onChange={e => setFacilityForm(p => ({ ...p, contact_email: e.target.value }))} />
+              </Field>
+              <Field label="Notes (optional)">
+                <textarea className={inputClass} rows={2} placeholder="Any notes..."
+                  value={facilityForm.notes}
+                  onChange={e => setFacilityForm(p => ({ ...p, notes: e.target.value }))} />
+              </Field>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button onClick={createFacility}
+                className="flex items-center gap-2 px-5 py-2 text-white rounded-lg text-sm font-semibold"
+                style={{ background: NAVY }}>
+                <Save size={14} /> Add Facility
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
-      <div className="flex justify-end mt-6">
-        <button onClick={() => save('bank', bank)} disabled={saving === 'bank'}
-          className="flex items-center gap-2 px-5 py-2 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
-          style={{ background: NAVY }}>
-          <Save size={14} />{saving === 'bank' ? 'Saving…' : 'Save Bank Details'}
-        </button>
-      </div>
-    </div>
-  )
+    )
+  }
 
   const renderNotifications = () => (
     <div>

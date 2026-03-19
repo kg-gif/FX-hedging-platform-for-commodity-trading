@@ -85,14 +85,15 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
       await fetch(`${API_BASE}/api/exposures/${exposureId}/tranches`, {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({
-          amount:     order.amount,
-          rate:       order.currentSpot || null,
-          instrument: order.instrument,
-          status:     'executed',
-          value_date: order.valueDate
+          amount:      order.amount,
+          rate:        order.currentSpot || null,
+          instrument:  order.instrument,
+          status:      'executed',
+          value_date:  order.valueDate
             ? order.valueDate.split('/').reverse().join('-')
             : null,
-          notes: `Order type: ${order.orderType}.`
+          notes:       `Order type: ${order.orderType}.`,
+          facility_id: order.facilityId || null,
         })
       })
 
@@ -166,7 +167,7 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
 }
 
 // ── Execution Modal ───────────────────────────────────────────────
-function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }) {
+function ExecutionModal({ rec, bankEmail, bankName, companyId, facilities = [], onClose, onSent }) {
   const user = JSON.parse(localStorage.getItem('auth_user') || '{}')
   const defaultValueDate = rec.end_date
     ? rec.end_date.split('T')[0]
@@ -184,6 +185,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
   const [sent, setSent]                       = useState(false)
   const [copied, setCopied]                   = useState(false)
   const [currentSpot, setCurrentSpot]         = useState(null)
+  const [facilityId,  setFacilityId]          = useState('')   // optional bank facility assignment
 
   useEffect(() => {
     fetch(`${API_BASE}/api/fx-rates?pairs=${rec.currency_pair}`, { headers: authHeaders() })
@@ -305,6 +307,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
       amount: parseFloat(amountStr) || 0,
       currentSpot,
       action: rec.action,
+      facilityId: facilityId ? parseInt(facilityId) : null,
     })
   }
 
@@ -421,6 +424,34 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, onClose, onSent }
               </div>
             )}
 
+            {/* Facility assignment — optional, only shown when facilities exist */}
+            {facilities.length > 0 && (
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>
+                  Assign to Facility (optional)
+                </label>
+                <select
+                  value={facilityId}
+                  onChange={e => setFacilityId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                  <option value="">No facility assigned</option>
+                  {[...facilities]
+                    .sort((a, b) => b.available_eur - a.available_eur)
+                    .map(f => {
+                      const avail = f.available_eur >= 1_000_000
+                        ? `EUR ${(f.available_eur / 1_000_000).toFixed(1)}M available`
+                        : `EUR ${(f.available_eur / 1_000).toFixed(0)}K available`
+                      return (
+                        <option key={f.id} value={f.id}>
+                          {f.bank_name} — {avail}
+                        </option>
+                      )
+                    })
+                  }
+                </select>
+              </div>
+            )}
+
             <div className="rounded-lg px-4 py-3 text-sm"
               style={{ background: 'rgba(26,39,68,0.04)', border: '1px solid rgba(26,39,68,0.1)' }}>
               {bankEmail
@@ -470,6 +501,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
   const [expandedId, setExpandedId]           = useState(null)
   const [customAmounts, setCustomAmounts]     = useState({})
   const [allExposures, setAllExposures]       = useState([])
+  const [facilities,   setFacilities]         = useState([])   // bank facilities for dropdown
   const cardRefs = useRef({})
 
   useEffect(() => {
@@ -480,6 +512,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
     setExpandedId(null)
     setError(null)
     loadAll()
+    loadFacilities()
   }, [companyId])
 
   // When navigated here via Hedge Now — expand and scroll to the target card
@@ -511,6 +544,16 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
         zone_target_ratio:  focusExposure.zone_target_ratio ?? null,
       }
     : null
+
+  async function loadFacilities() {
+    try {
+      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })
+      if (res.ok) {
+        const data = await res.json()
+        setFacilities(data.facilities || [])
+      }
+    } catch (e) { console.error('[facilities] fetch error:', e) }
+  }
 
   async function loadAll() {
     setLoading(true)
@@ -811,6 +854,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
           bankName={bankSettings.name}
           baseCurrency={baseCurrency}
           companyId={companyId}
+          facilities={facilities}
           onClose={() => setActiveModal(null)}
           onSent={handleOrderSent}
         />

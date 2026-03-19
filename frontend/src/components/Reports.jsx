@@ -366,6 +366,12 @@ export default function Reports() {
   const [mtmRows, setMtmRows]         = useState([])   // flat list of all forward tranche MTM rows
   const [mtmLoading, setMtmLoading]   = useState(true)
   const [mcRiskIds,  setMcRiskIds]    = useState(new Set())  // tranche_ids currently at MC risk
+
+  // Trading Facilities report
+  const [facilityUtil,        setFacilityUtil]        = useState(null)
+  const [facilityLoading,     setFacilityLoading]     = useState(true)
+  const [facFilterBank,       setFacFilterBank]        = useState('')
+  const [facFilterStatus,     setFacFilterStatus]      = useState('')
   const [mtmFilterPair,   setMtmFilterPair]   = useState('')
   const [mtmFilterStatus, setMtmFilterStatus] = useState('')
   const [mtmFilterFrom,   setMtmFilterFrom]   = useState('')
@@ -376,11 +382,12 @@ export default function Reports() {
 
   // Jump nav
   const REPORT_SECTIONS = [
-    { id: 'audit-trail',        label: 'Hedge Audit Trail'     },
-    { id: 'pnl-summary',        label: 'P&L Summary'           },
-    { id: 'policy-compliance',  label: 'Policy Compliance'     },
-    { id: 'mtm-report',         label: 'MTM Report'            },
-    { id: 'maturity-schedule',  label: 'Maturity Schedule'     },
+    { id: 'audit-trail',         label: 'Hedge Audit Trail'     },
+    { id: 'pnl-summary',         label: 'P&L Summary'           },
+    { id: 'policy-compliance',   label: 'Policy Compliance'     },
+    { id: 'mtm-report',          label: 'MTM Report'            },
+    { id: 'trading-facilities',  label: 'Trading Facilities'    },
+    { id: 'maturity-schedule',   label: 'Maturity Schedule'     },
   ]
   const [activeSection, setActiveSection] = useState('audit-trail')
   const sectionRefs = useRef({})
@@ -407,8 +414,18 @@ export default function Reports() {
       loadTrail()
       loadEnriched()
       loadMcRisk()
+      loadFacilities()
     }
   }, [companyId, filterPair, filterFromDate, filterToDate, showDeleted])
+
+  const loadFacilities = async () => {
+    setFacilityLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })
+      if (res.ok) setFacilityUtil(await res.json())
+    } catch (e) { console.error('[facilities] fetch error:', e) }
+    finally { setFacilityLoading(false) }
+  }
 
   const loadMcRisk = async () => {
     try {
@@ -1150,6 +1167,141 @@ export default function Reports() {
         mcRiskIds={mcRiskIds}
       />
       </div>{/* /mtm-report ref wrapper */}
+
+      {/* ── Trading Facilities Report ────────────────────────────────── */}
+      <div ref={el => { sectionRefs.current['trading-facilities'] = el }} className="scroll-mt-32">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
+          <h3 className="font-semibold text-white text-sm">Trading Facilities</h3>
+          {facilityUtil && (
+            <span className="text-xs" style={{ color: '#8DA4C4' }}>
+              {facilityUtil.facilities?.length || 0} facilit{facilityUtil.facilities?.length === 1 ? 'y' : 'ies'} ·
+              Total: EUR {facilityUtil.total_limit_eur >= 1_000_000
+                ? `${(facilityUtil.total_limit_eur / 1_000_000).toFixed(1)}M`
+                : `${(facilityUtil.total_limit_eur / 1_000).toFixed(0)}K`}
+            </span>
+          )}
+        </div>
+
+        {facilityLoading ? (
+          <div className="p-6"><LoadingAnimation text="Loading facilities…" size="small" /></div>
+        ) : !facilityUtil || !facilityUtil.facilities?.length ? (
+          <div className="p-6 text-sm text-gray-400">
+            No trading facilities configured. Add them in Settings → Bank Details.
+          </div>
+        ) : (
+          <div className="p-5 space-y-5">
+            {/* Filters */}
+            <div className="flex gap-3 flex-wrap">
+              <input
+                type="text" placeholder="Filter by bank…"
+                value={facFilterBank}
+                onChange={e => setFacFilterBank(e.target.value)}
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs w-40"
+              />
+              <select
+                value={facFilterStatus}
+                onChange={e => setFacFilterStatus(e.target.value)}
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs">
+                <option value="">All Statuses</option>
+                <option value="NORMAL">Normal</option>
+                <option value="WARNING">Warning</option>
+                <option value="CRITICAL">Critical</option>
+              </select>
+            </div>
+
+            {/* Summary totals */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Total Limit',     val: facilityUtil.total_limit_eur,     color: NAVY    },
+                { label: 'Total Utilised',  val: facilityUtil.total_utilised_eur,  color: DANGER  },
+                { label: 'Total Available', val: facilityUtil.total_available_eur, color: SUCCESS },
+              ].map(({ label, val, color }) => (
+                <div key={label} className="rounded-lg p-3 border border-gray-100 text-center">
+                  <p className="text-xs text-gray-400 mb-1">{label}</p>
+                  <p className="text-base font-bold" style={{ color }}>
+                    EUR {val >= 1_000_000
+                      ? `${(val / 1_000_000).toFixed(1)}M`
+                      : `${(val / 1_000).toFixed(0)}K`}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-facility table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wider border-b border-gray-100"
+                    style={{ color: '#6B7280' }}>
+                    <th className="pb-2 pr-4">Bank</th>
+                    <th className="pb-2 pr-4 text-right">Limit</th>
+                    <th className="pb-2 pr-4 text-right">Utilised</th>
+                    <th className="pb-2 pr-4 text-right">Available</th>
+                    <th className="pb-2 pr-4 text-right">Utilisation</th>
+                    <th className="pb-2 pr-4 text-right">Forwards</th>
+                    <th className="pb-2 pr-4">Next Maturity</th>
+                    <th className="pb-2">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {facilityUtil.facilities
+                    .filter(f => {
+                      if (facFilterBank && !f.bank_name.toLowerCase().includes(facFilterBank.toLowerCase())) return false
+                      if (facFilterStatus && f.status !== facFilterStatus) return false
+                      return true
+                    })
+                    .map(fac => {
+                      const barColor = fac.status === 'CRITICAL' ? DANGER
+                                     : fac.status === 'WARNING'  ? WARNING
+                                     : SUCCESS
+                      const fmtEurM = (v) => v >= 1_000_000
+                        ? `€${(v / 1_000_000).toFixed(1)}M`
+                        : `€${(v / 1_000).toFixed(0)}K`
+                      return (
+                        <tr key={fac.id}>
+                          <td className="py-3 pr-4">
+                            <p className="font-semibold text-sm" style={{ color: NAVY }}>{fac.bank_name}</p>
+                            {fac.contact_name && <p className="text-xs text-gray-400">{fac.contact_name}</p>}
+                          </td>
+                          <td className="py-3 pr-4 text-right text-sm">{fmtEurM(fac.facility_limit_eur)}</td>
+                          <td className="py-3 pr-4 text-right text-sm" style={{ color: DANGER }}>{fmtEurM(fac.utilised_eur)}</td>
+                          <td className="py-3 pr-4 text-right text-sm" style={{ color: SUCCESS }}>{fmtEurM(fac.available_eur)}</td>
+                          <td className="py-3 pr-4 text-right">
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="text-sm font-bold" style={{ color: barColor }}>
+                                {fac.utilisation_pct.toFixed(1)}%
+                              </span>
+                              <div className="w-20 rounded-full overflow-hidden" style={{ background: '#E5E7EB', height: 4 }}>
+                                <div className="h-full rounded-full"
+                                  style={{ width: `${Math.min(fac.utilisation_pct, 100)}%`, background: barColor }} />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 pr-4 text-right text-sm text-gray-600">{fac.tranche_count}</td>
+                          <td className="py-3 pr-4 text-sm text-gray-500">
+                            {fac.next_maturity
+                              ? new Date(fac.next_maturity).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '—'}
+                          </td>
+                          <td className="py-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              fac.status === 'CRITICAL' ? 'bg-red-100 text-red-700'
+                            : fac.status === 'WARNING'  ? 'bg-amber-100 text-amber-700'
+                            : 'bg-green-100 text-green-700'
+                            }`}>{fac.status}</span>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+      </div>{/* /trading-facilities ref wrapper */}
 
       {/* Coming Soon — Maturity Schedule only */}
       <div ref={el => { sectionRefs.current['maturity-schedule'] = el }} className="scroll-mt-32">

@@ -200,6 +200,7 @@ function Dashboard({ onNavigate }) {
   const [summary,           setSummary]           = useState(null)
   const [summaryLoading,    setSummaryLoading]    = useState(true)
   const [mcRisk,            setMcRisk]            = useState(null)
+  const [facilities,        setFacilities]        = useState(null)   // utilisation data per bank
 
   // When selected company changes — load everything
   useEffect(() => {
@@ -209,7 +210,15 @@ function Dashboard({ onNavigate }) {
     fetchPolicy(selectedCompanyId)
     fetchSummary(selectedCompanyId)
     fetchMcRisk(selectedCompanyId)
+    fetchFacilities(selectedCompanyId)
   }, [selectedCompanyId])
+
+  const fetchFacilities = async (companyId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })
+      if (res.ok) setFacilities(await res.json())
+    } catch (e) { console.error('[facilities] fetch error:', e) }
+  }
 
   const fetchMcRisk = async (companyId) => {
     try {
@@ -396,6 +405,74 @@ function Dashboard({ onNavigate }) {
             </span>
           </div>
         </div>
+      )}
+
+      {/* Facility utilisation cards — only shown when facilities exist */}
+      {facilities && facilities.facilities && facilities.facilities.length > 0 && (
+        <div>
+          <div className="flex flex-wrap gap-3">
+            {facilities.facilities.map(fac => {
+              const barColor = fac.utilisation_pct > 90 ? '#EF4444'
+                             : fac.utilisation_pct >= 70 ? '#F59E0B'
+                             : '#10B981'
+              const fmtM = (n) => {
+                if (n >= 1_000_000) return `EUR ${(n / 1_000_000).toFixed(1)}M`
+                if (n >= 1_000)     return `EUR ${(n / 1_000).toFixed(0)}K`
+                return `EUR ${n.toFixed(0)}`
+              }
+              const fmtDate = (s) => {
+                if (!s) return null
+                const d = new Date(s)
+                return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+              }
+              return (
+                <div key={fac.id} className="rounded-xl border p-4"
+                  style={{ background: 'white', borderColor: '#E5E7EB', minWidth: 200, flex: '1 1 200px', maxWidth: 280 }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-bold" style={{ color: NAVY }}>{fac.bank_name}</span>
+                    <span className="text-sm font-bold" style={{ color: barColor }}>{fac.utilisation_pct.toFixed(0)}%</span>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="rounded-full overflow-hidden mb-2" style={{ background: '#E5E7EB', height: 6 }}>
+                    <div className="h-full rounded-full transition-all"
+                      style={{ width: `${Math.min(fac.utilisation_pct, 100)}%`, background: barColor }} />
+                  </div>
+                  <p className="text-xs text-gray-500">{fmtM(fac.utilised_eur)} used of {fmtM(fac.facility_limit_eur)}</p>
+                  <p className="text-xs font-semibold mt-0.5" style={{ color: barColor }}>{fmtM(fac.available_eur)} available</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {fac.tranche_count} forward{fac.tranche_count !== 1 ? 's' : ''}
+                    {fac.next_maturity ? ` · Next: ${fmtDate(fac.next_maturity)}` : ''}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Facility critical banner — shown when any facility exceeds 90% */}
+      {facilities && facilities.facilities && facilities.facilities.some(f => f.status === 'CRITICAL') && (
+        facilities.facilities.filter(f => f.status === 'CRITICAL').map(fac => (
+          <div key={fac.id} className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
+            style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+            <div className="flex items-center gap-3">
+              <AlertTriangle size={18} color={WARNING} />
+              <span className="text-sm" style={{ color: WARNING }}>
+                <span className="font-bold">{fac.bank_name}</span> facility at{' '}
+                <span className="font-bold">{fac.utilisation_pct.toFixed(0)}%</span> utilisation —{' '}
+                EUR {(fac.available_eur / 1000).toFixed(0)}K remaining headroom
+              </span>
+            </div>
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate('settings')}
+                className="text-xs px-3 py-1.5 rounded-lg font-semibold shrink-0"
+                style={{ background: WARNING, color: 'white' }}>
+                Review →
+              </button>
+            )}
+          </div>
+        ))
       )}
 
       {/* Defensive zone banner */}

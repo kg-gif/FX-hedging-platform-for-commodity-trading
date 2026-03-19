@@ -50,6 +50,7 @@ from routes.hedge_tranche_routes import router as tranche_router
 from routes.data_import_routes_fastapi import router as data_import_router
 from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
 from routes.margin_call_routes import router as margin_call_router
+from routes.facility_routes import router as facility_router
 
 Base.metadata.create_all(bind=engine)
 print("✅ Database ready")
@@ -82,6 +83,7 @@ app.include_router(settings_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(margin_call_router)
+app.include_router(facility_router)
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 import logging
@@ -1625,6 +1627,25 @@ async def startup_event():
                 spot_rate_used  DECIMAL(18,6),
                 alert_sent      BOOLEAN DEFAULT FALSE
             )""",
+
+            # ── Trading Facility Usage — Phase 1 ──────────────────────────────
+            # Stores bank credit lines; utilisation calculated at query time
+            """CREATE TABLE IF NOT EXISTS trading_facilities (
+                id                  SERIAL PRIMARY KEY,
+                company_id          INTEGER REFERENCES companies(id),
+                bank_name           VARCHAR NOT NULL,
+                facility_limit_eur  DECIMAL(18,2) NOT NULL,
+                currency            VARCHAR(3)  DEFAULT 'EUR',
+                facility_type       VARCHAR     DEFAULT 'fx_forward',
+                contact_name        VARCHAR,
+                contact_email       VARCHAR,
+                notes               TEXT,
+                is_active           BOOLEAN     DEFAULT TRUE,
+                created_at          TIMESTAMP   DEFAULT NOW(),
+                updated_at          TIMESTAMP   DEFAULT NOW()
+            )""",
+            # Link each tranche to a specific facility (optional — NULL = unassigned)
+            "ALTER TABLE hedge_tranches ADD COLUMN IF NOT EXISTS facility_id INTEGER REFERENCES trading_facilities(id)",
         ]
         for sql in migrations:
             try:
