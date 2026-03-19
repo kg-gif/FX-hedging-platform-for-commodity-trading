@@ -38,13 +38,17 @@ export const CompanyProvider = ({ children }) => {
       const data = await response.json()
       setCompanies(data)
 
-      // Restore previously-selected company from localStorage.
-      // Falls back to the first company (lowest id) when no saved selection exists
-      // or when the saved company no longer exists (e.g. was deleted).
-      if (data.length > 0 && !selectedCompanyId) {
-        const savedId = parseInt(localStorage.getItem('selectedCompanyId'))
-        const savedExists = savedId && data.some(c => c.id === savedId)
-        setSelectedCompanyId(savedExists ? savedId : data[0].id)
+      if (data.length > 0) {
+        const currentStillExists = data.some(c => c.id === selectedCompanyId)
+        if (!currentStillExists) {
+          // Either first load (no selection yet) or the selected company was deleted.
+          // Restore from localStorage if that company still exists, else fall back to first.
+          const savedId = parseInt(localStorage.getItem('selectedCompanyId'))
+          const savedExists = savedId && data.some(c => c.id === savedId)
+          const newId = savedExists ? savedId : data[0].id
+          setSelectedCompanyId(newId)
+          localStorage.setItem('selectedCompanyId', String(newId))
+        }
       }
 
       setError(null)

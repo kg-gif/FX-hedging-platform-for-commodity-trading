@@ -236,13 +236,15 @@ def get_companies(
     Admins see all companies.
     Viewers see only their own company.
     """
+    # is_active != False handles both True and NULL (rows that predate the column)
+    active = Company.is_active != False  # noqa: E712
     if payload.get("role") in ("admin", "superadmin"):
-        return db.query(Company).order_by(Company.id).all()
+        return db.query(Company).filter(active).order_by(Company.id).all()
     else:
         company_id = payload.get("company_id")
         if not company_id:
             raise HTTPException(status_code=403, detail="No company assigned")
-        return db.query(Company).filter(Company.id == company_id).all()
+        return db.query(Company).filter(active, Company.id == company_id).all()
 
 
 @app.get("/companies/{company_id}/exposures", response_model=List[ExposureResponse])

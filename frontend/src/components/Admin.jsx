@@ -64,6 +64,7 @@ const authHeaders = () => ({
 
 function CompaniesTab({ toast, authUser }) {
   const isSuperAdmin = ['superadmin', 'admin'].includes(authUser?.role)
+  const { refreshCompanies } = useCompany()
 
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
@@ -136,6 +137,9 @@ function CompaniesTab({ toast, authUser }) {
       const r = await fetch(`${API_BASE}/api/admin/companies/${id}`, { method: 'DELETE', headers: authHeaders() })
       if (r.ok) {
         toast.show('success', `"${name}" deactivated`)
+        // Refresh the nav dropdown — removes deleted company and auto-switches
+        // selection if the deleted company was the currently active one
+        refreshCompanies()
       } else {
         // Rollback optimistic update on failure
         const d = await r.json()

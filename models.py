@@ -40,6 +40,8 @@ class Company(Base):
     bank_email = Column(String(255), nullable=True)
     alert_email = Column(String(255), nullable=True)
     daily_digest = Column(Boolean, default=True)
+    # Soft-delete flag — never hard-delete companies (financial compliance)
+    is_active = Column(Boolean, default=True, nullable=True)
 
 class Exposure(Base):
     __tablename__ = "exposures"
