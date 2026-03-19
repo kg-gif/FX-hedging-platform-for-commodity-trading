@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Optional
 import json
@@ -233,11 +233,22 @@ def demo_reset(
 
     company_name = company._mapping["name"]
 
-    # ── Load seed data ────────────────────────────────────────────────────────
+    # ── Load seed data with dynamic date substitution ─────────────────────────
+    # Dates in the seed file use "TODAY+N" placeholders so resets always produce
+    # future-dated exposures regardless of when the reset runs.
     seed_path = Path(__file__).parent.parent / "seed" / "demo_birk.json"
     if not seed_path.exists():
         raise HTTPException(status_code=500, detail=f"Seed file not found: {seed_path}")
-    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    seed_text = seed_path.read_text(encoding="utf-8")
+
+    # Replace every TODAY+N placeholder with the real calendar date
+    today_d = date.today()
+    for days in (30, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240, 270):
+        placeholder = f"TODAY+{days}"
+        real_date   = (today_d + timedelta(days=days)).isoformat()
+        seed_text   = seed_text.replace(placeholder, real_date)
+
+    seed = json.loads(seed_text)
     seed_exposures = seed.get("exposures", [])
 
     # ── Audit log: reset initiated ────────────────────────────────────────────

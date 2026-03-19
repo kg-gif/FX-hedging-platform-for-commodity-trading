@@ -70,109 +70,212 @@ async def upload_file(
 ):
     """
     POST /api/exposure-data/upload
-    Parse a CSV file and insert rows as FX exposures.
 
-    Expected CSV columns (header row required):
-      reference_number, currency_pair, amount, start_date, end_date,
-      description (optional), budget_rate (optional), exposure_type (optional)
+    Parses the Sumnohow FX Import Template (.xlsx only).
+    Reads the sheet named "Exposures" and ignores all other sheets.
 
-    currency_pair format: EURUSD or EUR/USD
-    date format: YYYY-MM-DD
+    Expected column headers (row 1):
+      currency_pair | description | total_amount | budget_rate |
+      instrument_type | maturity_date | base_currency
+
+    Returns:
+      {"imported": N, "skipped": N, "errors": ["Row 3: ...", ...]}
     """
+    import openpyxl
+    from datetime import date as _date
+
     try:
-        # Verify company exists and caller can access it
+        # ── File type guard — xlsx only ───────────────────────────────────────
+        filename = file.filename or ""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext != "xlsx":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Only .xlsx files are supported. Received: .{ext or 'unknown'}. "
+                       f"Please use the Sumnohow Import Template."
+            )
+
+        # ── Size guard — 10 MB ────────────────────────────────────────────────
+        contents = await file.read()
+        if len(contents) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="File exceeds 10 MB limit.")
+
+        # ── Multi-tenancy guard ───────────────────────────────────────────────
         company = db.query(Company).filter(Company.id == company_id).first()
         if not company:
             raise HTTPException(status_code=404, detail=f"Company {company_id} not found")
-
-        # Enforce multi-tenancy — non-superadmin users can only upload to their own company
-        role = payload.get("role", "")
+        role      = payload.get("role", "")
         token_cid = payload.get("company_id")
         if role not in ("superadmin", "admin", "company_admin") and int(token_cid or 0) != company_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-        contents = await file.read()
-        filename  = file.filename or "upload.csv"
-
-        # Decode bytes — try UTF-8 with BOM fallback
+        # ── Open workbook ─────────────────────────────────────────────────────
         try:
-            text = contents.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            text = contents.decode("latin-1")
+            wb = openpyxl.load_workbook(io.BytesIO(contents), read_only=True, data_only=True)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not open .xlsx file: {e}")
 
-        reader = csv.DictReader(io.StringIO(text))
+        # Find the "Exposures" sheet (case-insensitive)
+        sheet_name = next(
+            (n for n in wb.sheetnames if n.strip().lower() == "exposures"),
+            None,
+        )
+        if sheet_name is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Sheet named 'Exposures' not found. "
+                       f"Available sheets: {', '.join(wb.sheetnames)}"
+            )
+        ws = wb[sheet_name]
 
-        # Normalise header names (lowercase, strip whitespace)
-        if reader.fieldnames is None:
-            raise HTTPException(status_code=400, detail="Empty file or missing header row")
+        # ── Read and validate headers (row 1) ─────────────────────────────────
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            raise HTTPException(status_code=400, detail="'Exposures' sheet is empty.")
 
-        required_cols = {"reference_number", "currency_pair", "amount", "start_date", "end_date"}
-        headers = {h.strip().lower().replace(" ", "_") for h in reader.fieldnames}
-        missing = required_cols - headers
+        raw_headers = rows[0]
+        headers = [
+            str(h).strip().lower() if h is not None else ""
+            for h in raw_headers
+        ]
+
+        required_cols = {"currency_pair", "total_amount", "budget_rate", "instrument_type", "maturity_date"}
+        header_set    = set(headers)
+        missing = required_cols - header_set
         if missing:
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing required columns: {', '.join(sorted(missing))}"
+                detail=f"Missing required columns: {', '.join(sorted(missing))}. "
+                       f"Please use the Sumnohow Import Template."
             )
 
-        saved     = 0
-        warnings  = []
-        total_amt = 0.0
-        currencies: set = set()
-        periods: list   = []
+        # Build column index lookup
+        col = {name: headers.index(name) for name in headers if name}
 
+        # ── Parse data rows ───────────────────────────────────────────────────
         from sqlalchemy import text as _text
 
-        for i, raw_row in enumerate(reader, start=2):  # row 1 is header
-            # Normalise keys
-            row = {k.strip().lower().replace(" ", "_"): (v.strip() if v else "") for k, v in raw_row.items()}
+        imported = 0
+        skipped  = 0
+        errors   = []
+        today    = _date.today()
+
+        VALID_INSTRUMENTS = {"forward", "spot", "option"}
+
+        for row_idx, raw_row in enumerate(rows[1:], start=2):
+            # Helper to read a cell by column name
+            def cell(name):
+                idx = col.get(name)
+                if idx is None:
+                    return ""
+                val = raw_row[idx] if idx < len(raw_row) else None
+                return str(val).strip() if val is not None else ""
 
             # Skip fully empty rows
-            if not any(row.values()):
+            if not any(v for v in raw_row if v is not None):
                 continue
 
+            # ── currency_pair ─────────────────────────────────────────────────
+            pair_raw = cell("currency_pair")
+            if not pair_raw:
+                skipped += 1
+                continue   # silently skip blank rows
+
+            # Accept both "EUR/USD" and "EURUSD"
+            pair_norm = pair_raw.upper().replace("-", "")
+            if "/" in pair_norm:
+                parts = pair_norm.split("/")
+                if len(parts) != 2 or len(parts[0]) != 3 or len(parts[1]) != 3:
+                    errors.append(f"Row {row_idx}: invalid currency_pair '{pair_raw}' — must be XXX/XXX")
+                    skipped += 1
+                    continue
+                from_currency, to_currency = parts[0], parts[1]
+            else:
+                if len(pair_norm) != 6:
+                    errors.append(f"Row {row_idx}: invalid currency_pair '{pair_raw}' — must be XXX/XXX")
+                    skipped += 1
+                    continue
+                from_currency = pair_norm[:3]
+                to_currency   = pair_norm[3:]
+
+            # ── total_amount ──────────────────────────────────────────────────
+            amt_raw = cell("total_amount").replace(",", "")
             try:
-                # Currency pair
-                pair = row["currency_pair"].upper().replace("/", "").replace("-", "")
-                if len(pair) != 6:
-                    warnings.append(f"Row {i}: invalid currency_pair '{row['currency_pair']}' — skipped")
-                    continue
-                from_currency = pair[:3]
-                to_currency   = pair[3:]
-
-                # Amount
-                amount_str = row["amount"].replace(",", "")
-                amount = float(amount_str)
+                amount = float(amt_raw)
                 if amount <= 0:
-                    warnings.append(f"Row {i}: amount must be > 0 — skipped")
+                    raise ValueError("must be > 0")
+            except (ValueError, TypeError):
+                errors.append(f"Row {row_idx}: invalid total_amount '{cell('total_amount')}' — must be a positive number")
+                skipped += 1
+                continue
+
+            # ── budget_rate ───────────────────────────────────────────────────
+            br_raw = cell("budget_rate")
+            try:
+                budget_rate = float(br_raw) if br_raw else None
+                if budget_rate is not None and budget_rate <= 0:
+                    raise ValueError("must be > 0")
+            except (ValueError, TypeError):
+                errors.append(f"Row {row_idx}: invalid budget_rate '{br_raw}' — must be a positive number")
+                skipped += 1
+                continue
+
+            # ── maturity_date ─────────────────────────────────────────────────
+            mat_raw = cell("maturity_date")
+            try:
+                # openpyxl may return a date object directly from a date cell
+                raw_cell_val = raw_row[col["maturity_date"]] if col.get("maturity_date") is not None else None
+                if hasattr(raw_cell_val, "date"):
+                    maturity_date = raw_cell_val.date() if callable(raw_cell_val.date) else raw_cell_val
+                elif hasattr(raw_cell_val, "year"):
+                    # already a date object
+                    maturity_date = raw_cell_val
+                else:
+                    maturity_date = datetime.strptime(mat_raw, "%Y-%m-%d").date()
+
+                if maturity_date < today:
+                    errors.append(f"Row {row_idx}: maturity_date '{mat_raw}' is in the past — must be >= today")
+                    skipped += 1
                     continue
+            except (ValueError, TypeError, AttributeError):
+                errors.append(f"Row {row_idx}: invalid maturity_date '{mat_raw}' — use YYYY-MM-DD")
+                skipped += 1
+                continue
 
-                # Dates
-                start_date = datetime.strptime(row["start_date"], "%Y-%m-%d").date()
-                end_date   = datetime.strptime(row["end_date"],   "%Y-%m-%d").date()
-                if end_date <= start_date:
-                    warnings.append(f"Row {i}: end_date must be after start_date — skipped")
-                    continue
-                period_days = (end_date - start_date).days
+            # ── instrument_type ───────────────────────────────────────────────
+            inst_raw = cell("instrument_type")
+            if inst_raw.lower() not in VALID_INSTRUMENTS:
+                errors.append(
+                    f"Row {row_idx}: invalid instrument_type '{inst_raw}' — "
+                    f"must be one of: Forward, Spot, Option"
+                )
+                skipped += 1
+                continue
+            instrument_type = inst_raw.capitalize()
 
-                # Optional fields
-                description   = row.get("description", "") or ""
-                reference     = row.get("reference_number", f"IMP-{i}")
-                exposure_type = (row.get("exposure_type", "payable") or "payable").lower()
-                budget_rate_str = row.get("budget_rate", "")
-                budget_rate     = float(budget_rate_str) if budget_rate_str else None
+            # ── Optional fields ───────────────────────────────────────────────
+            description   = cell("description")
+            base_currency = cell("base_currency").upper() or from_currency
+            amount_currency = base_currency if base_currency in (from_currency, to_currency) else from_currency
 
-                # FX rate (live)
-                try:
-                    rate = get_live_fx_rate(from_currency, to_currency)
-                except Exception:
-                    rate = 1.0
-                    warnings.append(f"Row {i}: could not fetch live rate for {pair} — defaulted to 1.0")
+            # ── FX rate lookup ────────────────────────────────────────────────
+            try:
+                rate = get_live_fx_rate(from_currency, to_currency)
+            except Exception:
+                rate = 1.0
+                errors.append(
+                    f"Row {row_idx}: could not fetch live rate for {from_currency}/{to_currency} — "
+                    f"defaulted to 1.0 (rate will need manual correction)"
+                )
 
-                usd_value = amount * rate
-                risk      = calculate_risk_level(usd_value, period_days)
+            start_date  = today
+            period_days = (maturity_date - start_date).days
+            usd_value   = amount * rate
+            risk        = calculate_risk_level(usd_value, period_days)
+            reference   = f"IMP-{row_idx:03d}"
 
-                # Insert exposure
+            # ── Insert ────────────────────────────────────────────────────────
+            try:
                 db.execute(_text("""
                     INSERT INTO exposures
                       (company_id, from_currency, to_currency, amount, amount_currency,
@@ -183,50 +286,48 @@ async def upload_file(
                       (:cid, :from_ccy, :to_ccy, :amount, :amount_ccy,
                        :start_date, :end_date, :rate, :rate, :usd_value,
                        :period, :risk, :desc, :budget_rate,
-                       :reference, :exp_type, 'Forward', true, NOW(), NOW())
+                       :reference, 'payable', :instrument_type, true, NOW(), NOW())
                 """), {
-                    "cid":        company_id,
-                    "from_ccy":   from_currency,
-                    "to_ccy":     to_currency,
-                    "amount":     amount,
-                    "amount_ccy": from_currency,
-                    "start_date": start_date,
-                    "end_date":   end_date,
-                    "rate":       rate,
-                    "usd_value":  usd_value,
-                    "period":     period_days,
-                    "risk":       risk.value,
-                    "desc":       description,
-                    "budget_rate": budget_rate,
-                    "reference":  reference,
-                    "exp_type":   exposure_type,
+                    "cid":             company_id,
+                    "from_ccy":        from_currency,
+                    "to_ccy":          to_currency,
+                    "amount":          amount,
+                    "amount_ccy":      amount_currency,
+                    "start_date":      start_date,
+                    "end_date":        maturity_date,
+                    "rate":            rate,
+                    "usd_value":       usd_value,
+                    "period":          period_days,
+                    "risk":            risk.value,
+                    "desc":            description,
+                    "budget_rate":     budget_rate,
+                    "reference":       reference,
+                    "instrument_type": instrument_type,
                 })
-
-                saved     += 1
-                total_amt += amount
-                currencies.add(from_currency)
-                periods.append(period_days)
-
-            except (ValueError, KeyError) as row_err:
-                warnings.append(f"Row {i}: {row_err} — skipped")
+                imported += 1
+            except Exception as insert_err:
+                errors.append(f"Row {row_idx}: database error — {insert_err}")
+                skipped += 1
                 continue
 
         db.commit()
-        print(f"[upload] company_id={company_id} — {saved} exposures imported from '{filename}'")
-
-        avg_period = round(sum(periods) / len(periods)) if periods else 0
+        print(f"[upload] company_id={company_id} file='{filename}' imported={imported} skipped={skipped}")
 
         return {
-            "success":   True,
-            "filename":  filename,
-            "row_count": saved,
+            "success":  True,
+            "filename": filename,
+            "imported": imported,
+            "skipped":  skipped,
+            "errors":   errors,
+            # Keep legacy field so existing frontend code doesn't break
+            "row_count": imported,
             "summary": {
-                "total_exposures":   saved,
-                "total_amount":      round(total_amt, 2),
-                "unique_currencies": len(currencies),
-                "avg_period_days":   avg_period,
+                "total_exposures": imported,
+                "total_amount":    0,
+                "unique_currencies": 0,
+                "avg_period_days":   0,
             },
-            "validation_warnings": warnings,
+            "validation_warnings": errors,
         }
 
     except HTTPException:

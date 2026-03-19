@@ -30,8 +30,8 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
   const handleFile = async (file) => {
     setError(null); setUploadResult(null);
     const ext = file.name.split('.').pop().toLowerCase();
-    if (!['csv', 'xls', 'xlsx'].includes(ext)) {
-      setError('Invalid file type. Please upload CSV or Excel file.'); return;
+    if (ext !== 'xlsx') {
+      setError('Only .xlsx files are supported. Please use the Sumnohow Import Template.'); return;
     }
     if (file.size > 10 * 1024 * 1024) {
       setError('File size exceeds 10MB limit.'); return;
@@ -51,7 +51,7 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
         setUploadResult(result);
         if (onUploadSuccess) onUploadSuccess(result);
       } else {
-        setError(result.error || 'Upload failed');
+        setError(result.detail || result.error || 'Upload failed');
       }
     } catch (err) {
       setError(`Upload error: ${err.message}`);
@@ -100,15 +100,16 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
             <p className="font-semibold mb-2">Required Fields:</p>
             <ul className="space-y-1 text-gray-600">
               {[
-                ['Reference Number', 'Unique identifier for each exposure'],
-                ['Currency Pair',    'Format: EURUSD, GBPUSD, etc.'],
-                ['Amount',           'Exposure amount in base currency'],
-                ['Start Date',       'Format: YYYY-MM-DD (e.g., 2025-01-15)'],
-                ['End Date',         'Format: YYYY-MM-DD (e.g., 2025-04-15)'],
-                ['Description',      'Optional notes or description'],
+                ['currency_pair',   'Format: EUR/USD (required)'],
+                ['total_amount',    'Positive number — amount in base currency (required)'],
+                ['budget_rate',     'Your internal rate target, e.g. 1.0850 (required)'],
+                ['instrument_type', 'Forward, Spot, or Option (required)'],
+                ['maturity_date',   'YYYY-MM-DD — must be today or later (required)'],
+                ['description',     'Optional free-text description'],
+                ['base_currency',   'Currency the amount is in, e.g. EUR (optional)'],
               ].map(([field, desc]) => (
                 <li key={field}>
-                  <strong style={{ color: NAVY }}>{field}:</strong> {desc}
+                  <strong style={{ color: NAVY, fontFamily: 'monospace' }}>{field}:</strong> {desc}
                 </li>
               ))}
             </ul>
@@ -139,7 +140,7 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
       {/* Upload area */}
       <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
         <input ref={fileInputRef} type="file" className="hidden"
-          accept=".csv,.xlsx,.xls" onChange={handleChange} />
+          accept=".xlsx" onChange={handleChange} />
         <div
           onDragEnter={handleDrag} onDragLeave={handleDrag}
           onDragOver={handleDrag} onDrop={handleDrop}
@@ -170,7 +171,7 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
             >
               {uploading ? 'Uploading...' : 'Select File'}
             </button>
-            <p className="text-xs text-gray-400">CSV, XLS, XLSX — max 10MB</p>
+            <p className="text-xs text-gray-400">Excel (.xlsx) only — max 10MB</p>
           </div>
         </div>
       </div>
@@ -203,35 +204,37 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
           <div className="flex items-center gap-3 p-4 bg-green-50 border-b border-green-100">
             <CheckCircle size={20} className="text-green-600" />
             <div>
-              <p className="font-semibold text-green-800 text-sm">Upload Successful</p>
+              <p className="font-semibold text-green-800 text-sm">Import Complete</p>
               <p className="text-xs text-green-600 mt-0.5">
-                {uploadResult.row_count} exposures imported from {uploadResult.filename}
+                {uploadResult.imported ?? uploadResult.row_count} exposure{(uploadResult.imported ?? uploadResult.row_count) !== 1 ? 's' : ''} imported
+                {uploadResult.skipped > 0 ? ` · ${uploadResult.skipped} skipped` : ''}
+                {' '}from {uploadResult.filename}
               </p>
             </div>
           </div>
           <div className="p-6 space-y-4">
-            <h3 className="font-semibold" style={{ color: NAVY }}>Import Summary</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: 'Total Exposures', value: uploadResult.summary.total_exposures },
-                { label: 'Total Amount',    value: fmt(uploadResult.summary.total_amount) },
-                { label: 'Currencies',      value: uploadResult.summary.unique_currencies },
-                { label: 'Avg Period',      value: `${uploadResult.summary.avg_period_days} days` },
-              ].map(({ label, value }) => (
-                <div key={label} className="rounded-lg p-4" style={{ background: '#F4F6FA' }}>
-                  <p className="text-xs text-gray-500 mb-1">{label}</p>
-                  <p className="text-xl font-bold" style={{ color: NAVY }}>{value}</p>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-lg p-4" style={{ background: '#F4F6FA' }}>
+                <p className="text-xs text-gray-500 mb-1">Imported</p>
+                <p className="text-2xl font-bold" style={{ color: NAVY }}>{uploadResult.imported ?? uploadResult.row_count}</p>
+              </div>
+              <div className="rounded-lg p-4" style={{ background: uploadResult.skipped > 0 ? '#FFFBEB' : '#F4F6FA' }}>
+                <p className="text-xs text-gray-500 mb-1">Skipped</p>
+                <p className="text-2xl font-bold" style={{ color: uploadResult.skipped > 0 ? '#D97706' : NAVY }}>
+                  {uploadResult.skipped ?? 0}
+                </p>
+              </div>
             </div>
 
-            {uploadResult.validation_warnings?.length > 0 && (
+            {uploadResult.errors?.length > 0 && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
                 <AlertCircle size={16} className="text-yellow-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-yellow-800 mb-1">Warnings</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-yellow-800 mb-2">
+                    {uploadResult.skipped} row{uploadResult.skipped !== 1 ? 's' : ''} skipped — see details
+                  </p>
                   <ul className="text-sm text-yellow-700 space-y-1">
-                    {uploadResult.validation_warnings.map((w, i) => <li key={i}>• {w}</li>)}
+                    {uploadResult.errors.map((e, i) => <li key={i} className="font-mono text-xs">• {e}</li>)}
                   </ul>
                 </div>
               </div>
