@@ -62,7 +62,9 @@ const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('auth_token')}`
 })
 
-function CompaniesTab({ toast }) {
+function CompaniesTab({ toast, authUser }) {
+  const isSuperAdmin = ['superadmin', 'admin'].includes(authUser?.role)
+
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState(null)
@@ -75,6 +77,14 @@ function CompaniesTab({ toast }) {
   const [editingExp, setEditingExp] = useState(null)   // exposure being edited
   const [editForm, setEditForm] = useState({})
   const [editSaving, setEditSaving] = useState(false)
+
+  // Inline rename state
+  const [renamingId,  setRenamingId]  = useState(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameSaving, setRenameSaving] = useState(false)
+
+  // Delete confirmation modal
+  const [deleteTarget, setDeleteTarget] = useState(null)   // { id, name }
 
   useEffect(() => { loadCompanies() }, [])
 
@@ -116,13 +126,47 @@ function CompaniesTab({ toast }) {
     finally { setSaving(false) }
   }
 
-  const deleteCompany = async (id, name) => {
-    if (!window.confirm(`Delete "${name}" and ALL its data? This cannot be undone.`)) return
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    const { id, name } = deleteTarget
+    // Optimistic remove from list before the request completes
+    setCompanies(prev => prev.filter(c => c.id !== id))
+    setDeleteTarget(null)
     try {
       const r = await fetch(`${API_BASE}/api/admin/companies/${id}`, { method: 'DELETE', headers: authHeaders() })
-      if (r.ok) { toast.show('success', `"${name}" deleted`); loadCompanies() }
-      else { const d = await r.json(); toast.show('error', d.detail || 'Delete failed') }
+      if (r.ok) {
+        toast.show('success', `"${name}" deactivated`)
+      } else {
+        // Rollback optimistic update on failure
+        const d = await r.json()
+        toast.show('error', d.detail || 'Delete failed')
+        loadCompanies()
+      }
+    } catch {
+      toast.show('error', 'Network error')
+      loadCompanies()
+    }
+  }
+
+  const renameCompany = async (id) => {
+    const trimmed = renameValue.trim()
+    if (!trimmed) { toast.show('error', 'Name cannot be empty'); return }
+    setRenameSaving(true)
+    try {
+      const r = await fetch(`${API_BASE}/api/admin/companies/${id}/rename`, {
+        method: 'PUT', headers: authHeaders(),
+        body: JSON.stringify({ name: trimmed }),
+      })
+      const d = await r.json()
+      if (r.ok) {
+        setCompanies(prev => prev.map(c => c.id === id ? { ...c, name: d.name } : c))
+        setRenamingId(null)
+        toast.show('success', `Renamed to "${d.name}"`)
+      } else {
+        toast.show('error', d.detail || 'Rename failed')
+      }
     } catch { toast.show('error', 'Network error') }
+    finally { setRenameSaving(false) }
   }
 
   const addExposure = async (companyId) => {
@@ -271,6 +315,28 @@ function CompaniesTab({ toast }) {
         </div>
       )}
 
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="px-6 py-5" style={{ background: NAVY }}>
+              <h2 className="text-base font-bold text-white">Deactivate Company</h2>
+              <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>This action cannot be undone</p>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-1">
+                Are you sure you want to deactivate <span className="font-semibold" style={{ color: NAVY }}>{deleteTarget.name}</span>?
+              </p>
+              <p className="text-xs text-gray-400 mb-6">All users and exposures will be deactivated. Financial records are preserved.</p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setDeleteTarget(null)} className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg">Cancel</button>
+                <button onClick={confirmDelete} className="px-4 py-2 text-sm font-semibold text-white rounded-lg bg-red-500 hover:bg-red-600 transition-colors">Deactivate</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
         {companies.map(company => (
           <div key={company.id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -278,18 +344,49 @@ function CompaniesTab({ toast }) {
               <div className="flex items-center gap-3">
                 {expandedId === company.id ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />}
                 <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-sm" style={{ color: NAVY }}>{company.name}</p>
-                    {company.id === 1 && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">demo</span>}
-                  </div>
+                  {renamingId === company.id ? (
+                    // Inline rename input — click on row still propagates, stop it here
+                    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                      <input
+                        autoFocus
+                        className="px-2 py-1 border border-blue-300 rounded text-sm font-semibold focus:outline-none"
+                        style={{ color: NAVY, minWidth: 180 }}
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') renameCompany(company.id); if (e.key === 'Escape') setRenamingId(null) }}
+                      />
+                      <button onClick={() => renameCompany(company.id)} disabled={renameSaving} className="px-2 py-1 text-xs font-semibold text-white rounded disabled:opacity-50" style={{ background: NAVY }}>
+                        {renameSaving ? '…' : 'Save'}
+                      </button>
+                      <button onClick={() => setRenamingId(null)} className="px-2 py-1 text-xs text-gray-400 border border-gray-200 rounded">Cancel</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-sm" style={{ color: NAVY }}>{company.name}</p>
+                      {company.id === 1 && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">demo</span>}
+                    </div>
+                  )}
                   <p className="text-xs text-gray-400 mt-0.5">{company.base_currency} · {company.exposure_count} exposure{company.exposure_count !== 1 ? 's' : ''} · {company.user_count} user{company.user_count !== 1 ? 's' : ''}</p>
                 </div>
               </div>
-              <div onClick={e => e.stopPropagation()}>
-                {company.id !== 1 && (
-                  <button onClick={() => deleteCompany(company.id, company.name)} className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all"><Trash2 size={15} /></button>
-                )}
-              </div>
+              {isSuperAdmin && (
+                <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                  {/* Pencil / rename */}
+                  <button
+                    onClick={() => { setRenamingId(company.id); setRenameValue(company.name) }}
+                    className="p-2 rounded-lg text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-all"
+                    title="Rename"
+                  ><Edit2 size={15} /></button>
+                  {/* Delete — not available for company id=1 (demo/seed) */}
+                  {company.id !== 1 && (
+                    <button
+                      onClick={() => setDeleteTarget({ id: company.id, name: company.name })}
+                      className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all"
+                      title="Deactivate"
+                    ><Trash2 size={15} /></button>
+                  )}
+                </div>
+              )}
             </div>
 
             {expandedId === company.id && (
@@ -512,7 +609,7 @@ export default function Admin({ authUser }) {
           </button>
         ))}
       </div>
-      {tab === 'companies' && <CompaniesTab toast={toast} />}
+      {tab === 'companies' && <CompaniesTab toast={toast} authUser={authUser} />}
       {tab === 'users' && <UsersTab authUser={authUser} toast={toast} />}
     </div>
   )

@@ -81,6 +81,26 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
+## 🎭 Demo Mode / Demo Reset
+**Priority:** Pre-pilot
+**Description:** One-click "Reset Demo" for sales demos and onboarding. Restores a company's data to a known clean state without affecting other companies.
+
+**Requirements:**
+- Superadmin-only endpoint: `POST /api/admin/companies/{id}/reset-demo`
+- Replaces all exposures, tranches, and audit logs for the target company with a curated seed dataset
+- Seed data: 4–6 exposures (mix of pairs, statuses — OPEN / IN PROGRESS / HEDGED), realistic budget rates, 1–2 executed tranches with corridor set
+- Does NOT touch users, settings, or facilities
+- Admin UI: "Reset to Demo Data" button on company row (superadmin only), with confirmation modal
+
+**Approach:**
+- Store seed data as a Python dict in `routes/admin_routes.py` (not a DB table — it's infrequent and should be version-controlled)
+- Soft-delete existing exposures (`is_active = false`), insert fresh seed rows
+- Write one audit log entry per new tranche so Reports tab shows activity
+
+**Status:** Backlog — needed before first sales demo
+
+---
+
 ## 💰 MTM-Based Billing Model
 **Priority:** Post-pilot
 **Description:** Invoice clients 30% of favourable MTM vs budget rate (monthly or quarterly). Core monetisation idea: align Sumnohow's revenue with value delivered to the CFO.
