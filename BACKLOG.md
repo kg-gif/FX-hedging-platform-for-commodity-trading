@@ -81,6 +81,68 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
+## 🔄 Forward Roll Functionality
+**Priority:** Pre-scale
+**Description:** Roll a maturing forward to a new value date.
+
+**Mechanics:**
+- Close existing tranche at current spot + open new forward at new maturity
+- Capture roll cost/gain as separate P&L line item
+- Link rolled tranches via `parent_tranche_id` FK on `hedge_tranches`
+- Show roll history in Hedge Audit Trail (Reports tab)
+- Email notification to company admin on roll execution
+- Audit log: original tranche, new tranche, roll rate, roll cost/gain, `executed_by`, timestamp
+
+**Note:** Requires bank confirmation workflow — roll must be agreed with counterparty bank first before logging in the platform.
+
+**DB change:** `ALTER TABLE hedge_tranches ADD COLUMN IF NOT EXISTS parent_tranche_id INTEGER REFERENCES hedge_tranches(id)`
+
+**Status:** Backlog — validate workflow with pilot customer before building
+
+---
+
+## 📐 Forward Points / Interest Rate Differentials
+**Priority:** Pre-scale
+**Description:** Calculate and display forward points on each tranche.
+
+**Formula:** `Forward Rate = Spot × (1 + base_rate × days/360) / (1 + quote_rate × days/360)`
+
+**Display:** Tranche detail shows three lines: Spot Rate | Forward Points | All-in Forward Rate
+
+**Reporting:**
+- Cost of carry in EUR per annum on each forward
+- Aggregate carry cost across portfolio in MTM Report — important for CFO board packs and auditor review
+
+**Interest rate data source (decision needed before building):**
+- Phase 1: Manual input per currency (add to Settings → Policy & Zones or a new "Interest Rates" section)
+- Phase 2: API feed — ECB, central bank data feeds
+
+**Status:** Backlog — needs interest rate data source decision before scoping
+
+---
+
+## ℹ️ Glossary / Info Tooltips
+**Priority:** Pre-pilot (needed for CFO demos)
+**Description:** Contextual info icons (ⓘ) next to financial terms throughout the UI. Click or hover reveals a plain-English definition inline — no page navigation required.
+
+**Terms to cover at minimum:**
+Budget Rate, Inception Rate, Spot Rate, Forward Rate, Forward Points, MTM (Mark-to-Market), Locked P&L, Floating P&L, Hedge Coverage %, Corridor, Zone (Defensive / Base / Opportunistic), Margin Call, Trading Facility, VaR, CFaR
+
+**Tone:** CFO-level, not trader-level. Plain English first, technical definition second. One sentence max per tooltip.
+
+**Glossary page:** Full A–Z reference accessible from Settings or Reports sidebar — useful to share with auditors or new finance hires.
+
+**Implementation approach:**
+- Single `Tooltip` component: `<InfoTooltip term="Budget Rate" />` — renders ⓘ icon, shows definition on hover/click
+- Definitions stored in a single `glossary.js` constant file — easy to extend
+- Accessible (keyboard-focusable, screen-reader-friendly)
+
+**Why it matters:** CFOs unfamiliar with hedging terminology should never feel lost during a demo. Reduces sales friction and support load significantly.
+
+**Status:** Backlog — prioritise before first live CFO demo
+
+---
+
 ## 🎭 Demo Mode / Demo Reset
 **Priority:** Pre-pilot
 **Description:** One-click "Reset Demo" for sales demos and onboarding. Restores a company's data to a known clean state without affecting other companies.
