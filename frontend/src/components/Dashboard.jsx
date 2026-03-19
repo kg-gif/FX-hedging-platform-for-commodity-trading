@@ -546,7 +546,7 @@ function Dashboard({ onNavigate }) {
             <div>
               <h2 className="text-xl font-bold text-white">{selectedCompany?.name}</h2>
               <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>
-                {lastUpdated ? `Rates as of ${lastUpdated.toLocaleTimeString()}` : 'Live portfolio'}
+                {lastUpdated ? `Rates as of ${lastUpdated.toLocaleTimeString()} · Updates every 5 min` : 'Loading portfolio…'}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -668,9 +668,9 @@ function Dashboard({ onNavigate }) {
           {/* Live Rates */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
-              <h3 className="text-sm font-semibold text-white">Live Rates</h3>
+              <h3 className="text-sm font-semibold text-white">Rates</h3>
               <p className="text-xs" style={{ color: '#8DA4C4' }}>
-                {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Live'}
+                {lastUpdated ? `As of ${lastUpdated.toLocaleTimeString()}` : 'Cached · 5 min intervals'}
               </p>
             </div>
             <div className="divide-y divide-gray-50">

@@ -7,7 +7,6 @@ from typing import List, Optional, Dict
 import os
 import asyncio
 import httpx
-from functools import lru_cache
 
 from routes.pdf_routes import router as pdf_router
 from routes.settings_routes import router as settings_router
@@ -15,7 +14,7 @@ from routes.admin_routes import router as admin_router
 from routes.auth_routes import router as auth_router
 
 from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
-from database import SessionLocal, get_live_fx_rate, calculate_risk_level, engine
+from database import SessionLocal, get_live_fx_rate, calculate_risk_level, engine, get_rate_async, _rate_cache
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 _security = HTTPBearer(auto_error=False)
@@ -135,75 +134,41 @@ def calculate_pnl_and_status(exposure, current_rate):
     }
 
 
-@lru_cache(maxsize=100)
-def get_cached_fx_rate(from_currency: str, to_currency: str, cache_key: str):
-    return get_live_fx_rate(from_currency, to_currency)
-
-
 async def fetch_fx_rate(base_currency: str, target_currency: str) -> Optional[float]:
-    api_key = os.getenv("EXCHANGERATE_API_KEY")
-    if not api_key:
-        logger.error("EXCHANGERATE_API_KEY not set")
-        return None
+    """
+    Legacy wrapper kept for call-site compatibility.
+    All rate lookups now route through the centralised cache in database.py.
+    Returns None on failure (rather than raising) to match the original contract.
+    """
     try:
-        url = f"https://v6.exchangerate-api.com/v6/{api_key}/latest/{base_currency}"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url)
-            if response.status_code != 200:
-                return None
-            data = response.json()
-            if data.get("result") != "success":
-                return None
-            return data["conversion_rates"].get(target_currency)
+        return await get_rate_async(base_currency, target_currency)
     except Exception as e:
-        logger.error(f"Error fetching FX rate: {str(e)}")
+        logger.error(f"fetch_fx_rate({base_currency}/{target_currency}): {e}")
         return None
 
 
 async def get_current_rates(currency_pairs: List[str]) -> Dict[str, Dict]:
-    db = SessionLocal()
+    """
+    Return spot rates for each requested pair from the centralised cache.
+
+    Replaces the previous DB-per-pair caching approach.  All data now comes
+    from the in-memory rate cache in database.py (5-min TTL, one bulk API
+    call per refresh cycle).  No per-pair DB queries or API calls are made.
+    """
     out = {}
-    pairs_needing_refresh = []
+    ts = _rate_cache.get("fetched_at")
+    timestamp = ts.isoformat() if ts else datetime.utcnow().isoformat()
 
-    try:
-        for pair in currency_pairs:
-            if len(pair.split("/")) != 2:
-                continue
-            cached = db.query(FXRate)\
-                .filter(FXRate.currency_pair == pair)\
-                .order_by(FXRate.timestamp.desc())\
-                .first()
-
-            if cached and cached.timestamp:
-                age = datetime.utcnow() - cached.timestamp.replace(tzinfo=None)
-                if age < timedelta(hours=4):
-                    out[pair] = {"rate": cached.rate, "timestamp": cached.timestamp.isoformat(), "source": "cache"}
-                    continue
-            pairs_needing_refresh.append(pair)
-
-        if pairs_needing_refresh:
-            tasks = [fetch_fx_rate(*p.split("/")) for p in pairs_needing_refresh]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for i, pair in enumerate(pairs_needing_refresh):
-                res = results[i]
-                if isinstance(res, Exception) or res is None:
-                    cached = db.query(FXRate).filter(FXRate.currency_pair == pair).order_by(FXRate.timestamp.desc()).first()
-                    if cached:
-                        out[pair] = {"rate": cached.rate, "timestamp": cached.timestamp.isoformat(), "source": "cache_fallback"}
-                    else:
-                        out[pair] = None
-                else:
-                    fx = FXRate(currency_pair=pair, rate=res, timestamp=datetime.utcnow(), source="exchangerate-api.com")
-                    db.add(fx)
-                    out[pair] = {"rate": res, "timestamp": datetime.utcnow().isoformat(), "source": "live"}
-            db.commit()
-
-    except Exception as e:
-        logger.error(f"Error in get_current_rates: {e}")
-        db.rollback()
-    finally:
-        db.close()
+    for pair in currency_pairs:
+        parts = pair.split("/")
+        if len(parts) != 2:
+            continue
+        try:
+            rate = await get_rate_async(parts[0], parts[1])
+            out[pair] = {"rate": rate, "timestamp": timestamp, "source": "cache"}
+        except Exception as e:
+            logger.error(f"Rate lookup failed for {pair}: {e}")
+            out[pair] = None
 
     return out
 
@@ -336,7 +301,14 @@ async def api_get_fx_rates(
             "timestamp": info["timestamp"] if info else None,
             "source": info["source"] if info else None
         })
-    return {"rates": response, "timestamp": datetime.utcnow()}
+    # cache_ts is the time of the last bulk API refresh, not the current clock.
+    # Clients can display "Rates as of HH:MM" using this value.
+    cache_fetched_at = _rate_cache.get("fetched_at")
+    return {
+        "rates": response,
+        "cache_ts": cache_fetched_at.isoformat() if cache_fetched_at else datetime.utcnow().isoformat(),
+        "ttl_seconds": _rate_cache.get("ttl_seconds", 300),
+    }
 
 
 @app.get("/api/fx-rates/history")
@@ -981,7 +953,7 @@ async def get_simulator(
     usd_rate_map: dict = {}
     if ccys_for_usd:
         usd_results = await asyncio.gather(
-            *[fetch_fx_rate(ccy, "USD") for ccy in ccys_for_usd],
+            *[get_rate_async(ccy, "USD") for ccy in ccys_for_usd],
             return_exceptions=True
         )
         for ccy, rate_val in zip(ccys_for_usd, usd_results):
@@ -2285,7 +2257,7 @@ async def get_tranche_mtm(
         else:
             rates_needed = [to_ccy, "EUR"] if to_ccy != "USD" else ["EUR"]
             usd_results = await asyncio.gather(
-                *[fetch_fx_rate(c, "USD") for c in rates_needed],
+                *[get_rate_async(c, "USD") for c in rates_needed],
                 return_exceptions=True
             )
             usd_map = {}
@@ -2457,7 +2429,7 @@ async def get_dashboard_summary(
             [c for c in all_ccys if c != "USD"] + ["EUR"]
         ))
         usd_results = await asyncio.gather(
-            *[fetch_fx_rate(c, "USD") for c in usd_fetch_list],
+            *[get_rate_async(c, "USD") for c in usd_fetch_list],
             return_exceptions=True
         )
         usd_map: dict = {"USD": 1.0}   # { currency: USD_per_unit }
