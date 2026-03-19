@@ -3,8 +3,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
+import json
 import os
 import logging
 
@@ -76,12 +78,13 @@ def list_companies(admin: dict = Depends(require_admin), db: Session = Depends(g
     # superadmin / legacy admin → all companies; company_admin → own company only
     base_sql = """
         SELECT c.id, c.name, c.base_currency, c.trading_volume_monthly, c.created_at,
+               COALESCE(c.is_demo, false) as is_demo,
                COUNT(DISTINCT e.id) as exposure_count, COUNT(DISTINCT u.id) as user_count
         FROM companies c
         LEFT JOIN exposures e ON e.company_id = c.id AND (e.is_active IS NULL OR e.is_active = true)
         LEFT JOIN users u ON u.company_id = c.id AND (u.is_active IS NULL OR u.is_active = true)
         {where}
-        GROUP BY c.id, c.name, c.base_currency, c.trading_volume_monthly, c.created_at
+        GROUP BY c.id, c.name, c.base_currency, c.trading_volume_monthly, c.created_at, c.is_demo
         ORDER BY c.id ASC
     """
     if admin.get("role") in ("superadmin", "admin"):
@@ -94,7 +97,7 @@ def list_companies(admin: dict = Depends(require_admin), db: Session = Depends(g
             text(base_sql.format(where="WHERE c.id = :cid AND (c.is_active IS NULL OR c.is_active = true)")),
             {"cid": cid}
         ).fetchall()
-    return {"companies": [{"id": r._mapping["id"], "name": r._mapping["name"], "base_currency": r._mapping["base_currency"], "trading_volume_monthly": r._mapping["trading_volume_monthly"], "created_at": r._mapping["created_at"], "exposure_count": r._mapping["exposure_count"], "user_count": r._mapping["user_count"]} for r in rows]}
+    return {"companies": [{"id": r._mapping["id"], "name": r._mapping["name"], "base_currency": r._mapping["base_currency"], "trading_volume_monthly": r._mapping["trading_volume_monthly"], "created_at": r._mapping["created_at"], "is_demo": r._mapping["is_demo"], "exposure_count": r._mapping["exposure_count"], "user_count": r._mapping["user_count"]} for r in rows]}
 
 @router.post("/companies")
 def create_company(request: CreateCompanyRequest, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
@@ -195,6 +198,174 @@ def rename_company(
     db.commit()
     logger.info(f"Company renamed: id={company_id} '{existing._mapping['name']}' → '{new_name}' by {admin.get('email')}")
     return {"success": True, "name": new_name}
+
+@router.post("/companies/{company_id}/demo-reset")
+def demo_reset(
+    company_id: int,
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    One-click reset of a demo company back to the curated seed dataset.
+    Superadmin only. Only works on companies flagged is_demo = true.
+
+    Reset sequence:
+      1. Verify superadmin + is_demo guard
+      2. Audit log: demo_reset_initiated
+      3. Archive all existing hedge tranches (status → 'archived')
+      4. Soft-delete all existing exposures (is_active → false)
+      5. Clear zone_change_log for this company
+      6. Insert seed exposures from seed/demo_birk.json
+      7. Insert seed tranches, mapping facility_slot to real trading_facility IDs
+      8. Audit log: demo_reset_completed
+    """
+    _require_superadmin(admin)
+
+    # ── Guard: must be a demo company ────────────────────────────────────────
+    company = db.execute(
+        text("SELECT name, is_demo FROM companies WHERE id = :id AND (is_active IS NULL OR is_active = true)"),
+        {"id": company_id},
+    ).fetchone()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    if not company._mapping["is_demo"]:
+        raise HTTPException(status_code=400, detail="This company is not flagged as a demo company. Set is_demo = true first.")
+
+    company_name = company._mapping["name"]
+
+    # ── Load seed data ────────────────────────────────────────────────────────
+    seed_path = Path(__file__).parent.parent / "seed" / "demo_birk.json"
+    if not seed_path.exists():
+        raise HTTPException(status_code=500, detail=f"Seed file not found: {seed_path}")
+    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    seed_exposures = seed.get("exposures", [])
+
+    # ── Audit log: reset initiated ────────────────────────────────────────────
+    db.execute(text("""
+        INSERT INTO order_audit_log
+            (company_id, exposure_id, currency_pair, action, sent_by, sent_at)
+        VALUES
+            (:cid, NULL, NULL, 'demo_reset_initiated', :user, NOW())
+    """), {"cid": company_id, "user": admin.get("email", "superadmin")})
+
+    # ── Archive all existing tranches for this company ────────────────────────
+    # 'archived' status keeps records for audit trail but excludes them from
+    # all live calculations (only 'executed'/'confirmed' count toward coverage)
+    db.execute(text("""
+        UPDATE hedge_tranches
+           SET status = 'archived'
+         WHERE exposure_id IN (
+               SELECT id FROM exposures WHERE company_id = :cid
+         )
+    """), {"cid": company_id})
+
+    # ── Soft-delete all existing exposures ───────────────────────────────────
+    db.execute(
+        text("UPDATE exposures SET is_active = false, updated_at = NOW() WHERE company_id = :cid"),
+        {"cid": company_id},
+    )
+
+    # ── Clear zone change log ─────────────────────────────────────────────────
+    db.execute(
+        text("DELETE FROM zone_change_log WHERE company_id = :cid"),
+        {"cid": company_id},
+    )
+
+    # ── Map facility slots to real facility IDs ───────────────────────────────
+    # The seed uses facility_slot: 0 → first active facility, 1 → second, etc.
+    # If fewer facilities exist than slots used, extras fall back to NULL.
+    facility_rows = db.execute(
+        text("SELECT id FROM trading_facilities WHERE company_id = :cid AND is_active = true ORDER BY id ASC"),
+        {"cid": company_id},
+    ).fetchall()
+    facility_slot_map = {
+        i: row._mapping["id"] for i, row in enumerate(facility_rows)
+    }
+
+    # ── Insert seed exposures + their tranches ────────────────────────────────
+    inserted = 0
+    for exp in seed_exposures:
+        # Insert exposure — RETURNING id so we can attach tranches
+        result = db.execute(text("""
+            INSERT INTO exposures (
+                company_id, from_currency, to_currency, amount,
+                instrument_type, exposure_type, budget_rate,
+                description, end_date, settlement_period,
+                risk_level, status, current_rate, current_value_usd,
+                is_active, created_at, updated_at
+            ) VALUES (
+                :company_id, :from_ccy, :to_ccy, :amount,
+                :instrument_type, :exposure_type, :budget_rate,
+                :description, :end_date::date, 90,
+                'MEDIUM', 'active', 1.0, :amount,
+                true, NOW(), NOW()
+            ) RETURNING id
+        """), {
+            "company_id": company_id,
+            "from_ccy": exp["from_currency"],
+            "to_ccy": exp["to_currency"],
+            "amount": exp["amount"],
+            "instrument_type": exp.get("instrument_type", "Forward"),
+            "exposure_type": exp.get("exposure_type", "payable"),
+            "budget_rate": exp.get("budget_rate"),
+            "description": exp.get("description", ""),
+            "end_date": exp.get("end_date"),
+        })
+        exposure_id = result.fetchone()._mapping["id"]
+        inserted += 1
+
+        # Insert tranches for this exposure
+        for tranche in exp.get("tranches", []):
+            slot = tranche.get("facility_slot")
+            facility_id = facility_slot_map.get(slot) if slot is not None else None
+            age_days = tranche.get("age_days", 14)
+            executed_at = datetime.utcnow() - timedelta(days=age_days)
+
+            db.execute(text("""
+                INSERT INTO hedge_tranches (
+                    exposure_id, company_id, amount, rate,
+                    instrument, value_date, status,
+                    notes, facility_id,
+                    executed_at, executed_by, created_at
+                ) VALUES (
+                    :exposure_id, :company_id, :amount, :rate,
+                    :instrument, :value_date::date, 'executed',
+                    :notes, :facility_id,
+                    :executed_at, :executed_by, NOW()
+                )
+            """), {
+                "exposure_id": exposure_id,
+                "company_id": company_id,
+                "amount": tranche["amount"],
+                "rate": tranche["rate"],
+                "instrument": tranche.get("instrument", "Forward"),
+                "value_date": tranche.get("value_date"),
+                "notes": tranche.get("notes", ""),
+                "facility_id": facility_id,
+                "executed_at": executed_at,
+                "executed_by": "demo-seed",
+            })
+
+    # ── Audit log: reset completed ────────────────────────────────────────────
+    db.execute(text("""
+        INSERT INTO order_audit_log
+            (company_id, exposure_id, currency_pair, action, sent_by, sent_at)
+        VALUES
+            (:cid, NULL, NULL, 'demo_reset_completed', :user, NOW())
+    """), {"cid": company_id, "user": admin.get("email", "superadmin")})
+
+    db.commit()
+    logger.info(
+        f"Demo reset: company_id={company_id} name='{company_name}' "
+        f"exposures_inserted={inserted} by {admin.get('email')}"
+    )
+    return {
+        "success": True,
+        "message": f"Demo reset complete — {inserted} exposures loaded",
+        "company": company_name,
+        "exposures_inserted": inserted,
+    }
+
 
 @router.get("/companies/{company_id}/exposures")
 def list_exposures(company_id: int, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):

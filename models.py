@@ -42,6 +42,8 @@ class Company(Base):
     daily_digest = Column(Boolean, default=True)
     # Soft-delete flag — never hard-delete companies (financial compliance)
     is_active = Column(Boolean, default=True, nullable=True)
+    # Demo flag — marks the company used for CFO demos; enables demo-reset endpoint
+    is_demo = Column(Boolean, default=False, nullable=True)
 
 class Exposure(Base):
     __tablename__ = "exposures"

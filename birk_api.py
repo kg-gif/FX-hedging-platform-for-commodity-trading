@@ -1648,6 +1648,11 @@ async def startup_event():
             )""",
             # Defensive: add status column if table existed before it was added
             "ALTER TABLE order_audit_log ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'sent'",
+
+            # ── Demo Reset ────────────────────────────────────────────────────
+            # is_demo marks the company used for CFO demos.
+            # After deploy: UPDATE companies SET is_demo = true WHERE id = 1;
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_demo BOOLEAN DEFAULT FALSE",
         ]
         for sql in migrations:
             try:

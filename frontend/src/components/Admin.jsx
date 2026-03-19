@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   UserPlus, Users, Trash2, Edit2, CheckCircle, AlertTriangle,
-  Building2, Plus, ChevronDown, ChevronRight
+  Building2, Plus, ChevronDown, ChevronRight, RotateCcw
 } from 'lucide-react'
 import { NAVY, GOLD } from '../brand'
 import { useCompany } from '../contexts/CompanyContext'
@@ -87,6 +87,10 @@ function CompaniesTab({ toast, authUser }) {
   // Delete confirmation modal
   const [deleteTarget, setDeleteTarget] = useState(null)   // { id, name }
 
+  // Demo reset modal
+  const [resetTarget,  setResetTarget]  = useState(null)   // { id, name }
+  const [resetLoading, setResetLoading] = useState(false)
+
   useEffect(() => { loadCompanies() }, [])
 
   const loadCompanies = async () => {
@@ -171,6 +175,28 @@ function CompaniesTab({ toast, authUser }) {
       }
     } catch { toast.show('error', 'Network error') }
     finally { setRenameSaving(false) }
+  }
+
+  const performReset = async () => {
+    if (!resetTarget) return
+    const { id, name } = resetTarget
+    setResetLoading(true)
+    try {
+      const r = await fetch(`${API_BASE}/api/admin/companies/${id}/demo-reset`, {
+        method: 'POST', headers: authHeaders()
+      })
+      const d = await r.json()
+      if (r.ok) {
+        toast.show('success', `Demo reset complete — ${d.exposures_inserted} exposures loaded`)
+        setResetTarget(null)
+        loadCompanies()
+        if (expandedId === id) loadExposures(id)
+        refreshCompanies()
+      } else {
+        toast.show('error', d.detail || 'Reset failed')
+      }
+    } catch { toast.show('error', 'Network error') }
+    finally { setResetLoading(false) }
   }
 
   const addExposure = async (companyId) => {
@@ -319,6 +345,32 @@ function CompaniesTab({ toast, authUser }) {
         </div>
       )}
 
+      {/* Demo reset confirmation modal */}
+      {resetTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="px-6 py-5" style={{ background: NAVY }}>
+              <h2 className="text-base font-bold text-white">Reset Demo Data</h2>
+              <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>This will replace all existing exposures</p>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-1">
+                Reset <span className="font-semibold" style={{ color: NAVY }}>{resetTarget.name}</span> to the standard demo dataset?
+              </p>
+              <p className="text-xs text-gray-400 mb-6">
+                All existing exposures and tranches will be archived. 7 curated seed exposures (~EUR 41M) will be loaded fresh.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setResetTarget(null)} disabled={resetLoading} className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg disabled:opacity-50">Cancel</button>
+                <button onClick={performReset} disabled={resetLoading} className="px-4 py-2 text-sm font-semibold text-white rounded-lg disabled:opacity-50 flex items-center gap-2" style={{ background: NAVY }}>
+                  {resetLoading ? <><span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />Resetting…</> : <><RotateCcw size={14} />Reset Demo</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete confirmation modal */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
@@ -367,7 +419,7 @@ function CompaniesTab({ toast, authUser }) {
                   ) : (
                     <div className="flex items-center gap-2">
                       <p className="font-semibold text-sm" style={{ color: NAVY }}>{company.name}</p>
-                      {company.id === 1 && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">demo</span>}
+                      {company.is_demo && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">demo</span>}
                     </div>
                   )}
                   <p className="text-xs text-gray-400 mt-0.5">{company.base_currency} · {company.exposure_count} exposure{company.exposure_count !== 1 ? 's' : ''} · {company.user_count} user{company.user_count !== 1 ? 's' : ''}</p>
@@ -381,8 +433,16 @@ function CompaniesTab({ toast, authUser }) {
                     className="p-2 rounded-lg text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-all"
                     title="Rename"
                   ><Edit2 size={15} /></button>
-                  {/* Delete — not available for company id=1 (demo/seed) */}
-                  {company.id !== 1 && (
+                  {/* Reset — only shown on demo companies */}
+                  {company.is_demo && (
+                    <button
+                      onClick={() => setResetTarget({ id: company.id, name: company.name })}
+                      className="p-2 rounded-lg text-gray-300 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                      title="Reset demo data"
+                    ><RotateCcw size={15} /></button>
+                  )}
+                  {/* Delete — not available for demo companies */}
+                  {!company.is_demo && (
                     <button
                       onClick={() => setDeleteTarget({ id: company.id, name: company.name })}
                       className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all"
