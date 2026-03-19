@@ -1531,6 +1531,10 @@ async def startup_event():
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS bank_email VARCHAR(255)",
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS alert_email VARCHAR(255)",
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS daily_digest BOOLEAN DEFAULT TRUE",
+            # Soft-delete support for companies (hard-delete is prohibited for audit compliance)
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+            # Soft-delete support for users (deactivated with company on company soft-delete)
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS hedge_override BOOLEAN DEFAULT FALSE",
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
             """CREATE TABLE IF NOT EXISTS policy_audit_log (
@@ -1644,6 +1648,32 @@ async def startup_event():
             )""",
             # Link each tranche to a specific facility (optional — NULL = unassigned)
             "ALTER TABLE hedge_tranches ADD COLUMN IF NOT EXISTS facility_id INTEGER REFERENCES trading_facilities(id)",
+
+            # ── Order / company audit log ──────────────────────────────────────
+            # IMPORTANT: this table is also created on-demand in log_email_order,
+            # but must be guaranteed to exist at startup so delete_company can
+            # write audit entries safely (without the CREATE TABLE here, a company
+            # delete on a fresh DB would fail with "relation does not exist").
+            """CREATE TABLE IF NOT EXISTS order_audit_log (
+                id            SERIAL PRIMARY KEY,
+                company_id    INTEGER REFERENCES companies(id),
+                exposure_id   INTEGER,
+                currency_pair VARCHAR(20),
+                order_type    VARCHAR(20),
+                action        TEXT,
+                value_date    DATE,
+                instrument    VARCHAR(20),
+                limit_rate    NUMERIC(18,6),
+                stop_rate     NUMERIC(18,6),
+                good_till     DATE,
+                sent_by       VARCHAR(255),
+                sent_at       TIMESTAMP DEFAULT NOW(),
+                executed_at   TIMESTAMP,
+                confirmed_by  VARCHAR(255),
+                status        VARCHAR(20) DEFAULT 'sent'
+            )""",
+            # Defensive: add status column if table existed before it was added
+            "ALTER TABLE order_audit_log ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'sent'",
         ]
         for sql in migrations:
             try:
