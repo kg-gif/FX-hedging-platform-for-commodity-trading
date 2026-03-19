@@ -35,10 +35,24 @@ def require_admin(credentials: HTTPAuthorizationCredentials = Depends(security))
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+def _require_superadmin(admin: dict):
+    """
+    Enforce superadmin-only access for destructive company operations.
+    company_admin can manage users/settings within their own company but
+    must never be able to delete or rename OTHER companies.
+    """
+    if admin.get("role") not in ("superadmin", "admin"):
+        raise HTTPException(status_code=403, detail="Superadmin access required")
+
+
 class CreateCompanyRequest(BaseModel):
     name: str
     base_currency: str = "USD"
     trading_volume_monthly: float = 0
+
+
+class RenameCompanyRequest(BaseModel):
+    name: str
 
 class CreateExposureRequest(BaseModel):
     company_id: int
@@ -64,18 +78,21 @@ def list_companies(admin: dict = Depends(require_admin), db: Session = Depends(g
         SELECT c.id, c.name, c.base_currency, c.trading_volume_monthly, c.created_at,
                COUNT(DISTINCT e.id) as exposure_count, COUNT(DISTINCT u.id) as user_count
         FROM companies c
-        LEFT JOIN exposures e ON e.company_id = c.id
-        LEFT JOIN users u ON u.company_id = c.id
+        LEFT JOIN exposures e ON e.company_id = c.id AND (e.is_active IS NULL OR e.is_active = true)
+        LEFT JOIN users u ON u.company_id = c.id AND (u.is_active IS NULL OR u.is_active = true)
         {where}
         GROUP BY c.id, c.name, c.base_currency, c.trading_volume_monthly, c.created_at
         ORDER BY c.id ASC
     """
     if admin.get("role") in ("superadmin", "admin"):
-        rows = db.execute(text(base_sql.format(where=""))).fetchall()
+        rows = db.execute(text(base_sql.format(
+            where="WHERE (c.is_active IS NULL OR c.is_active = true)"
+        ))).fetchall()
     else:
         cid = int(admin.get("company_id", 0))
         rows = db.execute(
-            text(base_sql.format(where="WHERE c.id = :cid")), {"cid": cid}
+            text(base_sql.format(where="WHERE c.id = :cid AND (c.is_active IS NULL OR c.is_active = true)")),
+            {"cid": cid}
         ).fetchall()
     return {"companies": [{"id": r._mapping["id"], "name": r._mapping["name"], "base_currency": r._mapping["base_currency"], "trading_volume_monthly": r._mapping["trading_volume_monthly"], "created_at": r._mapping["created_at"], "exposure_count": r._mapping["exposure_count"], "user_count": r._mapping["user_count"]} for r in rows]}
 
@@ -90,16 +107,94 @@ def create_company(request: CreateCompanyRequest, admin: dict = Depends(require_
     return {"message": "Company created", "id": row._mapping["id"], "name": row._mapping["name"]}
 
 @router.delete("/companies/{company_id}")
-def delete_company(company_id: int, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
-    if company_id == 1:
-        raise HTTPException(status_code=400, detail="Cannot delete the default demo company")
-    db.execute(text("DELETE FROM policy_audit_log WHERE company_id = :id"), {"id": company_id})
-    db.execute(text("DELETE FROM hedging_policies WHERE company_id = :id"), {"id": company_id})
-    db.execute(text("DELETE FROM exposures WHERE company_id = :id"), {"id": company_id})
-    db.execute(text("DELETE FROM users WHERE company_id = :id"), {"id": company_id})
-    db.execute(text("DELETE FROM companies WHERE id = :id"), {"id": company_id})
+def delete_company(
+    company_id: int,
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Soft-delete a company. Superadmin only.
+    Sets is_active = false on the company, all its users, and all its exposures.
+    Financial records are never hard-deleted — they remain for audit purposes.
+    """
+    _require_superadmin(admin)
+
+    company = db.execute(
+        text("SELECT name FROM companies WHERE id = :id AND (is_active IS NULL OR is_active = true)"),
+        {"id": company_id},
+    ).fetchone()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    company_name = company._mapping["name"]
+
+    # Soft-delete: deactivate company, all its users, all its active exposures
+    db.execute(
+        text("UPDATE companies SET is_active = false, updated_at = NOW() WHERE id = :id"),
+        {"id": company_id},
+    )
+    db.execute(
+        text("UPDATE users SET is_active = false WHERE company_id = :id"),
+        {"id": company_id},
+    )
+    db.execute(
+        text("UPDATE exposures SET is_active = false WHERE company_id = :id"),
+        {"id": company_id},
+    )
+
+    # Audit log — write to order_audit_log (reuse existing table for platform events)
+    db.execute(text("""
+        INSERT INTO order_audit_log
+            (company_id, exposure_id, currency_pair, action, sent_by, sent_at)
+        VALUES
+            (:cid, NULL, NULL, 'company_deleted', :user, NOW())
+    """), {"cid": company_id, "user": admin.get("email", "superadmin")})
+
     db.commit()
-    return {"message": f"Company {company_id} deleted"}
+    logger.info(f"Company soft-deleted: id={company_id} name='{company_name}' by {admin.get('email')}")
+    return {"success": True, "message": f"'{company_name}' deactivated"}
+
+
+@router.put("/companies/{company_id}/rename")
+def rename_company(
+    company_id: int,
+    body: RenameCompanyRequest,
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Rename a company. Superadmin only.
+    Validates uniqueness so two companies can't share a name.
+    """
+    _require_superadmin(admin)
+
+    new_name = body.name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Company name cannot be empty")
+
+    # Check target company exists
+    existing = db.execute(
+        text("SELECT id, name FROM companies WHERE id = :id AND (is_active IS NULL OR is_active = true)"),
+        {"id": company_id},
+    ).fetchone()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Check name uniqueness (ignore case for robustness)
+    clash = db.execute(
+        text("SELECT id FROM companies WHERE LOWER(name) = LOWER(:name) AND id != :id"),
+        {"name": new_name, "id": company_id},
+    ).fetchone()
+    if clash:
+        raise HTTPException(status_code=400, detail="A company with that name already exists")
+
+    db.execute(
+        text("UPDATE companies SET name = :name, updated_at = NOW() WHERE id = :id"),
+        {"name": new_name, "id": company_id},
+    )
+    db.commit()
+    logger.info(f"Company renamed: id={company_id} '{existing._mapping['name']}' → '{new_name}' by {admin.get('email')}")
+    return {"success": True, "name": new_name}
 
 @router.get("/companies/{company_id}/exposures")
 def list_exposures(company_id: int, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
