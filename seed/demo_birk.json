@@ -1,226 +1,230 @@
 {
-  "_note": "Demo seed for BIRK Commodities A/S. Update hedge rates and value_dates annually to keep the story current. To trigger MC risk on the BRL position, ensure BRL/USD spot is below the hedge rate (0.194).",
-  "_story": "7 exposures, ~EUR 41M portfolio. Mix of HEDGED / IN PROGRESS / OPEN. BRL/USD payable hedged above current spot → margin call risk shows on Dashboard. USD/NOK open → calls out the recommendation engine.",
-  "_refresh_dates": "Update value_dates and end_dates each year — they should always be 3-9 months in the future to look live.",
+  "_note": "Demo seed for Sumnohow CFO demo. 7 exposures, ~EUR 40M+ equivalent portfolio. Mix of statuses: HEDGED / IN PROGRESS / OPEN / BREACH. Update value_dates each year to stay live-looking.",
+  "_story": "GBP/USD and CHF/USD onside (good hedges). EUR/USD in BREACH — hedged above current spot, showing the risk of incomplete policy compliance. EUR/NOK fully open — recommendation engine fires. GBP/NOK near-fully hedged, positive P&L story. JPY/USD 100% hedged. USD/NOK partially hedged, offside — margin call risk.",
+  "_refresh_dates": "Update value_dates and end_dates annually — they should always be 2-6 months in the future.",
 
   "exposures": [
-    {
-      "key": "eur_usd_wheat",
-      "from_currency": "EUR",
-      "to_currency": "USD",
-      "amount": 14000000,
-      "instrument_type": "Forward",
-      "exposure_type": "payable",
-      "budget_rate": 1.0750,
-      "description": "European wheat procurement — Q3/Q4 delivery, Amsterdam port",
-      "reference": "BIRK-WH-2026-01",
-      "end_date": "2026-09-30",
-      "_story": "64% hedged — IN PROGRESS. Two tranches below budget (good lock-in), one above. Clear story: proactive hedging, room to add.",
-      "tranches": [
-        {
-          "amount": 4000000,
-          "rate": 1.0720,
-          "instrument": "Forward",
-          "value_date": "2026-07-31",
-          "notes": "DNB Markets — fwd ref DNB-WH-240312-01. Locked before EUR strengthened.",
-          "facility_slot": 0,
-          "age_days": 38
-        },
-        {
-          "amount": 3000000,
-          "rate": 1.0810,
-          "instrument": "Forward",
-          "value_date": "2026-08-29",
-          "notes": "DNB Markets — fwd ref DNB-WH-240318-02. Added on rate dip.",
-          "facility_slot": 0,
-          "age_days": 22
-        },
-        {
-          "amount": 2000000,
-          "rate": 1.0680,
-          "instrument": "Forward",
-          "value_date": "2026-09-15",
-          "notes": "SEB Corporate Banking — opportunistic hedge, best rate to date.",
-          "facility_slot": 1,
-          "age_days": 8
-        }
-      ]
-    },
 
     {
-      "key": "gbp_usd_logistics",
+      "key": "gbp_usd_commodities",
       "from_currency": "GBP",
       "to_currency": "USD",
-      "amount": 3200000,
+      "amount": 3000000,
       "instrument_type": "Forward",
       "exposure_type": "payable",
-      "budget_rate": 1.2650,
-      "description": "UK shipping and logistics partners — Q2 invoices, Dover/Felixstowe",
-      "reference": "BIRK-LOG-2026-Q2",
-      "end_date": "2026-06-30",
-      "_story": "94% hedged → HEDGED status. Policy target met. Two tranches — mixed but overall near budget.",
+      "budget_rate": 1.2500,
+      "description": "UK commodity procurement — Q2/Q3 delivery, Liverpool port",
+      "reference": "DEMO-GB-2026-01",
+      "end_date": "2026-08-29",
+      "_story": "50% hedged — IN PROGRESS. Two tranches both below budget rate = positive locked P&L. Good story: disciplined hedging, room to add more.",
       "tranches": [
         {
-          "amount": 1800000,
-          "rate": 1.2580,
+          "amount": 800000,
+          "rate": 1.2420,
           "instrument": "Forward",
-          "value_date": "2026-05-30",
-          "notes": "Nordea Treasury — Q2 logistics forward, below budget rate.",
-          "facility_slot": 1,
+          "value_date": "2026-06-30",
+          "status": "executed",
+          "notes": "DNB Markets — locked before GBP strengthened. Ref DNB-GB-240301-01.",
+          "facility_slot": 0,
           "age_days": 45
         },
         {
-          "amount": 1200000,
-          "rate": 1.2730,
+          "amount": 700000,
+          "rate": 1.2380,
           "instrument": "Forward",
-          "value_date": "2026-06-13",
-          "notes": "Nordea Treasury — topped up hedging when GBP strengthened briefly.",
-          "facility_slot": 1,
-          "age_days": 30
+          "value_date": "2026-08-15",
+          "status": "confirmed",
+          "notes": "DNB Markets — topped up, best rate of the program. Ref DNB-GB-240318-02.",
+          "facility_slot": 0,
+          "age_days": 22
         }
       ]
     },
 
     {
-      "key": "usd_nok_export",
-      "from_currency": "USD",
-      "to_currency": "NOK",
-      "amount": 5500000,
+      "key": "eur_usd_payables",
+      "from_currency": "EUR",
+      "to_currency": "USD",
+      "amount": 5000000,
       "instrument_type": "Forward",
-      "exposure_type": "receivable",
-      "budget_rate": 10.60,
-      "description": "US grain export proceeds — July settlement, Houston port",
-      "reference": "BIRK-US-2026-EX",
+      "exposure_type": "payable",
+      "budget_rate": 1.0700,
+      "description": "European supplier invoices — H1 2026, Amsterdam and Hamburg",
+      "reference": "DEMO-EU-2026-02",
       "end_date": "2026-07-31",
-      "_story": "0% hedged → OPEN. Unprotected USD receivable. Recommendation engine will flag this. Good demo moment: click Hedging → USD/NOK to show the recommendation.",
+      "_story": "65% hedged — BREACH. Both hedge tranches placed when EUR was weaker; current spot (~1.088) has moved above the hedge rates AND above budget. MTM loss on hedged portion triggers BREACH status. Shows why partial hedging at wrong rate can still leave a company exposed.",
+      "tranches": [
+        {
+          "amount": 2000000,
+          "rate": 1.0820,
+          "instrument": "Forward",
+          "value_date": "2026-05-30",
+          "status": "executed",
+          "notes": "Nordea Treasury — EUR/USD fwd, hedged when EUR briefly dipped. Ref NOR-EU-240210-01.",
+          "facility_slot": 1,
+          "age_days": 52
+        },
+        {
+          "amount": 1250000,
+          "rate": 1.0860,
+          "instrument": "Forward",
+          "value_date": "2026-07-15",
+          "status": "executed",
+          "notes": "Nordea Treasury — second tranche, rate slightly worse. Ref NOR-EU-240225-02.",
+          "facility_slot": 1,
+          "age_days": 36
+        }
+      ]
+    },
+
+    {
+      "key": "eur_nok_opex",
+      "from_currency": "EUR",
+      "to_currency": "NOK",
+      "amount": 2000000,
+      "instrument_type": "Forward",
+      "exposure_type": "payable",
+      "budget_rate": 11.80,
+      "description": "EUR-denominated supplier invoices — Oslo HQ Q2/Q3 operational costs",
+      "reference": "DEMO-NOK-2026-03",
+      "end_date": "2026-09-30",
+      "_story": "0% hedged — OPEN. EUR/NOK has drifted above budget rate, creating a floating loss on the unhedged portion. Recommendation engine will flag this prominently.",
       "tranches": []
     },
 
     {
-      "key": "jpy_usd_steel",
-      "from_currency": "JPY",
-      "to_currency": "USD",
-      "amount": 480000000,
+      "key": "gbp_nok_exports",
+      "from_currency": "GBP",
+      "to_currency": "NOK",
+      "amount": 8000000,
       "instrument_type": "Forward",
-      "exposure_type": "payable",
-      "budget_rate": 0.006850,
-      "description": "Japanese steel billet imports — rolling monthly, Yokohama port",
-      "reference": "BIRK-JP-2026-ST",
-      "end_date": "2026-08-29",
-      "_story": "42% hedged — IN PROGRESS. Single large tranche. JPY is historically volatile so partial hedge is defensible. Shows the diversification of BIRK's exposure book.",
+      "exposure_type": "receivable",
+      "budget_rate": 13.20,
+      "description": "UK export receivables — North Sea contracts, multiple shipments Q2-Q4",
+      "reference": "DEMO-GBN-2026-04",
+      "end_date": "2026-10-31",
+      "_story": "85% hedged — HEDGED. Three tranches across the program period, all above budget rate = strong positive locked P&L.",
       "tranches": [
         {
-          "amount": 200000000,
-          "rate": 0.006790,
-          "instrument": "Forward",
-          "value_date": "2026-06-30",
-          "notes": "DNB Markets — JPY/USD partial hedge, ref DNB-JP-240305-01.",
-          "facility_slot": 0,
-          "age_days": 14
-        }
-      ]
-    },
-
-    {
-      "key": "nok_eur_opex",
-      "from_currency": "NOK",
-      "to_currency": "EUR",
-      "amount": 90000000,
-      "instrument_type": "Forward",
-      "exposure_type": "payable",
-      "budget_rate": 0.08850,
-      "description": "Oslo HQ operational costs — EUR-denominated supplier invoices H1 2026",
-      "reference": "BIRK-NOK-2026-OP",
-      "end_date": "2026-05-29",
-      "_story": "56% hedged — IN PROGRESS. NOK/EUR is BIRK's home-currency pair. Two tranches placed at slightly different rates. Shows active treasury management.",
-      "tranches": [
-        {
-          "amount": 30000000,
-          "rate": 0.08820,
-          "instrument": "Forward",
-          "value_date": "2026-04-30",
-          "notes": "SEB Corporate Banking — H1 opex hedge tranche 1.",
-          "facility_slot": 1,
-          "age_days": 42
-        },
-        {
-          "amount": 20000000,
-          "rate": 0.08900,
-          "instrument": "Forward",
-          "value_date": "2026-05-15",
-          "notes": "SEB Corporate Banking — H1 opex hedge tranche 2, topped up.",
-          "facility_slot": 1,
-          "age_days": 20
-        }
-      ]
-    },
-
-    {
-      "key": "eur_gbp_office",
-      "from_currency": "EUR",
-      "to_currency": "GBP",
-      "amount": 2800000,
-      "instrument_type": "Forward",
-      "exposure_type": "payable",
-      "budget_rate": 0.8580,
-      "description": "London office — annual lease renewal and local payroll Q3-Q4 2026",
-      "reference": "BIRK-GB-2026-OF",
-      "end_date": "2026-12-31",
-      "_story": "100% hedged → HEDGED status. Fully protected. Good example of complete hedge execution. Two tranches split across Q3 and Q4.",
-      "tranches": [
-        {
-          "amount": 1500000,
-          "rate": 0.8620,
-          "instrument": "Forward",
-          "value_date": "2026-09-30",
-          "notes": "Nordea Treasury — London office Q3 costs fully hedged.",
-          "facility_slot": 1,
-          "age_days": 35
-        },
-        {
-          "amount": 1300000,
-          "rate": 0.8540,
-          "instrument": "Forward",
-          "value_date": "2026-12-15",
-          "notes": "Nordea Treasury — London office Q4 costs fully hedged.",
-          "facility_slot": 1,
-          "age_days": 10
-        }
-      ]
-    },
-
-    {
-      "key": "brl_usd_soybeans",
-      "from_currency": "BRL",
-      "to_currency": "USD",
-      "amount": 28000000,
-      "instrument_type": "Forward",
-      "exposure_type": "payable",
-      "budget_rate": 0.1900,
-      "description": "Brazilian soybean imports — Paranaguá port, multiple shipments Q2-Q3",
-      "reference": "BIRK-BR-2026-SB",
-      "end_date": "2026-07-31",
-      "_story": "43% hedged — IN PROGRESS. CRITICAL: hedge rates (0.194, 0.196) are above current BRL/USD spot (~0.185), making these forwards OFFSIDE. MTM loss triggers margin call risk alert on Dashboard. Good demo moment: show the MC banner, explain why it matters.",
-      "tranches": [
-        {
-          "amount": 8000000,
-          "rate": 0.1940,
+          "amount": 2500000,
+          "rate": 13.35,
           "instrument": "Forward",
           "value_date": "2026-05-30",
-          "notes": "DNB Markets — BRL/USD forward ref DNB-BR-240228-01. Hedged when BRL was stronger.",
-          "facility_slot": 0,
-          "age_days": 28
+          "status": "confirmed",
+          "notes": "SEB Corporate Banking — GBP/NOK first tranche, above budget. Ref SEB-GBN-240115-01.",
+          "facility_slot": 1,
+          "age_days": 65
         },
         {
-          "amount": 4000000,
-          "rate": 0.1960,
+          "amount": 2500000,
+          "rate": 13.28,
           "instrument": "Forward",
-          "value_date": "2026-06-27",
-          "notes": "DNB Markets — second tranche, BRL continued to strengthen at time of execution.",
+          "value_date": "2026-07-31",
+          "status": "executed",
+          "notes": "SEB Corporate Banking — second tranche, still above budget. Ref SEB-GBN-240205-02.",
+          "facility_slot": 1,
+          "age_days": 40
+        },
+        {
+          "amount": 1800000,
+          "rate": 13.42,
+          "instrument": "Forward",
+          "value_date": "2026-10-15",
+          "status": "executed",
+          "notes": "DNB Markets — opportunistic hedge on GBP strength. Best rate in program. Ref DNB-GBN-240310-03.",
           "facility_slot": 0,
+          "age_days": 18
+        }
+      ]
+    },
+
+    {
+      "key": "chf_usd_equipment",
+      "from_currency": "CHF",
+      "to_currency": "USD",
+      "amount": 1500000,
+      "instrument_type": "Forward",
+      "exposure_type": "payable",
+      "budget_rate": 1.1000,
+      "description": "Swiss precision equipment imports — single shipment Q3 2026",
+      "reference": "DEMO-CHF-2026-05",
+      "end_date": "2026-09-15",
+      "_story": "50% hedged — IN PROGRESS. One executed tranche below budget = positive locked P&L.",
+      "tranches": [
+        {
+          "amount": 750000,
+          "rate": 1.0940,
+          "instrument": "Forward",
+          "value_date": "2026-09-15",
+          "status": "executed",
+          "notes": "Nordea Treasury — CHF/USD forward, hedged below budget. Ref NOR-CHF-240320-01.",
+          "facility_slot": 1,
           "age_days": 12
         }
       ]
+    },
+
+    {
+      "key": "jpy_usd_manufacturing",
+      "from_currency": "JPY",
+      "to_currency": "USD",
+      "amount": 500000000,
+      "instrument_type": "Forward",
+      "exposure_type": "payable",
+      "budget_rate": 0.006500,
+      "description": "Japanese manufacturing components — rolling quarterly, Yokohama port",
+      "reference": "DEMO-JPY-2026-06",
+      "end_date": "2026-08-29",
+      "_story": "100% hedged — HEDGED. Two tranches fully covering the exposure. JPY/USD below budget = meaningful positive P&L on a large notional.",
+      "tranches": [
+        {
+          "amount": 280000000,
+          "rate": 0.006420,
+          "instrument": "Forward",
+          "value_date": "2026-06-30",
+          "status": "confirmed",
+          "notes": "DNB Markets — JPY/USD first tranche, below budget. Ref DNB-JPY-240218-01.",
+          "facility_slot": 0,
+          "age_days": 48
+        },
+        {
+          "amount": 220000000,
+          "rate": 0.006390,
+          "instrument": "Forward",
+          "value_date": "2026-08-29",
+          "status": "executed",
+          "notes": "DNB Markets — second tranche, even better rate. Fully covered. Ref DNB-JPY-240305-02.",
+          "facility_slot": 0,
+          "age_days": 25
+        }
+      ]
+    },
+
+    {
+      "key": "usd_nok_imports",
+      "from_currency": "USD",
+      "to_currency": "NOK",
+      "amount": 4000000,
+      "instrument_type": "Forward",
+      "exposure_type": "payable",
+      "budget_rate": 10.40,
+      "description": "USD-denominated import payments — North American grain, Houston port",
+      "reference": "DEMO-USD-2026-07",
+      "end_date": "2026-07-31",
+      "_story": "30% hedged — IN PROGRESS. CRITICAL: hedge rate (10.68) is above current USD/NOK spot (~10.50), making this forward OFFSIDE. MTM loss triggers margin call risk flag on Dashboard.",
+      "tranches": [
+        {
+          "amount": 1200000,
+          "rate": 10.68,
+          "instrument": "Forward",
+          "value_date": "2026-07-31",
+          "status": "executed",
+          "notes": "SEB Corporate Banking — USD/NOK forward, hedged when USD was stronger. Now offside vs spot. Ref SEB-USD-240228-01.",
+          "facility_slot": 1,
+          "age_days": 30
+        }
+      ]
     }
+
   ]
 }

@@ -23,6 +23,7 @@ COPY models.py .
 COPY database.py .
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY seed/ ./seed/
 
 # Expose port
 EXPOSE 8000

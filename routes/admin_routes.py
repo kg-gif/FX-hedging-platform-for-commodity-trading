@@ -329,7 +329,7 @@ def demo_reset(
                     executed_at, executed_by, created_at
                 ) VALUES (
                     :exposure_id, :company_id, :amount, :rate,
-                    :instrument, :value_date::date, 'executed',
+                    :instrument, :value_date::date, :status,
                     :notes, :facility_id,
                     :executed_at, :executed_by, NOW()
                 )
@@ -340,6 +340,7 @@ def demo_reset(
                 "rate": tranche["rate"],
                 "instrument": tranche.get("instrument", "Forward"),
                 "value_date": tranche.get("value_date"),
+                "status": tranche.get("status", "executed"),
                 "notes": tranche.get("notes", ""),
                 "facility_id": facility_id,
                 "executed_at": executed_at,
