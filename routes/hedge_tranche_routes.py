@@ -250,10 +250,12 @@ def create_tranche(
     db.execute(text("""
         INSERT INTO hedge_tranches
             (exposure_id, company_id, amount, rate, instrument, value_date,
-             status, order_ref, created_by, executed_at, executed_by, notes)
+             status, order_ref, created_by, executed_at, executed_by, notes,
+             facility_id)
         VALUES
             (:exposure_id, :company_id, :amount, :rate, :instrument, :value_date,
-             'executed', :order_ref, :created_by, NOW(), :executed_by, :notes)
+             'executed', :order_ref, :created_by, NOW(), :executed_by, :notes,
+             :facility_id)
     """), {
         "exposure_id":  exposure_id,
         "company_id":   safe_company_id,
@@ -265,6 +267,7 @@ def create_tranche(
         "created_by":   payload.get("email"),
         "executed_by":  payload.get("email"),
         "notes":        body.get("notes"),
+        "facility_id":  body.get("facility_id"),   # optional — NULL if not assigned
     })
     db.commit()
 

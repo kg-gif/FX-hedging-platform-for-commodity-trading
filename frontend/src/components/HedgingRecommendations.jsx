@@ -66,23 +66,26 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
   const [confirming, setConfirming] = useState(false)
   const [executing, setExecuting]   = useState(false)
   const [executed, setExecuted]     = useState(false)
+  const [execError, setExecError]   = useState(null)
+  const [facilityName, setFacilityName] = useState(null)
 
   async function handleMarkExecuted() {
     setExecuting(true)
+    setExecError(null)
     try {
-      // 1. Existing audit log (unchanged)
+      // 1. Update order_audit_log — non-fatal if this fails (audit only)
       await fetch(`${API_BASE}/api/audit/mark-executed`, {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({
-          company_id: companyId,
-          exposure_id: exposureId,
-          executed_at: new Date().toISOString(),
+          company_id:   companyId,
+          exposure_id:  exposureId,
+          executed_at:  new Date().toISOString(),
           confirmed_by: JSON.parse(localStorage.getItem('auth_user') || '{}').email || 'unknown'
         })
       })
 
-      // 2. Create tranche record — links execution to register
-      await fetch(`${API_BASE}/api/exposures/${exposureId}/tranches`, {
+      // 2. Create tranche record — this is the critical step
+      const trancheRes = await fetch(`${API_BASE}/api/exposures/${exposureId}/tranches`, {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({
           amount:      order.amount,
@@ -97,10 +100,31 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
         })
       })
 
+      if (!trancheRes.ok) {
+        const err = await trancheRes.json().catch(() => ({}))
+        throw new Error(err.detail || `Server error ${trancheRes.status}`)
+      }
+
+      // Resolve facility name for confirmation message
+      if (order.facilityId) {
+        try {
+          const fRes = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })
+          if (fRes.ok) {
+            const fData = await fRes.json()
+            const fac = (fData.facilities || []).find(f => f.id === order.facilityId)
+            if (fac) setFacilityName(fac.bank_name)
+          }
+        } catch (_) {}
+      }
+
       setExecuted(true)
       setTimeout(() => { if (onExecuted) onExecuted() }, 1500)
-    } catch (e) { console.error('Mark executed failed:', e) }
-    finally { setExecuting(false) }
+    } catch (e) {
+      console.error('Mark executed failed:', e)
+      setExecError(e.message || 'Execution failed — please try again')
+    } finally {
+      setExecuting(false)
+    }
   }
 
   if (executed) {
@@ -109,8 +133,11 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
         style={{ background: '#F0FDF4', border: '1px solid #86EFAC' }}>
         <span className="text-green-600 text-lg">✓</span>
         <div>
-          <p className="text-sm font-semibold text-green-800">Marked as executed</p>
-          <p className="text-xs text-green-600">Recorded for reporting - {nowDisplay()}</p>
+          <p className="text-sm font-semibold text-green-800">Tranche marked as executed</p>
+          <p className="text-xs text-green-600">Recorded for reporting · {nowDisplay()}</p>
+          {facilityName && (
+            <p className="text-xs text-green-600 mt-0.5">Assigned to {facilityName} facility</p>
+          )}
         </div>
       </div>
     )
@@ -119,6 +146,11 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
   return (
     <div className="mt-4 rounded-xl px-4 py-3"
       style={{ background: '#FFF8EC', border: '1px solid #F0D9A8' }}>
+      {execError && (
+        <div className="mb-3 px-3 py-2 rounded-lg text-xs font-semibold text-red-700 bg-red-50 border border-red-200">
+          {execError}
+        </div>
+      )}
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-semibold" style={{ color: '#92660A' }}>
