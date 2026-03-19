@@ -1651,8 +1651,9 @@ async def startup_event():
 
             # ── Demo Reset ────────────────────────────────────────────────────
             # is_demo marks the company used for CFO demos.
-            # After deploy: UPDATE companies SET is_demo = true WHERE id = 1;
+            # One-time flag: safe to leave permanently — WHERE clause is idempotent.
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_demo BOOLEAN DEFAULT FALSE",
+            "UPDATE companies SET is_demo = true WHERE id = 1 AND (is_demo IS NULL OR is_demo = false)",
         ]
         for sql in migrations:
             try:
