@@ -75,8 +75,8 @@ async def upload_file(
     Reads the sheet named "Exposures" and ignores all other sheets.
 
     Expected column headers (row 1):
-      currency_pair | description | total_amount | budget_rate |
-      instrument_type | maturity_date | base_currency
+      currency_pair | description | start_date | maturity_date |
+      total_amount | budget_rate | instrument_type | base_currency
 
     Returns:
       {"imported": N, "skipped": N, "errors": ["Row 3: ...", ...]}
@@ -139,7 +139,7 @@ async def upload_file(
             for h in raw_headers
         ]
 
-        required_cols = {"currency_pair", "total_amount", "budget_rate", "instrument_type", "maturity_date"}
+        required_cols = {"currency_pair", "total_amount", "budget_rate", "instrument_type", "maturity_date", "start_date"}
         header_set    = set(headers)
         missing = required_cols - header_set
         if missing:
@@ -220,6 +220,25 @@ async def upload_file(
                 skipped += 1
                 continue
 
+            # ── start_date ────────────────────────────────────────────────────
+            sd_raw = cell("start_date")
+            if not sd_raw:
+                errors.append(f"Row {row_idx}: start_date is required")
+                skipped += 1
+                continue
+            try:
+                raw_sd_val = raw_row[col["start_date"]] if col.get("start_date") is not None else None
+                if hasattr(raw_sd_val, "date"):
+                    start_date = raw_sd_val.date() if callable(raw_sd_val.date) else raw_sd_val
+                elif hasattr(raw_sd_val, "year"):
+                    start_date = raw_sd_val
+                else:
+                    start_date = datetime.strptime(sd_raw, "%Y-%m-%d").date()
+            except (ValueError, TypeError, AttributeError):
+                errors.append(f"Row {row_idx}: invalid start_date '{sd_raw}' — use YYYY-MM-DD")
+                skipped += 1
+                continue
+
             # ── maturity_date ─────────────────────────────────────────────────
             mat_raw = cell("maturity_date")
             try:
@@ -235,6 +254,10 @@ async def upload_file(
 
                 if maturity_date < today:
                     errors.append(f"Row {row_idx}: maturity_date '{mat_raw}' is in the past — must be >= today")
+                    skipped += 1
+                    continue
+                if start_date >= maturity_date:
+                    errors.append(f"Row {row_idx}: start_date must be before maturity_date")
                     skipped += 1
                     continue
             except (ValueError, TypeError, AttributeError):
@@ -268,7 +291,6 @@ async def upload_file(
                     f"defaulted to 1.0 (rate will need manual correction)"
                 )
 
-            start_date  = today
             period_days = (maturity_date - start_date).days
             usd_value   = amount * rate
             risk        = calculate_risk_level(usd_value, period_days)
