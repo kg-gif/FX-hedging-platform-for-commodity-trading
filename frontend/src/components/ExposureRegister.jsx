@@ -7,7 +7,7 @@ import { Edit2, Trash2, ChevronDown, ChevronUp, RefreshCw, Archive, ArchiveResto
 import { CurrencyPairFlags } from './CurrencyFlag'
 import LoadingAnimation from './LoadingAnimation'
 
-const API_BASE = 'https://birk-fx-api.onrender.com'
+const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const NAVY    = '#1A2744'
 const GOLD    = '#C9A86C'
 const SUCCESS = '#10B981'

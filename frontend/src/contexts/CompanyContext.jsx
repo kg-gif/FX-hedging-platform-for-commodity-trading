@@ -16,7 +16,7 @@ export const CompanyProvider = ({ children }) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const API_BASE_URL = 'https://birk-fx-api.onrender.com'
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
   const authHeaders = () => ({
     'Content-Type': 'application/json',
     Authorization: `Bearer ${localStorage.getItem('auth_token')}`

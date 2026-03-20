@@ -6,7 +6,7 @@ import {
 import { NAVY, GOLD } from '../brand'
 import { useCompany } from '../contexts/CompanyContext'
 
-const API_BASE = 'https://birk-fx-api.onrender.com'
+const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 
 const Section = ({ icon: Icon, title, children }) => (
   <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">

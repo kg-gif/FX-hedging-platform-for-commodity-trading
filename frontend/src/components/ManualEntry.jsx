@@ -3,7 +3,7 @@ import { useCompany } from '../contexts/CompanyContext';
 import { Plus, Save, X, CheckCircle, AlertCircle, AlertTriangle, Calendar, FileText, Hash } from 'lucide-react';
 import { NAVY, GOLD, WARNING } from '../brand';
 
-const API_BASE_URL = 'https://birk-fx-api.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com';
 const authHeaders = () => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${localStorage.getItem('auth_token')}`

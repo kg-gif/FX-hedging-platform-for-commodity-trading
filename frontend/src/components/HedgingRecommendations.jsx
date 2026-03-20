@@ -3,7 +3,7 @@ import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
 
-const API_BASE = 'https://birk-fx-api.onrender.com'
+const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
 

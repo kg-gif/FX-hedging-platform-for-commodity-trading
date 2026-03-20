@@ -4,7 +4,7 @@ import { Upload, Plus, Download, AlertCircle, CheckCircle, Edit2, Trash2, X, Sav
 import FileUpload from './FileUpload.jsx';
 import ManualEntry from './ManualEntry.jsx';
 
-const API_BASE = 'https://birk-fx-api.onrender.com';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com';
 const authHeaders = () => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${localStorage.getItem('auth_token')}`

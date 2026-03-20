@@ -3,7 +3,7 @@ import { Upload, CheckCircle, XCircle, AlertCircle, FileSpreadsheet, Info } from
 import { NAVY, GOLD, STYLES } from '../brand';
 import { useCompany } from '../contexts/CompanyContext';
 
-const API_BASE = 'https://birk-fx-api.onrender.com';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com';
 
 // companyId prop is kept for backwards compat but the component reads
 // directly from context so the value is always fresh at upload time.
