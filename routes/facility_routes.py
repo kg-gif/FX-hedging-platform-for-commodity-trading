@@ -24,7 +24,7 @@ from sqlalchemy import text
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date
-from database import SessionLocal
+from database import SessionLocal, get_rate
 import os
 import logging
 
@@ -313,7 +313,7 @@ async def get_utilisation(
                 ht.id                   AS tranche_id,
                 ht.amount               AS notional_raw,
                 ht.value_date,
-                COALESCE(snap.notional_eur, ht.amount) AS notional_eur,
+                snap.notional_eur       AS notional_eur_mtm,
                 e.from_currency,
                 e.to_currency
             FROM hedge_tranches ht
@@ -332,7 +332,29 @@ async def get_utilisation(
               AND e.company_id    = :cid
         """), {"fid": facility_id, "cid": safe_cid}).fetchall()
 
-        utilised   = sum(float(r._mapping["notional_eur"] or 0) for r in tranche_rows)
+        def _to_eur(row_mapping) -> float:
+            """
+            Return the EUR notional for a tranche row.
+            Prefer the MTM snapshot (already converted at mark time).
+            Fall back to live rate conversion — never use raw amount as EUR.
+            """
+            mtm = row_mapping["notional_eur_mtm"]
+            if mtm is not None:
+                return float(mtm)
+            raw   = float(row_mapping["notional_raw"] or 0)
+            from_ccy = row_mapping["from_currency"]
+            try:
+                rate = get_rate(from_ccy, "EUR")
+                return raw * rate
+            except Exception:
+                logger.warning(
+                    "facility_utilisation: could not convert %s → EUR for tranche %s; "
+                    "using raw amount as rough proxy",
+                    from_ccy, row_mapping["tranche_id"],
+                )
+                return raw
+
+        utilised   = sum(_to_eur(r._mapping) for r in tranche_rows)
         count      = len(tranche_rows)
         available  = max(limit - utilised, 0)
         pct        = (utilised / limit * 100) if limit > 0 else 0

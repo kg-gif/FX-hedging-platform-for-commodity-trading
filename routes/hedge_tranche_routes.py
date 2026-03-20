@@ -601,7 +601,29 @@ async def get_enriched_exposures(
                     ORDER BY created_at DESC LIMIT 1
                 """), {"cid": safe_id, "pair": pair}).fetchone()
 
-                last_zone = last_log._mapping["new_zone"] if last_log else "base"
+                if last_log is None:
+                    # No prior zone record — establish baseline silently.
+                    # Never send an alert on the first observation; we don't know
+                    # whether the rate has actually moved, so there is nothing to notify about.
+                    db.execute(text("""
+                        INSERT INTO zone_change_log
+                            (company_id, currency_pair, previous_zone, new_zone,
+                             trigger_type, spot_rate, budget_rate, pct_move, created_at)
+                        VALUES (:cid, :pair, 'base', :new, 'baseline', :spot, :budget, :pct, NOW())
+                    """), {
+                        "cid":    safe_id,
+                        "pair":   pair,
+                        "new":    current_zone,
+                        "spot":   round(current_spot, 6),
+                        "budget": budget_rate,
+                        "pct":    round(pct_move, 2),
+                    })
+                    db.commit()
+                    print(f"[zone-shift] {pair}: baseline logged ({current_zone}) — no email sent")
+                    zone_checked_pairs.add(pair)
+                    continue
+
+                last_zone = last_log._mapping["new_zone"]
                 print(f"[zone-shift] {pair}: last_zone={last_zone}")
 
                 if current_zone != last_zone:
