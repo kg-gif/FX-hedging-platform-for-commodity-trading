@@ -46,6 +46,13 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
         headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` },
         body: formData,
       });
+
+      // Guard: non-200 responses may return HTML (e.g. Render 502), not JSON
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Server error ${response.status}: ${text.slice(0, 200)}`);
+      }
+
       const result   = await response.json();
       if (result.success) {
         setUploadResult(result);
@@ -54,6 +61,7 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
         setError(result.detail || result.error || 'Upload failed');
       }
     } catch (err) {
+      console.error('[FileUpload] upload error:', err);
       setError(`Upload error: ${err.message}`);
     } finally {
       setUploading(false);

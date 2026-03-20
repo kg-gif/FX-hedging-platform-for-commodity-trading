@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component } from 'react';
 import { useCompany } from '../contexts/CompanyContext';
 import { Upload, Plus, Download, AlertCircle, CheckCircle, Edit2, Trash2, X, Save } from 'lucide-react';
 import FileUpload from './FileUpload.jsx';
@@ -11,6 +11,30 @@ const authHeaders = () => ({
 });
 const NAVY = '#1A2744';
 const GOLD = '#C9A86C';
+
+// Error boundary — prevents a crash in FileUpload/ManualEntry from blanking the whole page
+class UploadErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(err) { return { error: err }; }
+  componentDidCatch(err) { console.error('[UploadErrorBoundary]', err); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-lg p-5 bg-red-50 border border-red-200 text-sm text-red-800">
+          <strong>Something went wrong in the upload panel.</strong>
+          <p className="mt-1 font-mono text-xs">{this.state.error.message}</p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="mt-3 px-3 py-1 rounded bg-red-600 text-white text-xs"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const DataImportDashboard = () => {
   const [activeTab, setActiveTab] = useState('upload');
@@ -165,8 +189,17 @@ const DataImportDashboard = () => {
         </div>
 
         <div className="p-6">
-          {activeTab === 'upload' && <FileUpload companyId={selectedCompany?.id} onSaveSuccess={handleSaveSuccess} />}
-          {activeTab === 'manual' && <ManualEntry companyId={selectedCompany?.id} onSaveSuccess={handleSaveSuccess} />}
+          {activeTab === 'upload' && (
+            <UploadErrorBoundary>
+              {/* onUploadSuccess fires fetchExposures + success toast after a file import */}
+              <FileUpload companyId={selectedCompany?.id} onUploadSuccess={handleSaveSuccess} />
+            </UploadErrorBoundary>
+          )}
+          {activeTab === 'manual' && (
+            <UploadErrorBoundary>
+              <ManualEntry companyId={selectedCompany?.id} onSaveSuccess={handleSaveSuccess} />
+            </UploadErrorBoundary>
+          )}
           {activeTab === 'view' && (
             <div>
               <h2 className="text-lg font-semibold mb-4" style={{ color: NAVY }}>Current Exposures</h2>
