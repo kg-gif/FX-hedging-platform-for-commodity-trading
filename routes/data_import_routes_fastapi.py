@@ -293,39 +293,41 @@ async def upload_file(
 
             period_days = (maturity_date - start_date).days
             usd_value   = amount * rate
-            risk        = calculate_risk_level(usd_value, period_days)
             reference   = f"IMP-{row_idx:03d}"
 
-            # ── Insert ────────────────────────────────────────────────────────
+            # ── Insert (savepoint per row so one failure never aborts others) ──
+            # risk_level is intentionally omitted — column is nullable and the
+            # PostgreSQL enum casing varies by how the DB was initialised.
+            # The system recalculates risk_level elsewhere from amount + period.
             try:
-                db.execute(_text("""
-                    INSERT INTO exposures
-                      (company_id, from_currency, to_currency, amount, amount_currency,
-                       start_date, end_date, initial_rate, current_rate, current_value_usd,
-                       settlement_period, risk_level, description, budget_rate,
-                       reference, exposure_type, instrument_type, is_active, created_at, updated_at)
-                    VALUES
-                      (:cid, :from_ccy, :to_ccy, :amount, :amount_ccy,
-                       :start_date, :end_date, :rate, :rate, :usd_value,
-                       :period, :risk, :desc, :budget_rate,
-                       :reference, 'payable', :instrument_type, true, NOW(), NOW())
-                """), {
-                    "cid":             company_id,
-                    "from_ccy":        from_currency,
-                    "to_ccy":          to_currency,
-                    "amount":          amount,
-                    "amount_ccy":      amount_currency,
-                    "start_date":      start_date,
-                    "end_date":        maturity_date,
-                    "rate":            rate,
-                    "usd_value":       usd_value,
-                    "period":          period_days,
-                    "risk":            risk.value,
-                    "desc":            description,
-                    "budget_rate":     budget_rate,
-                    "reference":       reference,
-                    "instrument_type": instrument_type,
-                })
+                with db.begin_nested():   # savepoint — rolls back this row only on failure
+                    db.execute(_text("""
+                        INSERT INTO exposures
+                          (company_id, from_currency, to_currency, amount, amount_currency,
+                           start_date, end_date, initial_rate, current_rate, current_value_usd,
+                           settlement_period, description, budget_rate,
+                           reference, exposure_type, instrument_type, is_active, created_at, updated_at)
+                        VALUES
+                          (:cid, :from_ccy, :to_ccy, :amount, :amount_ccy,
+                           :start_date, :end_date, :rate, :rate, :usd_value,
+                           :period, :desc, :budget_rate,
+                           :reference, 'payable', :instrument_type, true, NOW(), NOW())
+                    """), {
+                        "cid":             company_id,
+                        "from_ccy":        from_currency,
+                        "to_ccy":          to_currency,
+                        "amount":          amount,
+                        "amount_ccy":      amount_currency,
+                        "start_date":      start_date,
+                        "end_date":        maturity_date,
+                        "rate":            rate,
+                        "usd_value":       usd_value,
+                        "period":          period_days,
+                        "desc":            description,
+                        "budget_rate":     budget_rate,
+                        "reference":       reference,
+                        "instrument_type": instrument_type,
+                    })
                 imported += 1
             except Exception as insert_err:
                 errors.append(f"Row {row_idx}: database error — {insert_err}")
