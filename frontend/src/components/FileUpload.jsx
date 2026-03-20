@@ -107,23 +107,33 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
         style={{ background: 'rgba(26,39,68,0.04)', borderColor: 'rgba(26,39,68,0.12)' }}>
         <div className="flex items-start gap-3">
           <Info size={16} className="mt-0.5 flex-shrink-0" style={{ color: NAVY }} />
-          <div style={{ color: NAVY }}>
-            <p className="font-semibold mb-2">Required Fields:</p>
-            <ul className="space-y-1 text-gray-600">
-              {[
-                ['currency_pair',   'Format: EUR/USD (required)'],
-                ['total_amount',    'Positive number — amount in base currency (required)'],
-                ['budget_rate',     'Your internal rate target, e.g. 1.0850 (required)'],
-                ['instrument_type', 'Forward, Spot, or Option (required)'],
-                ['maturity_date',   'YYYY-MM-DD — must be today or later (required)'],
-                ['description',     'Optional free-text description'],
-                ['base_currency',   'Currency the amount is in, e.g. EUR (optional)'],
-              ].map(([field, desc]) => (
-                <li key={field}>
-                  <strong style={{ color: NAVY, fontFamily: 'monospace' }}>{field}:</strong> {desc}
-                </li>
-              ))}
-            </ul>
+          <div style={{ color: NAVY }} className="w-full">
+            <p className="font-semibold mb-3">Required Fields</p>
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr style={{ background: 'rgba(26,39,68,0.08)' }}>
+                  <th className="text-left px-2 py-1.5 font-semibold" style={{ color: NAVY, width: '160px' }}>Field</th>
+                  <th className="text-left px-2 py-1.5 font-semibold" style={{ color: NAVY }}>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['currency_pair',   'Format: FROM/TO e.g. GBP/USD, EUR/NOK'],
+                  ['description',     'Invoice ref, contract name, or counterparty'],
+                  ['start_date',      'When exposure begins — trade or invoice date. Format: YYYY-MM-DD'],
+                  ['maturity_date',   'When exposure settles — forward value date. Format: YYYY-MM-DD. Must be after start_date and today or later'],
+                  ['total_amount',    'Notional in the FROM currency. Numbers only, no commas'],
+                  ['budget_rate',     'Your internal planning rate e.g. 1.3200'],
+                  ['instrument_type', 'Forward, Spot, or Option'],
+                  ['base_currency',   'Your reporting currency e.g. EUR, GBP'],
+                ].map(([field, desc], i) => (
+                  <tr key={field} style={{ background: i % 2 === 0 ? 'transparent' : 'rgba(26,39,68,0.04)' }}>
+                    <td className="px-2 py-1.5 font-mono font-semibold" style={{ color: NAVY }}>{field}</td>
+                    <td className="px-2 py-1.5 text-gray-600">{desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

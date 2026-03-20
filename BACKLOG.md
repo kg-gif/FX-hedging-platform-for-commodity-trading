@@ -143,6 +143,24 @@ Budget Rate, Inception Rate, Spot Rate, Forward Rate, Forward Points, MTM (Mark-
 
 ---
 
+## ♿ Accessibility — WCAG 2.1 AA Compliance
+**Priority:** Pre-pilot
+**Description:** Ensure the platform meets WCAG 2.1 AA accessibility standards before external demos. Enterprise procurement teams often require accessibility certification — important for ICP.
+
+**Requirements:**
+- Audit and fix colour contrast ratios (minimum 4.5:1)
+- Add `aria-label` to all icon-only buttons (pencil, trash, expand, etc.)
+- Ensure all form fields have visible labels
+- Keyboard navigation support throughout — tab order, focus rings, Enter/Escape for modals
+- Never rely on colour alone to convey information (all P&L values already have +/− signs — good)
+- Test with screen reader (VoiceOver on Mac / NVDA on Windows)
+
+**Note:** P&L values already have +/− signs so colour-blind users are covered there. Icon-only buttons are the highest-priority gap.
+
+**Status:** Backlog — run audit before first external demo
+
+---
+
 ## 🎭 Demo Mode / Demo Reset
 **Priority:** Pre-pilot
 **Description:** One-click "Reset Demo" for sales demos and onboarding. Restores a company's data to a known clean state without affecting other companies.

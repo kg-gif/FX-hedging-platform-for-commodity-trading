@@ -362,30 +362,114 @@ async def upload_file(
 @router.get("/template/{format}")
 def download_template(format: str):
     """
-    GET /api/exposure-data/template/csv   — CSV template
-    GET /api/exposure-data/template/xlsx  — same CSV content, xlsx MIME
+    GET /api/exposure-data/template/csv   — dynamically generated CSV template
+    GET /api/exposure-data/template/xlsx  — dynamically generated Excel template
+
+    Dates are calculated relative to today so the sample rows are always
+    future-dated and pass the maturity_date >= today validation rule.
+
+    Column order matches the parser exactly:
+      currency_pair | description | start_date | maturity_date |
+      total_amount  | budget_rate | instrument_type | base_currency
     """
-    template_csv = (
-        "reference_number,currency_pair,amount,start_date,end_date,description,budget_rate,exposure_type\n"
-        "EXP-001,EUR/USD,1000000,2025-01-15,2025-06-30,European supplier payment,1.08,payable\n"
-        "EXP-002,GBP/USD,500000,2025-02-01,2025-08-01,UK revenue receivable,1.27,receivable\n"
-        "EXP-003,USD/NOK,3000000,2025-03-01,2025-09-01,Norwegian gas contract,,payable\n"
-    )
+    from datetime import date, timedelta
+
+    today = date.today()
+
+    # Column headers — must match parser expected columns
+    headers = [
+        "currency_pair", "description", "start_date", "maturity_date",
+        "total_amount", "budget_rate", "instrument_type", "base_currency",
+    ]
+
+    # Sample rows with future-relative dates so they always pass validation
+    sample_rows = [
+        ["GBP/USD", "Export receivables Q2",    today.isoformat(), (today + timedelta(45)).isoformat(),  3_000_000, 1.3200, "Forward", "GBP"],
+        ["EUR/USD", "EU customer invoices",      today.isoformat(), (today + timedelta(60)).isoformat(),  5_000_000, 1.1600, "Forward", "EUR"],
+        ["EUR/NOK", "Oslo office running costs", today.isoformat(), (today + timedelta(90)).isoformat(),  2_000_000, 11.200, "Forward", "EUR"],
+        ["GBP/NOK", "Aberdeen supply contract",  today.isoformat(), (today + timedelta(75)).isoformat(),  8_000_000, 12.800, "Forward", "GBP"],
+        ["CHF/USD", "Swiss supplier payments",   today.isoformat(), (today + timedelta(30)).isoformat(),  1_500_000, 1.2600, "Forward", "CHF"],
+        ["USD/NOK", "US import costs H1",        today.isoformat(), (today + timedelta(120)).isoformat(), 4_000_000, 10.500, "Forward", "USD"],
+    ]
+
     fmt = format.lower()
+
     if fmt == "csv":
-        media_type = "text/csv"
-        filename   = "exposure_template.csv"
+        # Build CSV in-memory
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(headers)
+        writer.writerows(sample_rows)
+        return StreamingResponse(
+            io.BytesIO(buf.getvalue().encode("utf-8")),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=Sumnohow_FX_Import_Template.csv"},
+        )
+
     elif fmt in ("xlsx", "xls"):
-        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        filename   = f"exposure_template.{fmt}"
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+
+        wb = openpyxl.Workbook()
+
+        # ── Exposures sheet (the one the parser reads) ─────────────────────────
+        ws = wb.active
+        ws.title = "Exposures"
+
+        # Header row — navy background, gold text, bold
+        header_font  = Font(bold=True, color="C9A86C")
+        header_fill  = PatternFill("solid", fgColor="1A2744")
+        header_align = Alignment(horizontal="center")
+
+        for col_idx, col_name in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=col_name)
+            cell.font      = header_font
+            cell.fill      = header_fill
+            cell.alignment = header_align
+
+        for row_idx, row in enumerate(sample_rows, start=2):
+            for col_idx, val in enumerate(row, start=1):
+                ws.cell(row=row_idx, column=col_idx, value=val)
+
+        # Auto-fit column widths
+        for col in ws.columns:
+            max_len = max(len(str(c.value or "")) for c in col)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 30)
+
+        # ── Instructions sheet ─────────────────────────────────────────────────
+        ws2 = wb.create_sheet("Instructions")
+        instructions = [
+            ["Sumnohow FX Import Template — Instructions"],
+            [],
+            ["IMPORTANT: Do not rename the 'Exposures' sheet. The parser reads that sheet by name."],
+            [],
+            ["Field",         "Description",                                                    "Required"],
+            ["currency_pair", "Format: FROM/TO e.g. GBP/USD, EUR/NOK",                        "Yes"],
+            ["description",   "Invoice ref, contract name, or counterparty",                   "Yes"],
+            ["start_date",    "When exposure begins — trade or invoice date. Format: YYYY-MM-DD","Yes"],
+            ["maturity_date", "When exposure settles — forward value date. YYYY-MM-DD. Must be after start_date and today or later", "Yes"],
+            ["total_amount",  "Notional in the FROM currency. Numbers only, no commas",         "Yes"],
+            ["budget_rate",   "Your internal planning rate e.g. 1.3200",                        "Yes"],
+            ["instrument_type","Forward, Spot, or Option",                                      "Yes"],
+            ["base_currency", "Your reporting currency e.g. EUR, GBP",                         "Yes"],
+        ]
+        for row_data in instructions:
+            ws2.append(row_data)
+        ws2.column_dimensions["A"].width = 18
+        ws2.column_dimensions["B"].width = 70
+        ws2.column_dimensions["C"].width = 10
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=Sumnohow_FX_Import_Template.xlsx"},
+        )
+
     else:
         raise HTTPException(status_code=400, detail="Format must be csv or xlsx")
-
-    return StreamingResponse(
-        io.BytesIO(template_csv.encode("utf-8")),
-        media_type=media_type,
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
 
 @router.post("/manual")
 async def create_manual_exposure(
