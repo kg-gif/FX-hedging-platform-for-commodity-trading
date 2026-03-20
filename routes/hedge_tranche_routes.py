@@ -506,6 +506,45 @@ async def get_enriched_exposures(
         exp_for_pnl["amount_currency"] = exp.get("amount_currency") or exp["from_currency"]
         pnl = calculate_pnl_split(exp_for_pnl, tranche_list, current_spot)
 
+        # Convert P&L from to_currency → base_currency (EUR).
+        #
+        # The formula (spot - budget) × amount has units of to_currency because:
+        #   rate [to_ccy/from_ccy] × amount [from_ccy] = result [to_ccy]
+        #
+        # Conversion factor = (from_ccy → base_ccy) / (from_ccy → to_ccy)
+        # This equals to_ccy → base_ccy via the from_ccy pivot.
+        # Examples:
+        #   EUR/NOK: factor = (EUR/EUR=1.0) / (EUR/NOK=11.7) → NOK→EUR
+        #   GBP/NOK: factor = (GBP/EUR=1.15) / (GBP/NOK=14.75) → NOK→EUR
+        #   CHF/USD: factor = (CHF/EUR=1.04) / (CHF/USD=1.11) → USD→EUR
+        #   EUR/USD: factor = 1.0 / current_spot → USD→EUR
+        from_ccy = exp["from_currency"]
+        to_ccy   = exp["to_currency"]
+        if to_ccy == base_currency:
+            # P&L already expressed in base currency — no conversion needed
+            pnl_factor = 1.0
+        else:
+            from_base_info = live_rates.get(f"{from_ccy}/{base_currency}")
+            if from_ccy == base_currency:
+                from_base_rate = 1.0
+            elif from_base_info and from_base_info.get("rate"):
+                from_base_rate = float(from_base_info["rate"])
+            else:
+                from_base_rate = None  # rate unavailable
+
+            if from_base_rate is not None and current_spot and current_spot > 0:
+                pnl_factor = from_base_rate / current_spot
+            else:
+                pnl_factor = 1.0  # fallback — P&L stays in to_ccy (shows wrong ccy but won't crash)
+
+        pnl_locked   = round(pnl["locked_pnl"]   * pnl_factor, 2)
+        pnl_floating = round(pnl["floating_pnl"] * pnl_factor, 2)
+        pnl_combined = round(pnl["combined_pnl"] * pnl_factor, 2)
+
+        # A cross pair is one where neither currency is the base currency.
+        # These carry dual-rate sensitivity — the frontend shows an explanation tooltip.
+        is_cross_pair = (from_ccy != base_currency and to_ccy != base_currency)
+
         # Determine status
         budget_rate = float(exp.get("budget_rate") or 0)
         if not budget_rate:
@@ -649,10 +688,13 @@ async def get_enriched_exposures(
             "tranche_count":    len([t for t in tranche_list if t["status"] in ("executed","confirmed")]),
             "tranches":         tranche_list,
 
-            # P&L split — the three numbers the CFO cares about
-            "locked_pnl":       pnl["locked_pnl"],
-            "floating_pnl":     pnl["floating_pnl"],
-            "combined_pnl":     pnl["combined_pnl"],
+            # P&L split — converted to base_currency (EUR).
+            # Raw P&L from calculate_pnl_split is in to_currency;
+            # pnl_factor converts it to base_currency via the from_ccy pivot.
+            "locked_pnl":       pnl_locked,
+            "floating_pnl":     pnl_floating,
+            "combined_pnl":     pnl_combined,
+            "is_cross_pair":    is_cross_pair,   # true → frontend shows triangular FX tooltip
 
             # Corridor
             "corridor": {

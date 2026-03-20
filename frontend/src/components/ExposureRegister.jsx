@@ -30,6 +30,34 @@ const fmtPnl = (n) => {
 
 const pnlColor = (n) => n == null ? '#9CA3AF' : n >= 0 ? SUCCESS : DANGER
 
+// Tooltip shown next to P&L values on cross-currency pairs (e.g. CHF/USD, GBP/NOK)
+// where neither leg is the company base currency (EUR).
+function CrossPairTooltip() {
+  const [visible, setVisible] = useState(false)
+  return (
+    <span className="relative inline-block ml-1 align-middle">
+      <span
+        style={{ color: GOLD, cursor: 'pointer', fontSize: 13 }}
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+        aria-label="Cross-pair P&L explanation"
+      >ⓘ</span>
+      {visible && (
+        <span style={{
+          position: 'absolute', bottom: '120%', left: '50%', transform: 'translateX(-50%)',
+          background: '#1A2744', color: '#fff', borderRadius: 6, padding: '8px 12px',
+          fontSize: 12, lineHeight: 1.5, width: 260, zIndex: 50, pointerEvents: 'none',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.25)'
+        }}>
+          P&L shown in EUR (base currency). For cross-currency pairs like CHF/USD, the USD
+          gain or loss is converted to EUR at today's spot rate. This means your EUR P&L is
+          sensitive to both the pair rate and the EUR/USD rate.
+        </span>
+      )}
+    </span>
+  )
+}
+
 function ZoneBadge({ zone }) {
   if (!zone || zone === 'base') return null
   const styles = {
@@ -553,11 +581,9 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
           <table className="min-w-full divide-y divide-gray-100 text-sm">
             <thead style={{ background: '#F4F6FA' }}>
               <tr>
-                {[
-                  'Pair', 'Description', 'Total', 'Hedged', 'Open', 'Hedge %',
+                {['Pair', 'Description', 'Total', 'Hedged', 'Open', 'Hedge %',
                   'Locked P&L', 'Floating P&L', 'Combined P&L',
-                  'Corridor', 'Status', 'Actions'
-                ].map(h => (
+                  'Corridor', 'Status', 'Actions'].map(h => (
                   <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider"
                     style={{ color: NAVY, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
@@ -627,22 +653,29 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                         <HedgeBar pct={exp.hedge_pct} />
                       </td>
 
-                      {/* Locked P&L */}
+                      {/* Locked P&L — shown in base currency (EUR) */}
                       <td className="px-3 py-3 font-semibold text-right whitespace-nowrap"
                         style={{ color: pnlColor(exp.locked_pnl) }}>
                         {fmtPnl(exp.locked_pnl)}
+                        {exp.is_cross_pair && exp.locked_pnl !== 0 && <CrossPairTooltip />}
                       </td>
 
-                      {/* Floating P&L */}
+                      {/* Floating P&L — shown in base currency (EUR) */}
                       <td className="px-3 py-3 font-semibold text-right whitespace-nowrap"
                         style={{ color: pnlColor(exp.floating_pnl) }}>
-                        {exp.open_amount > 0 ? fmtPnl(exp.floating_pnl) : '—'}
+                        {exp.open_amount > 0 ? (
+                          <>
+                            {fmtPnl(exp.floating_pnl)}
+                            {exp.is_cross_pair && <CrossPairTooltip />}
+                          </>
+                        ) : '—'}
                       </td>
 
-                      {/* Combined P&L */}
+                      {/* Combined P&L — shown in base currency (EUR) */}
                       <td className="px-3 py-3 font-bold text-right whitespace-nowrap"
                         style={{ color: pnlColor(exp.combined_pnl) }}>
                         {fmtPnl(exp.combined_pnl)}
+                        {exp.is_cross_pair && <CrossPairTooltip />}
                       </td>
 
                       {/* Corridor */}

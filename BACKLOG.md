@@ -267,3 +267,29 @@ Budget Rate, Inception Rate, Spot Rate, Forward Rate, Forward Points, MTM (Mark-
   - Channels (future): Email (live), SMS, WhatsApp, Slack, MS Teams
   - Per-alert-type toggles: Zone shifts, Breaches, Policy triggers, Daily digest
   Goal: CFO gets exactly the alerts they want, nothing they don't. Critical for adoption.
+## Netting / Natural Hedges
+Priority: Pre-scale
+Description:
+Natural hedge = offsetting exposures in same currency pair
+e.g. EUR/NOK receivable + EUR/NOK payable = net position only
+
+Features needed:
+- Auto-identify offsetting exposure pairs
+- Show gross vs net exposure per currency pair
+- Net P&L calculation on combined position
+- Hedge recommendations based on NET not gross exposure
+  (avoids costly over-hedging)
+- Netting report: which exposures offset each other
+
+Triangular currency risk (already tooltipped in UI):
+- Cross pairs carry dual rate sensitivity
+- CHF/USD with EUR base = exposed to both CHF/USD
+  and EUR/USD rate moves simultaneously
+- Tooltip explanation live on all cross-pair P&L figures
+
+Commercial note: Netting reduces hedge cost significantly.
+CFOs at $50M+ exposure almost always ask about this.
+Raises question: do we charge on gross or net exposure?
+Validate with pilot customer before building.
+
+Status: Backlog — tooltip live, full netting feature pending
