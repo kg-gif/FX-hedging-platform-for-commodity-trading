@@ -1,10 +1,14 @@
 import React, { useState, useRef } from 'react';
 import { Upload, CheckCircle, XCircle, AlertCircle, FileSpreadsheet, Info } from 'lucide-react';
 import { NAVY, GOLD, STYLES } from '../brand';
+import { useCompany } from '../contexts/CompanyContext';
 
 const API_BASE = 'https://birk-fx-api.onrender.com';
 
-const FileUpload = ({ companyId, onUploadSuccess }) => {
+// companyId prop is kept for backwards compat but the component reads
+// directly from context so the value is always fresh at upload time.
+const FileUpload = ({ companyId: companyIdProp, onUploadSuccess }) => {
+  const { selectedCompany } = useCompany();
   const [dragActive, setDragActive]     = useState(false);
   const [uploading, setUploading]       = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
@@ -29,8 +33,10 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
 
   const handleFile = async (file) => {
     setError(null); setUploadResult(null);
+    // Read company id from context at call time — never from a stale prop
+    const companyId = selectedCompany?.id ?? companyIdProp;
     if (!companyId) {
-      setError('No company selected — please select a company before uploading.'); return;
+      setError('No company selected — please select a company from the top menu before uploading.'); return;
     }
     const ext = file.name.split('.').pop().toLowerCase();
     if (ext !== 'xlsx') {
