@@ -293,3 +293,42 @@ Raises question: do we charge on gross or net exposure?
 Validate with pilot customer before building.
 
 Status: Backlog — tooltip live, full netting feature pending
+
+## Market Report — Tier 2: Bank Forecast Aggregation
+Priority: Post-pilot
+Description:
+Aggregate FX rate forecasts from major investment banks (Goldman Sachs, JP Morgan, Morgan Stanley, Barclays, etc.) and overlay them on the AI-generated weekly market report.
+
+Features needed:
+- Scrape or ingest bank forecast data (12-month targets per major pair)
+- Show consensus forecast range (low/mid/high) per currency pair
+- Flag where current spot is vs consensus range
+- Highlight which bank is most bullish / bearish per pair
+- Show % of banks forecasting a move in same direction as client's exposure (tail-wind vs head-wind indicator)
+- Integrate into existing market report content_json as `bank_forecasts` field
+
+Data sources:
+- Phase 1: Manual input by Kevin from weekly bank research emails (paste into admin UI)
+- Phase 2: RSS/API feed (Reuters, Bloomberg terminal export, or bank research portals)
+
+Commercial note: Bank forecast aggregation is a differentiator — banks share this data with clients but CFOs rarely have time to read it. Sumnohow contextualises it against their specific positions.
+
+Status: Backlog — requires data source decision before scoping
+
+---
+
+## Market Report — Tier 3: Proprietary FX View
+Priority: Series A / Scale
+Description:
+Sumnohow develops and publishes its own weekly FX view — a house view on rate direction for the 8–10 currency pairs most common among its client base.
+
+Features needed:
+- Internal "view builder" tool: Kevin inputs directional bias (bullish/bearish/neutral) + confidence level + key driver narrative per pair
+- Views stored in DB with effective date — auditable history
+- Views incorporated into AI report generation as additional context layer: "Sumnohow house view: EUR/NOK mildly bearish near-term on Norwegian rate expectations"
+- Clients see "Sumnohow View" badge on pairs where a proprietary view exists
+- Over time: accuracy tracking — log actual rate move vs house view at 4-week horizon
+
+Commercial note: Proprietary view creates IP, brand authority, and content marketing opportunity. Positions Sumnohow as an FX advisory platform, not just software. High brand value at Series A.
+
+Status: Backlog — do not build until 10+ pilot companies active (need track record to validate house view credibility)

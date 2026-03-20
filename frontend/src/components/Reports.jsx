@@ -380,8 +380,22 @@ export default function Reports() {
   const [mtmSort, setMtmSort]         = useState({ col: 'valueDate', dir: 'asc' })
   const MTM_PAGE_SIZE = 15
 
+  // Market Reports state
+  const [marketReport,        setMarketReport]        = useState(null)
+  const [marketHistory,       setMarketHistory]       = useState([])
+  const [marketLoading,       setMarketLoading]       = useState(true)
+  const [marketGenerating,    setMarketGenerating]    = useState(false)
+  const [marketGenMsg,        setMarketGenMsg]        = useState(null)
+  const [marketExpandedId,    setMarketExpandedId]    = useState(null)
+
+  const authUser = (() => { try { return JSON.parse(localStorage.getItem('auth_user') || 'null') } catch { return null } })()
+  const isSuperAdmin = ['superadmin', 'admin'].includes(authUser?.role)
+
+  const GEN_MESSAGES = ['Analysing your portfolio…', 'Reviewing rate movements…', 'Writing your report…']
+
   // Jump nav
   const REPORT_SECTIONS = [
+    { id: 'market-reports',      label: '📊 Market Reports'     },
     { id: 'audit-trail',         label: 'Hedge Audit Trail'     },
     { id: 'pnl-summary',         label: 'P&L Summary'           },
     { id: 'policy-compliance',   label: 'Policy Compliance'     },
@@ -415,8 +429,51 @@ export default function Reports() {
       loadEnriched()
       loadMcRisk()
       loadFacilities()
+      loadMarketReport()
     }
   }, [companyId, filterPair, filterFromDate, filterToDate, showDeleted])
+
+  const loadMarketReport = async () => {
+    setMarketLoading(true)
+    try {
+      const [repRes, histRes] = await Promise.all([
+        fetch(`${API_BASE}/api/reports/market/${companyId}`, { headers: authHeaders() }),
+        fetch(`${API_BASE}/api/reports/market/${companyId}/history`, { headers: authHeaders() }),
+      ])
+      if (repRes.ok)  { const d = await repRes.json();  setMarketReport(d.report || null) }
+      if (histRes.ok) { const d = await histRes.json(); setMarketHistory(d.history || []) }
+    } catch (e) { console.error('[market-report] fetch error:', e) }
+    finally { setMarketLoading(false) }
+  }
+
+  const generateMarketReport = async () => {
+    setMarketGenerating(true)
+    let msgIdx = 0
+    setMarketGenMsg(GEN_MESSAGES[0])
+    const interval = setInterval(() => {
+      msgIdx = (msgIdx + 1) % GEN_MESSAGES.length
+      setMarketGenMsg(GEN_MESSAGES[msgIdx])
+    }, 2000)
+    try {
+      const res = await fetch(`${API_BASE}/api/reports/market/generate/${companyId}`, {
+        method: 'POST', headers: authHeaders(),
+      })
+      if (res.ok) {
+        await loadMarketReport()
+        showToast('Market report generated successfully')
+      } else {
+        const err = await res.text()
+        showToast(`Generation failed: ${err.slice(0, 100)}`)
+      }
+    } catch (e) {
+      showToast('Generation failed — check console')
+      console.error('[market-report] generate error:', e)
+    } finally {
+      clearInterval(interval)
+      setMarketGenerating(false)
+      setMarketGenMsg(null)
+    }
+  }
 
   const loadFacilities = async () => {
     setFacilityLoading(true)
@@ -708,6 +765,149 @@ export default function Reports() {
           )
         })}
       </div>
+
+      {/* ── Market Reports ────────────────────────────────────────────── */}
+      <div ref={el => { sectionRefs.current['market-reports'] = el }} className="scroll-mt-32">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+
+        {/* Header */}
+        <div className="px-5 py-3 flex items-center justify-between" style={{ background: NAVY }}>
+          <div className="flex items-center gap-3">
+            <TrendingUp size={15} color={GOLD} />
+            <h3 className="font-semibold text-white text-sm">Weekly FX Market Report</h3>
+            <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+              style={{ background: 'rgba(201,168,108,0.2)', color: GOLD }}>AI-generated</span>
+          </div>
+          {isSuperAdmin && (
+            <button
+              onClick={generateMarketReport}
+              disabled={marketGenerating}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-60"
+              style={{ background: GOLD, color: NAVY, minWidth: 150 }}>
+              {marketGenerating
+                ? <><span className="animate-pulse">●</span> {marketGenMsg}</>
+                : <><TrendingUp size={12} /> Generate Report</>
+              }
+            </button>
+          )}
+        </div>
+
+        <div className="p-5">
+          {marketLoading ? (
+            <p className="text-sm text-gray-400 py-4 text-center">Loading market report…</p>
+          ) : !marketReport ? (
+            <div className="text-center py-8 text-gray-400">
+              <TrendingUp size={32} className="mx-auto mb-3 opacity-30" />
+              <p className="text-sm font-medium">No market report yet</p>
+              <p className="text-xs mt-1">
+                {isSuperAdmin ? 'Click "Generate Report" to create the first one.' : 'Reports are generated every Monday morning.'}
+              </p>
+            </div>
+          ) : (() => {
+            const c = marketReport.content || {}
+            return (
+              <div>
+                {/* Headline */}
+                <p className="text-base font-semibold mb-1" style={{ color: NAVY }}>{c.headline}</p>
+                <p className="text-xs text-gray-400 mb-4">
+                  Generated {marketReport.generated_at ? new Date(marketReport.generated_at).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' }) : ''}
+                </p>
+
+                {/* Portfolio impact */}
+                <div className="mb-4 p-4 rounded-lg" style={{ background: '#F4F6FA' }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: GOLD }}>Portfolio Impact</p>
+                  <p className="text-sm text-gray-700 leading-relaxed">{c.portfolio_impact}</p>
+                </div>
+
+                {/* Risk alert */}
+                {c.risk_alert && (
+                  <div className="mb-4 p-4 rounded-lg flex gap-3"
+                    style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)' }}>
+                    <AlertTriangle size={16} color="#EF4444" className="shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-semibold mb-1" style={{ color: '#EF4444' }}>Risk Alert</p>
+                      <p className="text-sm text-gray-700">{c.risk_alert}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Per-pair commentary */}
+                {(c.pair_commentary || []).length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD }}>
+                      Your Currency Pairs This Week
+                    </p>
+                    <div className="space-y-3">
+                      {c.pair_commentary.map((pc, i) => (
+                        <div key={i} className="p-4 rounded-lg border border-gray-100"
+                          style={{ background: '#FAFBFC' }}>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-semibold text-sm" style={{ color: NAVY }}>{pc.pair}</span>
+                            <span className="text-xs font-bold"
+                              style={{ color: (pc.movement || '').startsWith('+') ? '#10B981' : '#EF4444' }}>
+                              {pc.movement}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-1">{pc.client_impact}</p>
+                          <p className="text-xs text-gray-400">{pc.outlook}</p>
+                          {pc.action && (
+                            <div className="mt-2 px-3 py-2 rounded text-xs font-semibold"
+                              style={{ background: 'rgba(201,168,108,0.1)', color: '#92711A', borderLeft: `3px solid ${GOLD}` }}>
+                              Action: {pc.action}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Week ahead */}
+                {c.week_ahead && (
+                  <div className="mb-4 p-4 rounded-lg" style={{ background: '#F4F6FA' }}>
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: GOLD }}>The Week Ahead</p>
+                    <p className="text-sm text-gray-700 leading-relaxed">{c.week_ahead}</p>
+                  </div>
+                )}
+
+                {/* Disclaimer */}
+                <p className="text-xs text-gray-400 leading-relaxed border-t border-gray-100 pt-4 mt-4">
+                  This report is generated by the Sumnohow AI engine for informational purposes only.
+                  It does not constitute financial advice or a recommendation to execute any transaction.
+                  All hedging decisions should be made in consultation with your treasury team and banking
+                  partners. Rates shown are indicative only.
+                </p>
+              </div>
+            )
+          })()}
+
+          {/* Report history */}
+          {marketHistory.length > 1 && (
+            <div className="mt-6 border-t border-gray-100 pt-4">
+              <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD }}>
+                Report History
+              </p>
+              <div className="space-y-1">
+                {marketHistory.slice(1).map(h => (
+                  <div key={h.id}>
+                    <button
+                      onClick={() => setMarketExpandedId(marketExpandedId === h.id ? null : h.id)}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-left hover:bg-gray-50 transition-all">
+                      <span className="text-xs text-gray-500">
+                        {h.report_date ? new Date(h.report_date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }) : ''}
+                      </span>
+                      <span className="text-xs text-gray-600 flex-1 mx-3 truncate">{h.headline}</span>
+                      <ChevronDown size={13} className="text-gray-400 shrink-0"
+                        style={{ transform: marketExpandedId === h.id ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      </div>{/* /market-reports ref wrapper */}
 
       {/* ── Hedge Audit Trail ─────────────────────────────────────────── */}
       <div ref={el => { sectionRefs.current['audit-trail'] = el }} className="scroll-mt-32">

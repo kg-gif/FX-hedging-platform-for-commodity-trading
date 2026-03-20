@@ -50,6 +50,7 @@ from routes.data_import_routes_fastapi import router as data_import_router
 from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
 from routes.margin_call_routes import router as margin_call_router
 from routes.facility_routes import router as facility_router
+from routes.market_report_routes import router as market_report_router
 
 Base.metadata.create_all(bind=engine)
 print("✅ Database ready")
@@ -84,6 +85,7 @@ app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(margin_call_router)
 app.include_router(facility_router)
+app.include_router(market_report_router)
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 import logging
@@ -1655,6 +1657,18 @@ async def startup_event():
             # One-time flag: safe to leave permanently — WHERE clause is idempotent.
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_demo BOOLEAN DEFAULT FALSE",
             "UPDATE companies SET is_demo = true WHERE id = 1 AND (is_demo IS NULL OR is_demo = false)",
+
+            # ── Weekly AI Market Reports ───────────────────────────────────────
+            """CREATE TABLE IF NOT EXISTS market_reports (
+                id            SERIAL PRIMARY KEY,
+                company_id    INTEGER REFERENCES companies(id),
+                report_date   DATE NOT NULL,
+                report_type   VARCHAR DEFAULT 'weekly',
+                content_json  JSONB NOT NULL,
+                generated_at  TIMESTAMP DEFAULT NOW(),
+                delivered_at  TIMESTAMP,
+                is_active     BOOLEAN DEFAULT TRUE
+            )""",
         ]
         for sql in migrations:
             try:
