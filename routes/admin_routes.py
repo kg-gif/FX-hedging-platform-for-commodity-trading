@@ -293,6 +293,16 @@ def demo_reset(
         i: row._mapping["id"] for i, row in enumerate(facility_rows)
     }
 
+    # ── Apply facility limits from seed (so demo shows realistic utilisation) ──
+    # seed.facility_limits is optional: [{"slot": 0, "limit_eur": 10000000}, ...]
+    for fl in seed.get("facility_limits", []):
+        fid = facility_slot_map.get(fl.get("slot"))
+        if fid and fl.get("limit_eur"):
+            db.execute(
+                text("UPDATE trading_facilities SET facility_limit_eur = :lim, updated_at = NOW() WHERE id = :fid"),
+                {"lim": fl["limit_eur"], "fid": fid},
+            )
+
     # ── Insert seed exposures + their tranches ────────────────────────────────
     inserted = 0
     for exp in seed_exposures:
