@@ -29,6 +29,9 @@ const FileUpload = ({ companyId, onUploadSuccess }) => {
 
   const handleFile = async (file) => {
     setError(null); setUploadResult(null);
+    if (!companyId) {
+      setError('No company selected — please select a company before uploading.'); return;
+    }
     const ext = file.name.split('.').pop().toLowerCase();
     if (ext !== 'xlsx') {
       setError('Only .xlsx files are supported. Please use the Sumnohow Import Template.'); return;
