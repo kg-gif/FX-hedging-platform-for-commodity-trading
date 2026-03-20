@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useCompany } from '../contexts/CompanyContext'
 import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, TrendingUp, Filter, X, ChevronUp, ChevronDown } from 'lucide-react'
+import { LineChart, Line, ResponsiveContainer } from 'recharts'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import LoadingAnimation from './LoadingAnimation'
 
@@ -475,6 +476,23 @@ export default function Reports() {
     }
   }
 
+  const downloadMarketReportPdf = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/reports/market/${companyId}/pdf`, { headers: authHeaders() })
+      if (!res.ok) { showToast('PDF generation failed'); return }
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `sumnohow-fx-report-${marketReport?.report_date || 'latest'}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      showToast('PDF download failed — check console')
+      console.error('[market-report] pdf error:', e)
+    }
+  }
+
   const loadFacilities = async () => {
     setFacilityLoading(true)
     try {
@@ -778,18 +796,28 @@ export default function Reports() {
             <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
               style={{ background: 'rgba(201,168,108,0.2)', color: GOLD }}>AI-generated</span>
           </div>
-          {isSuperAdmin && (
-            <button
-              onClick={generateMarketReport}
-              disabled={marketGenerating}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-60"
-              style={{ background: GOLD, color: NAVY, minWidth: 150 }}>
-              {marketGenerating
-                ? <><span className="animate-pulse">●</span> {marketGenMsg}</>
-                : <><TrendingUp size={12} /> Generate Report</>
-              }
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {marketReport && (
+              <button
+                onClick={downloadMarketReportPdf}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+                style={{ background: 'rgba(201,168,108,0.15)', color: GOLD, border: `1px solid rgba(201,168,108,0.4)` }}>
+                <Download size={12} /> Download PDF
+              </button>
+            )}
+            {isSuperAdmin && (
+              <button
+                onClick={generateMarketReport}
+                disabled={marketGenerating}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-60"
+                style={{ background: GOLD, color: NAVY, minWidth: 150 }}>
+                {marketGenerating
+                  ? <><span className="animate-pulse">●</span> {marketGenMsg}</>
+                  : <><TrendingUp size={12} /> Generate Report</>
+                }
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="p-5">
@@ -831,33 +859,115 @@ export default function Reports() {
                   </div>
                 )}
 
-                {/* Per-pair commentary */}
+                {/* Per-pair commentary with sparklines */}
                 {(c.pair_commentary || []).length > 0 && (
                   <div className="mb-4">
                     <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD }}>
                       Your Currency Pairs This Week
                     </p>
                     <div className="space-y-3">
-                      {c.pair_commentary.map((pc, i) => (
-                        <div key={i} className="p-4 rounded-lg border border-gray-100"
-                          style={{ background: '#FAFBFC' }}>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-semibold text-sm" style={{ color: NAVY }}>{pc.pair}</span>
-                            <span className="text-xs font-bold"
-                              style={{ color: (pc.movement || '').startsWith('+') ? '#10B981' : '#EF4444' }}>
-                              {pc.movement}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-600 mb-1">{pc.client_impact}</p>
-                          <p className="text-xs text-gray-400">{pc.outlook}</p>
-                          {pc.action && (
-                            <div className="mt-2 px-3 py-2 rounded text-xs font-semibold"
-                              style={{ background: 'rgba(201,168,108,0.1)', color: '#92711A', borderLeft: `3px solid ${GOLD}` }}>
-                              Action: {pc.action}
+                      {c.pair_commentary.map((pc, i) => {
+                        const sparkColor = pc.favourable === false ? DANGER : SUCCESS
+                        const hasHistory = Array.isArray(pc.rate_history) && pc.rate_history.length >= 2
+                        const histStart  = hasHistory ? pc.rate_history[0].rate : null
+                        const histEnd    = hasHistory ? pc.rate_history[pc.rate_history.length - 1].rate : null
+                        return (
+                          <div key={i} className="rounded-lg border border-gray-100 overflow-hidden"
+                            style={{ background: '#FAFBFC' }}>
+                            {/* Pair header */}
+                            <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                              <span className="font-semibold text-sm" style={{ color: NAVY }}>{pc.pair}</span>
+                              <span className="text-xs font-bold"
+                                style={{ color: pc.favourable === false ? DANGER : SUCCESS }}>
+                                {pc.movement}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      ))}
+                            {/* Sparkline */}
+                            {hasHistory && (
+                              <div className="relative px-0" style={{ height: 80 }}>
+                                {/* Start rate label */}
+                                <span className="absolute left-2 bottom-1 text-[10px] text-gray-400 z-10 font-mono">
+                                  {histStart?.toFixed(4)}
+                                </span>
+                                {/* End rate label */}
+                                <span className="absolute right-2 bottom-1 text-[10px] font-mono z-10"
+                                  style={{ color: sparkColor }}>
+                                  {histEnd?.toFixed(4)}
+                                </span>
+                                <ResponsiveContainer width="100%" height={80}>
+                                  <LineChart data={pc.rate_history} margin={{ top: 4, right: 0, left: 0, bottom: 4 }}>
+                                    <Line
+                                      type="monotone"
+                                      dataKey="rate"
+                                      stroke={sparkColor}
+                                      strokeWidth={2}
+                                      dot={false}
+                                      isAnimationActive={false}
+                                    />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              </div>
+                            )}
+                            {/* Text content */}
+                            <div className="px-4 pb-4 pt-2">
+                              <p className="text-sm text-gray-600 mb-1">{pc.client_impact}</p>
+                              <p className="text-xs text-gray-400">{pc.outlook}</p>
+                              {pc.action && (
+                                <div className="mt-2 px-3 py-2 rounded text-xs font-semibold"
+                                  style={{ background: 'rgba(201,168,108,0.1)', color: '#92711A', borderLeft: `3px solid ${GOLD}` }}>
+                                  Action: {pc.action}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Economic calendar */}
+                {(c.key_events || []).length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD }}>
+                      Key Events This Week
+                    </p>
+                    <div className="rounded-lg border border-gray-100 overflow-hidden">
+                      {c.key_events.map((ev, i) => {
+                        const impactColor = ev.impact === 'High' ? DANGER
+                          : ev.impact === 'Medium' ? WARNING : '#9CA3AF'
+                        const flagMap = {
+                          EUR: '🇪🇺', GBP: '🇬🇧', USD: '🇺🇸', NOK: '🇳🇴',
+                          SEK: '🇸🇪', DKK: '🇩🇰', CHF: '🇨🇭', JPY: '🇯🇵',
+                          AUD: '🇦🇺', CAD: '🇨🇦', NZD: '🇳🇿', SGD: '🇸🇬',
+                        }
+                        const flag = flagMap[ev.currency] || '🌐'
+                        let dateLabel = ev.date || ''
+                        try {
+                          dateLabel = new Date(ev.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+                        } catch (_) {}
+                        return (
+                          <div key={i} className={`flex gap-3 px-4 py-3 ${i > 0 ? 'border-t border-gray-50' : ''}`}
+                            style={{ background: i % 2 === 0 ? 'white' : '#FAFBFC' }}>
+                            {/* Date */}
+                            <div className="w-24 shrink-0">
+                              <p className="text-xs font-semibold text-gray-700">{dateLabel}</p>
+                            </div>
+                            {/* Flag + event */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-base leading-none">{flag}</span>
+                                <span className="text-xs font-semibold text-gray-800">{ev.event}</span>
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
+                                  style={{ background: `${impactColor}18`, color: impactColor }}>
+                                  {ev.impact}
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-400">{ev.description}</p>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}

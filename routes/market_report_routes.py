@@ -12,6 +12,7 @@ POST /api/reports/market/generate-all          — cron: generate + email all co
 
 import logging
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -87,6 +88,59 @@ def get_latest_report(
             "delivered_at": r["delivered_at"].isoformat() if r["delivered_at"] else None,
         }
     }
+
+
+# ── GET report PDF download ───────────────────────────────────────────────────
+
+@router.get("/{company_id}/pdf")
+def download_report_pdf(
+    company_id: int,
+    payload: dict = Depends(require_auth),
+    db: Session   = Depends(get_db),
+):
+    """
+    GET /api/reports/market/{company_id}/pdf
+
+    Returns the most recent market report as a downloadable branded PDF.
+    """
+    safe_id = resolve_company_id(company_id, payload)
+
+    row = db.execute(text("""
+        SELECT id, company_id, report_date, content_json
+        FROM market_reports
+        WHERE company_id = :cid
+          AND (is_active IS NULL OR is_active = true)
+        ORDER BY generated_at DESC
+        LIMIT 1
+    """), {"cid": safe_id}).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="No market report found for this company")
+
+    r = row._mapping
+
+    company_row = db.execute(
+        text("SELECT name FROM companies WHERE id = :cid"),
+        {"cid": safe_id},
+    ).fetchone()
+    company_name = company_row._mapping["name"] if company_row else "Your Company"
+
+    report = {
+        "report_date": r["report_date"].isoformat() if r["report_date"] else None,
+        "content":     r["content_json"],
+    }
+
+    from services.market_report_pdf import generate_market_report_pdf
+    pdf_bytes = generate_market_report_pdf(report, company_name)
+
+    report_date_str = (r["report_date"].isoformat() if r["report_date"] else "report").replace("-", "")
+    filename = f"sumnohow-fx-report-{report_date_str}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 # ── GET report history ────────────────────────────────────────────────────────

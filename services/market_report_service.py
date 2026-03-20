@@ -9,6 +9,7 @@ Emails via Resend on the weekly cron run.
 import os
 import json
 import logging
+import asyncio
 import httpx
 from datetime import date, timedelta
 
@@ -75,42 +76,78 @@ async def generate_market_report(company_id: int, db) -> dict:
         raise ValueError(f"No active exposures found for company {company_id}")
 
     today    = date.today()
-    week_ago = today - timedelta(days=7)
+    # Fetch 8 dates: today-7 (for week comparison) through today (for 7-day sparkline)
+    fetch_dates = [today - timedelta(days=7 - i) for i in range(8)]  # [today-7, ..., today]
+    sparkline_dates = fetch_dates[1:]  # today-6 through today (7 points for chart)
+    week_ago = fetch_dates[0]          # today-7 (week-on-week comparison)
 
-    exposure_data = []
+    # ── Prefetch all ECB rates in parallel ────────────────────────────────────
+    # ECB returns X_per_EUR for each currency X. Cross rate = to_eur / from_eur.
+    # Gather every (currency, date) pair upfront to avoid sequential round-trips.
+    all_ccys = set()
+    for row in rows:
+        e = row._mapping
+        if e["from_currency"] != "EUR":
+            all_ccys.add(e["from_currency"])
+        if e["to_currency"] != "EUR":
+            all_ccys.add(e["to_currency"])
+    all_ccys = list(all_ccys)
+
+    async def _safe_ecb(ccy, d):
+        try:
+            return await get_ecb_close_rate(ccy, d)
+        except Exception:
+            return None
+
+    fetch_pairs = [(ccy, d) for ccy in all_ccys for d in fetch_dates]
+    fetched     = await asyncio.gather(*[_safe_ecb(ccy, d) for ccy, d in fetch_pairs])
+
+    # eur_rate_map[(ccy, date_iso)] = ECB rate (units of ccy per 1 EUR)
+    eur_rate_map: dict = {}
+    for (ccy, d), rate in zip(fetch_pairs, fetched):
+        if rate is not None:
+            eur_rate_map[(ccy, d.isoformat())] = rate
+
+    def _cross(from_ccy, to_ccy, d_iso):
+        """Compute cross rate from prefetched ECB data. Returns None if unavailable."""
+        from_eur = 1.0 if from_ccy == "EUR" else eur_rate_map.get((from_ccy, d_iso))
+        to_eur   = 1.0 if to_ccy   == "EUR" else eur_rate_map.get((to_ccy,   d_iso))
+        if from_eur and to_eur and from_eur > 0:
+            return to_eur / from_eur
+        return None
+
+    # ── Build per-exposure data + 7-day rate history ──────────────────────────
+    today_iso    = today.isoformat()
+    week_ago_iso = week_ago.isoformat()
+
+    exposure_data    = []
+    rate_history_map = {}  # {pair_str: [{date, rate}]} — injected into Claude's output
+
     for row in rows:
         e = row._mapping
         from_ccy = e["from_currency"]
         to_ccy   = e["to_currency"]
+        pair     = f"{from_ccy}/{to_ccy}"
 
-        # Current spot from in-memory cache (fast)
-        try:
-            current_spot = get_rate(from_ccy, to_ccy)
-        except Exception:
-            current_spot = None
-
-        # 7-day historical rates from ECB
-        # ECB series returns {CCY}/EUR (units of CCY per 1 EUR).
-        # Cross rate: from_ccy/to_ccy = to_eur_units / from_eur_units
-        # e.g. GBP/NOK = NOK_per_EUR / GBP_per_EUR = 11.7 / 0.86 ≈ 13.6
-        try:
-            from_eur_today = 1.0 if from_ccy == "EUR" else await get_ecb_close_rate(from_ccy, today)
-            from_eur_week  = 1.0 if from_ccy == "EUR" else await get_ecb_close_rate(from_ccy, week_ago)
-            to_eur_today   = 1.0 if to_ccy   == "EUR" else await get_ecb_close_rate(to_ccy,   today)
-            to_eur_week    = 1.0 if to_ccy   == "EUR" else await get_ecb_close_rate(to_ccy,   week_ago)
-
-            spot_today = (to_eur_today / from_eur_today) if from_eur_today > 0 else None
-            spot_week  = (to_eur_week  / from_eur_week)  if from_eur_week  > 0 else None
-        except Exception as ecb_err:
-            logger.warning(f"ECB lookup failed for {from_ccy}/{to_ccy}: {ecb_err}")
-            spot_today = current_spot
-            spot_week  = None
-
-        # Fall back to live cache if ECB didn't return data
+        # Spot today — ECB preferred, live cache fallback
+        spot_today = _cross(from_ccy, to_ccy, today_iso)
         if spot_today is None:
-            spot_today = current_spot
+            try:
+                spot_today = get_rate(from_ccy, to_ccy)
+            except Exception:
+                spot_today = None
 
-        # Week-on-week rate change
+        spot_week = _cross(from_ccy, to_ccy, week_ago_iso)
+
+        # 7-day sparkline data (server-generated; injected into report JSON after Claude call)
+        history = []
+        for d in sparkline_dates:
+            r = _cross(from_ccy, to_ccy, d.isoformat())
+            if r is not None:
+                history.append({"date": d.isoformat(), "rate": round(r, 6)})
+        rate_history_map[pair] = history
+
+        # Week-on-week change
         rate_change_pct = None
         if spot_today and spot_week and spot_week > 0:
             rate_change_pct = (spot_today - spot_week) / spot_week * 100
@@ -138,17 +175,17 @@ async def generate_market_report(company_id: int, db) -> dict:
                 floating_pnl_base = raw_pnl
 
         exposure_data.append({
-            "pair":                 f"{from_ccy}/{to_ccy}",
-            "from_currency":        from_ccy,
-            "to_currency":          to_ccy,
-            "notional":             total_amount,
-            "hedged_pct":           round(hedge_pct, 1),
-            "budget_rate":          budget_rate,
-            "current_spot":         round(spot_today, 6) if spot_today else None,
-            "rate_7d_ago":          round(spot_week,  6) if spot_week  else None,
-            "rate_change_pct":      round(rate_change_pct, 3) if rate_change_pct is not None else None,
-            "floating_pnl_base":    round(floating_pnl_base, 0) if floating_pnl_base is not None else None,
-            "description":          e.get("description") or "",
+            "pair":              pair,
+            "from_currency":     from_ccy,
+            "to_currency":       to_ccy,
+            "notional":          total_amount,
+            "hedged_pct":        round(hedge_pct, 1),
+            "budget_rate":       budget_rate,
+            "current_spot":      round(spot_today, 6) if spot_today else None,
+            "rate_7d_ago":       round(spot_week,  6) if spot_week  else None,
+            "rate_change_pct":   round(rate_change_pct, 3) if rate_change_pct is not None else None,
+            "floating_pnl_base": round(floating_pnl_base, 0) if floating_pnl_base is not None else None,
+            "description":       e.get("description") or "",
         })
 
     # ── Build prompt context ──────────────────────────────────────────────────
@@ -180,6 +217,10 @@ async def generate_market_report(company_id: int, db) -> dict:
         ])
     )
 
+    # Unique currencies held — so Claude knows which events to include
+    held_currencies = sorted({ed["from_currency"] for ed in exposure_data}
+                            | {ed["to_currency"] for ed in exposure_data})
+
     # ── Call Claude ───────────────────────────────────────────────────────────
     system_prompt = (
         "You are a senior FX market analyst writing a personalised weekly currency report "
@@ -199,6 +240,9 @@ Key rate movements this week:
 Portfolio P&L summary:
 {pnl_summary}
 
+Currencies held: {', '.join(held_currencies)}
+Report date: {today.strftime('%d %B %Y')}
+
 Structure the report as JSON with these exact sections:
 {{
   "headline": "One sentence summary of the week",
@@ -207,18 +251,40 @@ Structure the report as JSON with these exact sections:
     {{
       "pair": "GBP/NOK",
       "movement": "+1.2% this week",
+      "favourable": true,
       "client_impact": "Your GBP 8M exposure moved...",
       "outlook": "Key levels to watch...",
       "action": "Consider..." or null
+    }}
+  ],
+  "key_events": [
+    {{
+      "event": "UK CPI Release",
+      "date": "2026-03-24",
+      "currency": "GBP",
+      "impact": "High",
+      "description": "One sentence on how this affects the client."
     }}
   ],
   "week_ahead": "2-3 sentences on key events/risks next week",
   "risk_alert": "Any urgent items requiring attention" or null
 }}
 
-Only include pairs the client actually holds. Return ONLY valid JSON. No markdown, no preamble."""
+Rules:
+- favourable: true if rate movement benefited the client (false if it hurt them)
+- key_events: ONLY include events for currencies in [{', '.join(held_currencies)}]. Include 3-6 events maximum for the next 7 days. Use real scheduled events (central bank meetings, CPI, NFP, PMI, GDP). impact must be "High", "Medium", or "Low".
+- Only include pairs the client actually holds.
+- Return ONLY valid JSON. No markdown, no preamble."""
 
     report_content = await _call_claude(system_prompt, user_prompt)
+
+    # ── Inject server-computed rate_history into pair_commentary ──────────────
+    # rate_history is ECB data — not hallucinated. We generate it server-side
+    # and inject it into each pair card so the frontend can render sparklines.
+    for pc in report_content.get("pair_commentary", []):
+        pair_key = pc.get("pair", "")
+        if pair_key in rate_history_map:
+            pc["rate_history"] = rate_history_map[pair_key]
 
     # ── Store in DB ───────────────────────────────────────────────────────────
     result_row = db.execute(text("""
