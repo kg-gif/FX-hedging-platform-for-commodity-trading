@@ -17,6 +17,12 @@ const authHeaders = () => ({
 
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
 
+const CURRENCY_FLAGS = {
+  GBP: '🇬🇧', EUR: '🇪🇺', USD: '🇺🇸', JPY: '🇯🇵', CHF: '🇨🇭',
+  NOK: '🇳🇴', SEK: '🇸🇪', DKK: '🇩🇰', AUD: '🇦🇺', NZD: '🇳🇿', CAD: '🇨🇦',
+}
+const ccyLabel = (ccy) => `${CURRENCY_FLAGS[ccy] || ''} ${ccy}`.trim()
+
 const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtM    = (n) => `${(Math.abs(n) / 1_000_000).toFixed(1)}M`
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
@@ -372,6 +378,7 @@ function Dashboard() {
     .filter(e => e.budget_rate && e.current_rate)
     .map(e => ({
       currency: e.from_currency,
+      label: ccyLabel(e.from_currency),
       change: ((e.current_rate - e.budget_rate) / e.budget_rate) * 100
     }))
     .sort((a, b) => b.change - a.change)
@@ -658,7 +665,7 @@ function Dashboard() {
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
                 <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%" outerRadius={75}
-                  label={(e) => e.currency}>
+                  label={(e) => ccyLabel(e.currency)}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v) => fmt(v)} />
@@ -670,7 +677,7 @@ function Dashboard() {
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={rateChanges}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="currency" style={{ fontSize: '11px' }} />
+                <XAxis dataKey="label" style={{ fontSize: '11px' }} />
                 <YAxis style={{ fontSize: '11px' }} />
                 <Tooltip formatter={(v) => `${v.toFixed(2)}%`} />
                 <Bar dataKey="change" radius={[4, 4, 0, 0]}>
