@@ -59,9 +59,10 @@ app = FastAPI(title="BIRK FX Risk Management API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://app.sumnohow.com",           # production custom domain
         "http://localhost:3000",
         "http://localhost:5173",
-        "https://birk-dashboard.onrender.com",
+        "https://birk-dashboard.onrender.com", # legacy Render domain (keep for safety)
         "https://birk-fx-api.onrender.com",
     ],
     # Covers any Render.com preview/branch deploy URLs in addition to the
