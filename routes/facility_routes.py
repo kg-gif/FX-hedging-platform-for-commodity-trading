@@ -273,7 +273,7 @@ async def get_utilisation(
     tranches that are:
       - linked to this facility (facility_id = facility.id)
       - executed or confirmed
-      - not yet expired (value_date >= today)
+      - not yet settled (is_settled = false or NULL)
 
     Notional EUR is taken from the most recent mtm_snapshot_log row for each
     tranche (written by the MTM endpoint). If no MTM snapshot exists yet for
@@ -304,6 +304,10 @@ async def get_utilisation(
         # Sum notional_eur for active tranches linked to this facility.
         # Use latest mtm_snapshot_log entry where available (accurate EUR value),
         # otherwise fall back to tranche.amount (raw, possibly in non-EUR currency).
+        # A tranche consumes facility headroom until explicitly settled (is_settled = true).
+        # We no longer use value_date >= today — a forward is released from the facility
+        # when it settles, not when the calendar date passes.
+        # is_settled IS NULL guard handles rows created before the column was added.
         tranche_rows = db.execute(text("""
             SELECT
                 ht.id                   AS tranche_id,
@@ -324,9 +328,9 @@ async def get_utilisation(
             WHERE ht.facility_id  = :fid
               AND ht.status       IN ('executed', 'confirmed')
               AND LOWER(ht.instrument) = 'forward'
-              AND ht.value_date  >= :today
+              AND (ht.is_settled = false OR ht.is_settled IS NULL)
               AND e.company_id    = :cid
-        """), {"fid": facility_id, "today": today, "cid": safe_cid}).fetchall()
+        """), {"fid": facility_id, "cid": safe_cid}).fetchall()
 
         utilised   = sum(float(r._mapping["notional_eur"] or 0) for r in tranche_rows)
         count      = len(tranche_rows)

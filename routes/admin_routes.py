@@ -276,11 +276,18 @@ def demo_reset(
         {"cid": company_id},
     )
 
-    # ── Clear zone change log ─────────────────────────────────────────────────
-    db.execute(
-        text("DELETE FROM zone_change_log WHERE company_id = :cid"),
-        {"cid": company_id},
-    )
+    # ── Clear all log tables for this company ────────────────────────────────
+    # Wipe zone, MTM, margin call, and audit logs so the demo starts clean
+    # with no ghost data from previous test runs bleeding through.
+    for clear_sql in [
+        "DELETE FROM zone_change_log        WHERE company_id = :cid",
+        "DELETE FROM margin_call_alert_log  WHERE company_id = :cid",
+        "DELETE FROM mtm_snapshot_log       WHERE company_id = :cid",
+        # Keep order_audit_log entries except test cruft — keep only the
+        # demo_reset_initiated row we just inserted (written before this loop)
+        "DELETE FROM order_audit_log WHERE company_id = :cid AND action != 'demo_reset_initiated'",
+    ]:
+        db.execute(text(clear_sql), {"cid": company_id})
 
     # ── Map facility slots to real facility IDs ───────────────────────────────
     # The seed uses facility_slot: 0 → first active facility, 1 → second, etc.
@@ -313,13 +320,13 @@ def demo_reset(
                 instrument_type, exposure_type, budget_rate,
                 description, end_date, settlement_period,
                 risk_level, status, current_rate, current_value_usd,
-                is_active, created_at, updated_at
+                is_active, is_settled, created_at, updated_at
             ) VALUES (
                 :company_id, :from_ccy, :to_ccy, :amount,
                 :instrument_type, :exposure_type, :budget_rate,
                 :description, :end_date, 90,
                 'MEDIUM', 'active', 1.0, :amount,
-                true, NOW(), NOW()
+                true, false, NOW(), NOW()
             ) RETURNING id
         """), {
             "company_id": company_id,
@@ -346,12 +353,12 @@ def demo_reset(
                 INSERT INTO hedge_tranches (
                     exposure_id, company_id, amount, rate,
                     instrument, value_date, status,
-                    notes, facility_id,
+                    notes, facility_id, is_settled,
                     executed_at, executed_by, created_at
                 ) VALUES (
                     :exposure_id, :company_id, :amount, :rate,
                     :instrument, :value_date, :status,
-                    :notes, :facility_id,
+                    :notes, :facility_id, false,
                     :executed_at, :executed_by, NOW()
                 )
             """), {

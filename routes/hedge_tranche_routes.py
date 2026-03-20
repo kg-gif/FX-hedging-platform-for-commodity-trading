@@ -478,6 +478,7 @@ async def get_enriched_exposures(
     company_alert_email = company_row._mapping["alert_email"] if company_row else None
 
     result = []
+    zone_checked_pairs: set = set()  # deduplicate zone alerts within a single request
     for exp_row in exposures:
         exp = exp_row._mapping
         exposure_id = exp["id"]
@@ -586,9 +587,13 @@ async def get_enriched_exposures(
         z_target_ratio = zone_target_ratio(current_zone, active_policy, base_ratio)
 
         # ── Zone-shift detection and notification ─────────────────────────────
-        # Send email only when zone actually changes (no time-based cooldown).
+        # Deduplicate: only check zone once per unique pair per request.
+        # If two exposures share the same currency pair (e.g. two EUR/USD positions),
+        # skip zone alert on the second one to prevent duplicate log entries and emails.
         print(f"[zone-shift] {pair}: current_zone={current_zone}, budget_rate={budget_rate}, current_spot={current_spot}, notify_email={active_policy.get('zone_notify_email')}, alert_email={company_alert_email}")
-        if current_zone != "base" and active_policy.get("zone_notify_email") and budget_rate:
+        if pair in zone_checked_pairs:
+            print(f"[zone-shift] {pair}: skipping — already checked this pair in this request")
+        elif current_zone != "base" and active_policy.get("zone_notify_email") and budget_rate:
             try:
                 last_log = db.execute(text("""
                     SELECT new_zone FROM zone_change_log
@@ -662,6 +667,7 @@ async def get_enriched_exposures(
             except Exception as _e:
                 logger.warning(f"Zone shift detection failed for {pair}: {_e}")
                 print(f"[zone-shift] {pair}: outer exception: {_e}")
+        zone_checked_pairs.add(pair)  # mark as checked — skip on next exposure with same pair
         # ── End zone-shift notification ────────────────────────────────────────
 
         result.append({

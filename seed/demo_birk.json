@@ -2,9 +2,9 @@
   "_note": "Demo seed for Sumnohow CFO demo. All date values use TODAY+N placeholders — replaced at reset time so exposures are always future-dated. Update rates annually if market moves significantly.",
   "_story": "7 exposures, ~EUR 40M+ portfolio. GBP/USD + CHF/USD: onside hedges, positive P&L. EUR/USD: BREACH — hedges placed at wrong rate. EUR/NOK: OPEN — fires recommendation. GBP/NOK: HEDGED, strong P&L. JPY/USD: 100% hedged. USD/NOK: offside hedge, margin call risk.",
   "_placeholders": "TODAY+N is replaced with isoformat date N days from reset date. Supported: 30,60,75,90,105,120,135,150,165,180,195,210,225,240,270.",
-  "_facility_note": "facility_limits: slot 0 = first active facility in DB. Reset sets limit_eur to show ~70% utilisation. Slot 0 total tranche notional ≈ EUR 7M (GBP 1.5M + GBP 1.8M + JPY 500M ≈ 6.9M EUR) → 10M limit ≈ 69%.",
+  "_facility_note": "facility_limits: slot 0 = first active facility in DB. Reset sets limit_eur to show ~65-70% utilisation. Slot 0 total tranche notional ≈ EUR 9.7M (GBP 3.3M ≈ 3.8M EUR + JPY 500M ≈ 3.1M EUR + EUR 3.25M + CHF 0.75M ≈ 0.83M EUR + USD 1.2M ≈ 1.1M EUR). 15M limit → ~65% utilisation.",
   "facility_limits": [
-    {"slot": 0, "limit_eur": 10000000}
+    {"slot": 0, "limit_eur": 15000000}
   ],
 
   "exposures": [

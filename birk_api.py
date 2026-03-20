@@ -1669,6 +1669,17 @@ async def startup_event():
                 delivered_at  TIMESTAMP,
                 is_active     BOOLEAN DEFAULT TRUE
             )""",
+
+            # ── Settlement lifecycle flag ──────────────────────────────────────
+            # is_settled = true removes the tranche/exposure from facility
+            # utilisation and open position calculations.
+            # Replaces the old value_date >= today filter for facility queries —
+            # settled positions release their facility headroom immediately on
+            # confirmation rather than waiting for the calendar date to pass.
+            "ALTER TABLE hedge_tranches ADD COLUMN IF NOT EXISTS is_settled BOOLEAN DEFAULT FALSE",
+            "UPDATE hedge_tranches SET is_settled = false WHERE is_settled IS NULL",
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS is_settled BOOLEAN DEFAULT FALSE",
+            "UPDATE exposures SET is_settled = false WHERE is_settled IS NULL",
         ]
         for sql in migrations:
             try:
