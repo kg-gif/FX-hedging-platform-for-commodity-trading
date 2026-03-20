@@ -1,7 +1,9 @@
 // HedgingPage.jsx
 // Hedging tab — jump nav for Hedge Recommendations and Exposure Register sections.
+// focusExposure is passed via router location state (navigate('/hedging', { state: { focusExposure } }))
 
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useCompany } from '../contexts/CompanyContext'
 import { NAVY, GOLD } from '../brand'
 import HedgingRecommendations from './HedgingRecommendations'
@@ -12,9 +14,14 @@ const SECTIONS = [
   { id: 'register',        label: 'Exposure Register'     },
 ]
 
-export default function HedgingPage({ focusExposure, onFocusConsumed, onNavigate }) {
+export default function HedgingPage() {
   const { selectedCompanyId } = useCompany()
   const companyId = selectedCompanyId || 1
+  const location  = useLocation()
+  const navigate  = useNavigate()
+
+  // focusExposure arrives via router state from Dashboard "Hedge Now" button
+  const focusExposure = location.state?.focusExposure || null
 
   const [active, setActive] = useState('recommendations')
   const sectionRefs = useRef({})
@@ -23,6 +30,18 @@ export default function HedgingPage({ focusExposure, onFocusConsumed, onNavigate
     setActive(id)
     const el = sectionRefs.current[id]
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // When arriving at /hedging/register scroll to the register section on mount
+  useEffect(() => {
+    if (location.pathname === '/hedging/register') {
+      scrollTo('register')
+    }
+  }, [location.pathname])
+
+  // After focusExposure is consumed, clear router state so a refresh doesn't re-trigger it
+  function handleFocusConsumed() {
+    navigate('/hedging', { replace: true, state: {} })
   }
 
   return (
@@ -63,7 +82,7 @@ export default function HedgingPage({ focusExposure, onFocusConsumed, onNavigate
       >
         <HedgingRecommendations
           focusExposure={focusExposure}
-          onFocusConsumed={onFocusConsumed}
+          onFocusConsumed={handleFocusConsumed}
         />
       </div>
 
@@ -75,8 +94,8 @@ export default function HedgingPage({ focusExposure, onFocusConsumed, onNavigate
         <ExposureRegister
           companyId={companyId}
           onHedgeNow={(exp) => {
-            // Scroll back up to recommendations with focus
-            if (onNavigate) onNavigate('hedging', { focusExposure: exp })
+            // Store focusExposure in router state and scroll up to recommendations
+            navigate('/hedging', { state: { focusExposure: exp } })
             scrollTo('recommendations')
           }}
         />

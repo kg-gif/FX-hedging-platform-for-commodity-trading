@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ExposureRegister from './ExposureRegister'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
@@ -179,9 +180,10 @@ function PortfolioSummaryStrip({ summary, loading }) {
   )
 }
 
-function Dashboard({ onNavigate }) {
+function Dashboard() {
   // Use the shared CompanyContext so the navbar CompanySelector drives which company is shown
   const { selectedCompanyId, getSelectedCompany } = useCompany()
+  const navigate = useNavigate()
   const selectedCompany = getSelectedCompany()
 
   const [exposures,         setExposures]         = useState([])
@@ -463,9 +465,9 @@ function Dashboard({ onNavigate }) {
                 EUR {(fac.available_eur / 1000).toFixed(0)}K remaining headroom
               </span>
             </div>
-            {onNavigate && (
+            {(
               <button
-                onClick={() => onNavigate('settings')}
+                onClick={() => navigate('/settings/bank')}
                 className="text-xs px-3 py-1.5 rounded-lg font-semibold shrink-0"
                 style={{ background: WARNING, color: 'white' }}>
                 Review →
@@ -492,14 +494,12 @@ function Dashboard({ onNavigate }) {
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {onNavigate && (
-              <button
-                onClick={() => onNavigate('hedging')}
-                className="text-xs px-3 py-1.5 rounded-lg font-semibold"
-                style={{ background: WARNING, color: 'white' }}>
-                Review
-              </button>
-            )}
+            <button
+              onClick={() => navigate('/hedging')}
+              className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+              style={{ background: WARNING, color: 'white' }}>
+              Review
+            </button>
             <button onClick={() => setDismissedZones(d => ({ ...d, defensive: true }))}>
               <X size={15} color={WARNING} />
             </button>
@@ -524,14 +524,12 @@ function Dashboard({ onNavigate }) {
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {onNavigate && (
-              <button
-                onClick={() => onNavigate('hedging')}
-                className="text-xs px-3 py-1.5 rounded-lg font-semibold"
-                style={{ background: SUCCESS, color: 'white' }}>
-                Review
-              </button>
-            )}
+            <button
+              onClick={() => navigate('/hedging')}
+              className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+              style={{ background: SUCCESS, color: 'white' }}>
+              Review
+            </button>
             <button onClick={() => setDismissedZones(d => ({ ...d, opportunistic: true }))}>
               <X size={15} color={SUCCESS} />
             </button>
@@ -752,7 +750,7 @@ function Dashboard({ onNavigate }) {
         companyId={selectedCompanyId}
         onEdit={(exp) => { setEditingExposure(exp); setShowEditModal(true) }}
         onDelete={(exp) => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
-        onHedgeNow={onNavigate ? (exp) => onNavigate('hedging', { focusExposure: exp }) : null}
+        onHedgeNow={(exp) => navigate('/hedging', { state: { focusExposure: exp } })}
       />
 
       {/* Edit Modal */}

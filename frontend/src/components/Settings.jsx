@@ -3,6 +3,7 @@
 // Bank Details / Notifications / Data Import / Admin Panel (admin-only).
 
 import React, { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useCompany } from '../contexts/CompanyContext'
 import { Save, Building2, Landmark, Bell, ShieldCheck, History, AlertTriangle,
   CheckCircle, Layers, Upload, Settings as SettingsIcon } from 'lucide-react'
@@ -88,12 +89,39 @@ function ZoneSummaryCard({ policies, zones }) {
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export default function Settings({ authUser, initialSection }) {
+export default function Settings({ authUser }) {
   const { selectedCompanyId } = useCompany()
   const companyId = selectedCompanyId || 1
   const isAdmin = ['superadmin', 'company_admin', 'admin'].includes(authUser?.role)
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // ── Derive active section from URL path ──────────────────────────────────
+  // /settings           → company
+  // /settings/policy    → policy
+  // /settings/bank      → bank
+  // /settings/notifications → notifications
+  // /settings/import    → data-import
+  // /settings/admin     → admin
+  const PATH_TO_SECTION = {
+    '/settings/policy':        'policy',
+    '/settings/bank':          'bank',
+    '/settings/notifications': 'notifications',
+    '/settings/import':        'data-import',
+    '/settings/admin':         'admin',
+  }
+  const activeSection = PATH_TO_SECTION[location.pathname] || 'company'
 
   // ── Sidebar sections ─────────────────────────────────────────────────────
+  const SECTION_TO_PATH = {
+    'company':       '/settings',
+    'policy':        '/settings/policy',
+    'bank':          '/settings/bank',
+    'notifications': '/settings/notifications',
+    'data-import':   '/settings/import',
+    'admin':         '/settings/admin',
+  }
+
   const NAV_ITEMS = [
     { id: 'company',       label: 'Company Profile',  icon: Building2     },
     { id: 'policy',        label: 'Policy & Zones',   icon: ShieldCheck   },
@@ -102,13 +130,6 @@ export default function Settings({ authUser, initialSection }) {
     { id: 'data-import',   label: 'Data Import',      icon: Upload        },
     ...(isAdmin ? [{ id: 'admin', label: 'Admin Panel', icon: SettingsIcon }] : []),
   ]
-
-  const [activeSection, setActiveSection] = useState(initialSection || 'company')
-
-  // Support initialSection prop changes (from App.jsx legacy route redirects)
-  useEffect(() => {
-    if (initialSection) setActiveSection(initialSection)
-  }, [initialSection])
 
   // ── Data state ───────────────────────────────────────────────────────────
   const [settings, setSettings]         = useState(null)
@@ -862,7 +883,7 @@ export default function Settings({ authUser, initialSection }) {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveSection(item.id)}
+                onClick={() => navigate(SECTION_TO_PATH[item.id] || '/settings')}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-left transition-all border-l-2"
                 style={{
                   borderLeftColor: active ? GOLD : 'transparent',

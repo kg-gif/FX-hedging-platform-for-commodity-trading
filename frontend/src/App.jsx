@@ -1,4 +1,13 @@
-import React, { useState, useEffect } from 'react'
+// App.jsx — top-level routing and auth gate
+//
+// DEPLOYMENT NOTE: Render must have a wildcard rewrite rule:
+//   Source: /*   Destination: /index.html   Action: Rewrite
+// Without this, direct URL access and page refresh breaks on all routes.
+
+import { useState, useEffect } from 'react'
+import {
+  BrowserRouter, Routes, Route, Navigate, Link, useLocation
+} from 'react-router-dom'
 import { CompanyProvider } from './contexts/CompanyContext'
 import CompanySelector from './components/CompanySelector'
 import Dashboard from './components/Dashboard.jsx'
@@ -6,7 +15,6 @@ import HedgingPage from './components/HedgingPage'
 import RiskEngine from './components/RiskEngine'
 import Reports from './components/Reports'
 import Settings from './components/Settings'
-import Admin from './components/Admin'
 import Login from './components/Login'
 import ResetPassword from './components/ResetPassword'
 
@@ -28,66 +36,27 @@ function clearAuth() {
   localStorage.removeItem('auth_user')
 }
 
-function AppContent({ authUser, onLogout }) {
-  const [currentPage, setCurrentPage] = useState('dashboard')
-  const [focusExposure, setFocusExposure] = useState(null)
+// ── Shell: sticky header + tab nav ──────────────────────────────────────────
 
-  function handleNavigate(page, opts = {}) {
-    setCurrentPage(page)
-    if (opts.focusExposure) setFocusExposure(opts.focusExposure)
-  }
-
+function AppShell({ authUser, onLogout, children }) {
+  const location = useLocation()
   const isAdmin = ['superadmin', 'company_admin', 'admin'].includes(authUser?.role)
 
-  // 5 core tabs. Admin tab appended for admin users only.
   const navItems = [
-    { id: 'dashboard',    name: 'Dashboard'    },
-    { id: 'hedging',      name: 'Hedging'      },
-    { id: 'reports',      name: 'Reports'      },
-    { id: 'settings',     name: 'Settings'     },
-    { id: 'risk-engine',  name: 'Risk Engine'  },
-    ...(isAdmin ? [{ id: 'admin', name: '⚙ Admin' }] : []),
+    { path: '/dashboard',   name: 'Dashboard'   },
+    { path: '/hedging',     name: 'Hedging'     },
+    { path: '/reports',     name: 'Reports'     },
+    { path: '/settings',    name: 'Settings'    },
+    { path: '/risk-engine', name: 'Risk Engine' },
+    ...(isAdmin ? [{ path: '/settings/admin', name: '⚙ Admin' }] : []),
   ]
 
-  const renderPage = () => {
-    switch (currentPage) {
-      case 'dashboard':
-        return <Dashboard onNavigate={handleNavigate} />
-
-      case 'hedging':
-        return (
-          <HedgingPage
-            focusExposure={focusExposure}
-            onFocusConsumed={() => setFocusExposure(null)}
-            onNavigate={handleNavigate}
-          />
-        )
-
-      case 'reports':
-        return <Reports />
-
-      case 'settings':
-        return <Settings authUser={authUser} />
-
-      case 'risk-engine':
-        return <RiskEngine />
-
-      case 'admin':
-        return isAdmin
-          ? <Admin authUser={authUser} />
-          : <Dashboard onNavigate={handleNavigate} />
-
-      // Legacy redirects — old nav IDs land on the new location
-      case 'policy':
-        return <Settings authUser={authUser} initialSection="policy" />
-      case 'monte-carlo':
-        return <RiskEngine />
-      case 'data-import':
-        return <Settings authUser={authUser} initialSection="data-import" />
-
-      default:
-        return <Dashboard onNavigate={handleNavigate} />
-    }
+  // A tab is active when the URL starts with its path.
+  // /settings/admin is a sub-path of /settings so both would match —
+  // but admin is listed separately and we want settings to remain active for all /settings/* routes.
+  function isActive(path) {
+    if (path === '/settings') return location.pathname.startsWith('/settings')
+    return location.pathname === path || location.pathname.startsWith(path + '/')
   }
 
   return (
@@ -103,7 +72,7 @@ function AppContent({ authUser, onLogout }) {
                 style={{ border: `1px solid ${GOLD}`, background: 'rgba(201,168,108,0.08)' }}>
                 <span className="text-xs font-bold leading-tight text-center"
                   style={{ color: GOLD, letterSpacing: '0.05em' }}>
-                  sum +<br/>no &nbsp;−<br/>how =
+                  sum +<br />no &nbsp;−<br />how =
                 </span>
               </div>
               <div>
@@ -142,20 +111,21 @@ function AppContent({ authUser, onLogout }) {
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="container mx-auto px-6">
             <nav className="flex space-x-1">
-              {navItems.map((item) => {
-                const active = currentPage === item.id
-                  || (item.id === 'risk-engine' && currentPage === 'monte-carlo')
-                  || (item.id === 'settings'    && ['policy', 'data-import'].includes(currentPage))
+              {navItems.map(item => {
+                const active = isActive(item.path)
                 return (
-                  <button key={item.id} onClick={() => setCurrentPage(item.id)}
+                  <Link
+                    key={item.path}
+                    to={item.path}
                     className="flex items-center px-4 py-4 text-sm font-medium transition-all"
                     style={{
-                      color:        active ? GOLD : '#8DA4C4',
-                      borderBottom: active ? `2px solid ${GOLD}` : '2px solid transparent',
-                      background:   'transparent',
-                    }}>
+                      color:           active ? GOLD : '#8DA4C4',
+                      borderBottom:    active ? `2px solid ${GOLD}` : '2px solid transparent',
+                      textDecoration:  'none',
+                    }}
+                  >
                     {item.name}
-                  </button>
+                  </Link>
                 )
               })}
             </nav>
@@ -165,11 +135,50 @@ function AppContent({ authUser, onLogout }) {
 
       {/* ── Page content ───────────────────────────────────────────────── */}
       <div className="container mx-auto px-6 py-8">
-        {renderPage()}
+        {children}
       </div>
     </div>
   )
 }
+
+// ── Authenticated route tree ─────────────────────────────────────────────────
+
+function AuthenticatedApp({ authUser, onLogout }) {
+  return (
+    <AppShell authUser={authUser} onLogout={onLogout}>
+      <Routes>
+        {/* Default — redirect / to /dashboard */}
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+        <Route path="/dashboard" element={<Dashboard />} />
+
+        {/* Hedging — wildcard keeps same component instance for sub-paths */}
+        <Route path="/hedging/*" element={<HedgingPage />} />
+
+        {/* Reports — wildcard so sub-path changes don't remount */}
+        <Route path="/reports/*" element={<Reports />} />
+
+        {/* Settings — wildcard; section driven by URL inside the component */}
+        <Route path="/settings/*" element={
+          <Settings authUser={authUser} />
+        } />
+
+        <Route path="/risk-engine" element={<RiskEngine />} />
+
+        {/* Legacy redirects */}
+        <Route path="/admin"       element={<Navigate to="/settings/admin" replace />} />
+        <Route path="/monte-carlo" element={<Navigate to="/risk-engine"    replace />} />
+        <Route path="/data-import" element={<Navigate to="/settings/import" replace />} />
+        <Route path="/policy"      element={<Navigate to="/settings/policy" replace />} />
+
+        {/* Catch-all — unknown paths go to dashboard */}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </AppShell>
+  )
+}
+
+// ── Root App ─────────────────────────────────────────────────────────────────
 
 function App() {
   const [authData, setAuthData] = useState(null)
@@ -204,15 +213,26 @@ function App() {
     </div>
   )
 
-  if (window.location.pathname === '/reset-password') {
-    return <ResetPassword onDone={() => window.location.href = '/'} />
-  }
-  if (!authData) return <Login onLoginSuccess={handleLoginSuccess} />
-
   return (
-    <CompanyProvider>
-      <AppContent authUser={authData.user} onLogout={handleLogout} />
-    </CompanyProvider>
+    <BrowserRouter>
+      <Routes>
+        {/* Password reset — public, no auth required */}
+        <Route path="/reset-password" element={
+          <ResetPassword onDone={() => window.location.href = '/'} />
+        } />
+
+        {/* All other routes — gated by auth */}
+        {!authData ? (
+          <Route path="*" element={<Login onLoginSuccess={handleLoginSuccess} />} />
+        ) : (
+          <Route path="*" element={
+            <CompanyProvider>
+              <AuthenticatedApp authUser={authData.user} onLogout={handleLogout} />
+            </CompanyProvider>
+          } />
+        )}
+      </Routes>
+    </BrowserRouter>
   )
 }
 
