@@ -4,6 +4,7 @@ import ExposureRegister from './ExposureRegister'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
+import { flagCurrency as ccyLabel } from '../utils/currency'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
@@ -17,11 +18,6 @@ const authHeaders = () => ({
 
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
 
-const CURRENCY_FLAGS = {
-  GBP: '🇬🇧', EUR: '🇪🇺', USD: '🇺🇸', JPY: '🇯🇵', CHF: '🇨🇭',
-  NOK: '🇳🇴', SEK: '🇸🇪', DKK: '🇩🇰', AUD: '🇦🇺', NZD: '🇳🇿', CAD: '🇨🇦',
-}
-const ccyLabel = (ccy) => `${CURRENCY_FLAGS[ccy] || ''} ${ccy}`.trim()
 
 const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtM    = (n) => `${(Math.abs(n) / 1_000_000).toFixed(1)}M`

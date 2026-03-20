@@ -3,6 +3,7 @@ import { useCompany } from '../contexts/CompanyContext'
 import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, TrendingUp, Filter, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
+import { CURRENCY_FLAGS } from '../utils/currency'
 import LoadingAnimation from './LoadingAnimation'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
@@ -936,12 +937,7 @@ export default function Reports() {
                       {c.key_events.map((ev, i) => {
                         const impactColor = ev.impact === 'High' ? DANGER
                           : ev.impact === 'Medium' ? WARNING : '#9CA3AF'
-                        const flagMap = {
-                          EUR: '🇪🇺', GBP: '🇬🇧', USD: '🇺🇸', NOK: '🇳🇴',
-                          SEK: '🇸🇪', DKK: '🇩🇰', CHF: '🇨🇭', JPY: '🇯🇵',
-                          AUD: '🇦🇺', CAD: '🇨🇦', NZD: '🇳🇿', SGD: '🇸🇬',
-                        }
-                        const flag = flagMap[ev.currency] || '🌐'
+                        const flag = CURRENCY_FLAGS[ev.currency] || '🌐'
                         let dateLabel = ev.date || ''
                         try {
                           dateLabel = new Date(ev.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })

@@ -59,6 +59,13 @@
 - [ ] Non-admin cannot see other companies
 - [ ] Session persists on page refresh
 
+## 11. CODE STANDARDS
+- [ ] No inline `CURRENCY_FLAGS` definitions — import from `utils/currency.js`
+- [ ] No inline EUR conversion logic — use `get_rate()` or `to_eur()`
+- [ ] No hardcoded `onrender.com` URLs in new code — use `utils/api.js`
+- [ ] All dates display in European format (dd/mm/yyyy)
+- [ ] Currency flags visible on charts and pair labels
+
 ---
 
 ## How to use
