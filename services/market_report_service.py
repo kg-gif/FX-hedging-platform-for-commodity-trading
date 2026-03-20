@@ -251,7 +251,7 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> dict:
 
     payload = {
         "model":      CLAUDE_MODEL,
-        "max_tokens": 2048,
+        "max_tokens": 4000,
         "system":     system_prompt,
         "messages":   [{"role": "user", "content": user_prompt}],
     }
@@ -272,17 +272,19 @@ async def _call_claude(system_prompt: str, user_prompt: str) -> dict:
 
     raw = resp.json()["content"][0]["text"].strip()
 
-    # Strip markdown code fences if Claude wrapped the JSON
+    # Strip markdown code fences if Claude wrapped the JSON in ```json ... ```
     if raw.startswith("```"):
-        lines = raw.splitlines()
-        raw = "\n".join(
-            line for line in lines
-            if not (line.strip().startswith("```") or line.strip() == "json")
-        )
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
 
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
+        # Print full raw response to Render logs for debugging
+        print(f"[market-report] JSON parse error: {e}")
+        print(f"[market-report] Raw response (first 500 chars): {raw[:500]}")
         logger.error(f"Claude returned invalid JSON: {e}\nRaw (first 500 chars): {raw[:500]}")
         raise ValueError(f"Claude returned invalid JSON: {e}")
 
