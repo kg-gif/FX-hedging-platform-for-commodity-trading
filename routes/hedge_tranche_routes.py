@@ -801,9 +801,15 @@ async def get_enriched_exposures(
             converted = total * rate
             portfolio_total_base  += converted
             portfolio_hedged_base += hedged * rate
+            # Store per-item EUR value so the frontend can use it for charts
+            # without re-deriving the conversion. Same calculation as portfolio_total_base.
+            item["total_amount_eur"]  = round(converted, 2)
+            item["hedged_amount_eur"] = round(hedged * rate, 2)
             print(f"[conversion] {item.get('currency_pair','?')}: {total:,.0f} {from_ccy} × {rate:.6f} = {converted:,.0f} {base_currency}")
         else:
             print(f"[portfolio] WARNING: no USD rate for {from_ccy}, excluding from total")
+            item["total_amount_eur"]  = None
+            item["hedged_amount_eur"] = None
 
     protection_pct = (portfolio_hedged_base / portfolio_total_base * 100) if portfolio_total_base > 0 else 0.0
 

@@ -325,8 +325,22 @@ function Dashboard() {
   }
 
   // ── Derived values ────────────────────────────────────────────
-  const totalExposure = exposures.reduce((s, e) => s + Math.abs(e.amount * (e.current_rate || 1)), 0)
-  const totalPnl      = exposures.reduce((s, e) => s + (e.current_pnl || 0), 0)
+  // All EUR totals come from the enriched endpoint which runs proper currency conversion
+  // (USD pivot cross-rate). Never use raw amounts × cross-rate for EUR aggregation.
+  //
+  // totalExposure: portfolioStats.total_base is already EUR-converted (preferred).
+  //               Fall back to summing total_amount_eur from enriched items if portfolioStats
+  //               hasn't arrived yet.
+  // totalPnl:     combined_pnl on each enriched item is EUR-converted by the backend
+  //               via pnl_factor = from_base_rate / current_spot.
+  // currencyDist: uses total_amount_eur per item so pie slices reflect EUR values,
+  //               not raw JPY/NOK notionals.
+  const activeEnriched = enrichedExposures.filter(e => !e.archived)
+  const totalExposure  = portfolioStats?.total_base
+    ?? activeEnriched.reduce((s, e) => s + (e.total_amount_eur || 0), 0)
+  const totalPnl = activeEnriched.length > 0
+    ? activeEnriched.reduce((s, e) => s + (e.combined_pnl || 0), 0)
+    : exposures.reduce((s, e) => s + (e.current_pnl || 0), 0)   // pre-load fallback only
   const hedgedValue   = exposures.reduce((s, e) => s + (e.hedged_amount || 0), 0)
   const unhedgedValue = exposures.reduce((s, e) => s + (e.unhedged_amount || 0), 0)
   const breaches      = exposures.filter(e => e.pnl_status === 'BREACH')
@@ -337,13 +351,22 @@ function Dashboard() {
   const defensivePairs     = [...new Set(enrichedExposures.filter(e => e.current_zone === 'defensive').map(e => e.currency_pair))]
   const opportunisticPairs = [...new Set(enrichedExposures.filter(e => e.current_zone === 'opportunistic').map(e => e.currency_pair))]
 
-  const currencyDist = exposures.reduce((acc, e) => {
-    const v = Math.abs(e.amount * (e.current_rate || 1))
-    const x = acc.find(i => i.currency === e.from_currency)
-    if (x) x.value += v
-    else acc.push({ currency: e.from_currency, value: v })
-    return acc
-  }, [])
+  // Currency mix pie — use EUR-converted notionals so JPY 500M doesn't dominate the chart
+  const currencyDist = activeEnriched.length > 0
+    ? activeEnriched.reduce((acc, e) => {
+        const v = e.total_amount_eur || 0
+        const x = acc.find(i => i.currency === e.from_currency)
+        if (x) x.value += v
+        else acc.push({ currency: e.from_currency, value: v })
+        return acc
+      }, [])
+    : exposures.reduce((acc, e) => {
+        const v = Math.abs(e.amount)
+        const x = acc.find(i => i.currency === e.from_currency)
+        if (x) x.value += v
+        else acc.push({ currency: e.from_currency, value: v })
+        return acc
+      }, [])
 
   const rateChanges = exposures
     .filter(e => e.budget_rate && e.current_rate)
