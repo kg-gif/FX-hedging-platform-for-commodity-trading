@@ -307,7 +307,7 @@ def demo_reset(
             ) VALUES (
                 :company_id, :from_ccy, :to_ccy, :amount,
                 :instrument_type, :exposure_type, :budget_rate,
-                :description, :end_date::date, 90,
+                :description, :end_date, 90,
                 'MEDIUM', 'active', 1.0, :amount,
                 true, NOW(), NOW()
             ) RETURNING id
@@ -320,7 +320,7 @@ def demo_reset(
             "exposure_type": exp.get("exposure_type", "payable"),
             "budget_rate": exp.get("budget_rate"),
             "description": exp.get("description", ""),
-            "end_date": exp.get("end_date"),
+            "end_date": datetime.strptime(exp["end_date"], "%Y-%m-%d").date() if exp.get("end_date") else None,
         })
         exposure_id = result.fetchone()._mapping["id"]
         inserted += 1
@@ -340,7 +340,7 @@ def demo_reset(
                     executed_at, executed_by, created_at
                 ) VALUES (
                     :exposure_id, :company_id, :amount, :rate,
-                    :instrument, :value_date::date, :status,
+                    :instrument, :value_date, :status,
                     :notes, :facility_id,
                     :executed_at, :executed_by, NOW()
                 )
@@ -350,7 +350,7 @@ def demo_reset(
                 "amount": tranche["amount"],
                 "rate": tranche["rate"],
                 "instrument": tranche.get("instrument", "Forward"),
-                "value_date": tranche.get("value_date"),
+                "value_date": datetime.strptime(tranche["value_date"], "%Y-%m-%d").date() if tranche.get("value_date") else None,
                 "status": tranche.get("status", "executed"),
                 "notes": tranche.get("notes", ""),
                 "facility_id": facility_id,
