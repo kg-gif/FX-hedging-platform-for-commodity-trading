@@ -8,7 +8,8 @@ const API_BASE = 'https://birk-fx-api.onrender.com';
 // companyId prop is kept for backwards compat but the component reads
 // directly from context so the value is always fresh at upload time.
 const FileUpload = ({ companyId: companyIdProp, onUploadSuccess }) => {
-  const { selectedCompany } = useCompany();
+  // Context exposes selectedCompanyId (integer), not selectedCompany (object)
+  const { selectedCompanyId } = useCompany();
   const [dragActive, setDragActive]     = useState(false);
   const [uploading, setUploading]       = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
@@ -33,8 +34,10 @@ const FileUpload = ({ companyId: companyIdProp, onUploadSuccess }) => {
 
   const handleFile = async (file) => {
     setError(null); setUploadResult(null);
-    // Read company id from context at call time — never from a stale prop
-    const companyId = selectedCompany?.id ?? companyIdProp;
+    // Read company id from context at call time — never from a stale prop.
+    // Context provides selectedCompanyId (integer), prop is a fallback.
+    const companyId = selectedCompanyId ?? companyIdProp;
+    console.log('[FileUpload] selectedCompanyId:', selectedCompanyId, '| companyId:', companyId);
     if (!companyId) {
       setError('No company selected — please select a company from the top menu before uploading.'); return;
     }
@@ -50,6 +53,7 @@ const FileUpload = ({ companyId: companyIdProp, onUploadSuccess }) => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('company_id', companyId);
+      console.log('[FileUpload] FormData company_id:', formData.get('company_id'));
       const response = await fetch(`${API_BASE}/api/exposure-data/upload`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` },

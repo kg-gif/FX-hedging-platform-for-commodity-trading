@@ -330,7 +330,10 @@ export default function Settings({ authUser, initialSection }) {
             {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </Field>
-        <Field label="Monthly FX Volume (USD)" hint="Used to calibrate risk thresholds">
+        <Field
+          label={`Monthly FX Volume (${company.base_currency || 'base currency'})`}
+          hint="Estimated monthly FX turnover in your base currency. Used to calibrate risk thresholds."
+        >
           <input type="number" className={inputClass}
             value={company.trading_volume_monthly}
             onChange={e => setCompany({ ...company, trading_volume_monthly: e.target.value })} />

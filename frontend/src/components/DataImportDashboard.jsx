@@ -38,7 +38,8 @@ class UploadErrorBoundary extends Component {
 
 const DataImportDashboard = () => {
   const [activeTab, setActiveTab] = useState('upload');
-  const { selectedCompany } = useCompany();
+  // Context exposes selectedCompanyId (integer), not selectedCompany (object)
+  const { selectedCompanyId } = useCompany();
   const [exposures, setExposures] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
@@ -47,10 +48,10 @@ const DataImportDashboard = () => {
   const [deletingExposure, setDeletingExposure] = useState(null);
 
   const fetchExposures = async () => {
-    if (!selectedCompany) return;
+    if (!selectedCompanyId) return;
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${selectedCompany.id}`, { headers: authHeaders() });
+      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${selectedCompanyId}`, { headers: authHeaders() });
       const data = await response.json();
       if (data.success) setExposures(data.exposures || []);
     } catch {
@@ -60,7 +61,7 @@ const DataImportDashboard = () => {
     }
   };
 
-  useEffect(() => { fetchExposures(); }, [selectedCompany]);
+  useEffect(() => { fetchExposures(); }, [selectedCompanyId]);
 
   const handleSaveSuccess = () => {
     fetchExposures();
@@ -192,12 +193,12 @@ const DataImportDashboard = () => {
           {activeTab === 'upload' && (
             <UploadErrorBoundary>
               {/* onUploadSuccess fires fetchExposures + success toast after a file import */}
-              <FileUpload companyId={selectedCompany?.id} onUploadSuccess={handleSaveSuccess} />
+              <FileUpload companyId={selectedCompanyId} onUploadSuccess={handleSaveSuccess} />
             </UploadErrorBoundary>
           )}
           {activeTab === 'manual' && (
             <UploadErrorBoundary>
-              <ManualEntry companyId={selectedCompany?.id} onSaveSuccess={handleSaveSuccess} />
+              <ManualEntry companyId={selectedCompanyId} onSaveSuccess={handleSaveSuccess} />
             </UploadErrorBoundary>
           )}
           {activeTab === 'view' && (
