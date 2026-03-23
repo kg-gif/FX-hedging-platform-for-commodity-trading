@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Edit2, Trash2, ChevronDown, ChevronUp, RefreshCw, Archive, ArchiveRestore } from 'lucide-react'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import LoadingAnimation from './LoadingAnimation'
+import { useCompany } from '../contexts/CompanyContext'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const NAVY    = '#1A2744'
@@ -31,8 +32,8 @@ const fmtPnl = (n) => {
 const pnlColor = (n) => n == null ? '#9CA3AF' : n >= 0 ? SUCCESS : DANGER
 
 // Tooltip shown next to P&L values on cross-currency pairs (e.g. CHF/USD, GBP/NOK)
-// where neither leg is the company base currency (EUR).
-function CrossPairTooltip() {
+// where neither leg is the company base currency.
+function CrossPairTooltip({ baseCurrency = 'EUR' }) {
   const [visible, setVisible] = useState(false)
   return (
     <span className="relative inline-block ml-1 align-middle">
@@ -46,12 +47,13 @@ function CrossPairTooltip() {
         <span style={{
           position: 'absolute', bottom: '120%', left: '50%', transform: 'translateX(-50%)',
           background: '#1A2744', color: '#fff', borderRadius: 6, padding: '8px 12px',
-          fontSize: 12, lineHeight: 1.5, width: 260, zIndex: 50, pointerEvents: 'none',
+          fontSize: 12, lineHeight: 1.5, minWidth: 280, maxWidth: 340,
+          whiteSpace: 'normal', zIndex: 50, pointerEvents: 'none',
           boxShadow: '0 4px 12px rgba(0,0,0,0.25)'
         }}>
-          P&L shown in EUR (base currency). For cross-currency pairs like CHF/USD, the USD
-          gain or loss is converted to EUR at today's spot rate. This means your EUR P&L is
-          sensitive to both the pair rate and the EUR/USD rate.
+          P&L shown in {baseCurrency} (base currency).<br />
+          For cross pairs, the settlement currency<br />
+          is converted at today's spot rate.
         </span>
       )}
     </span>
@@ -332,6 +334,9 @@ function ArchiveModal({ exposure, onClose, onConfirm }) {
 }
 
 export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeNow }) {
+  const { getSelectedCompany } = useCompany()
+  const baseCurrency = getSelectedCompany()?.base_currency || 'EUR'
+
   const [exposures, setExposures]         = useState([])
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState(null)
@@ -657,7 +662,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                       <td className="px-3 py-3 font-semibold text-right whitespace-nowrap"
                         style={{ color: pnlColor(exp.locked_pnl) }}>
                         {fmtPnl(exp.locked_pnl)}
-                        {exp.is_cross_pair && exp.locked_pnl !== 0 && <CrossPairTooltip />}
+                        {exp.is_cross_pair && exp.locked_pnl !== 0 && <CrossPairTooltip baseCurrency={baseCurrency} />}
                       </td>
 
                       {/* Floating P&L — shown in base currency (EUR) */}
@@ -666,7 +671,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                         {exp.open_amount > 0 ? (
                           <>
                             {fmtPnl(exp.floating_pnl)}
-                            {exp.is_cross_pair && <CrossPairTooltip />}
+                            {exp.is_cross_pair && <CrossPairTooltip baseCurrency={baseCurrency} />}
                           </>
                         ) : '—'}
                       </td>
@@ -675,7 +680,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                       <td className="px-3 py-3 font-bold text-right whitespace-nowrap"
                         style={{ color: pnlColor(exp.combined_pnl) }}>
                         {fmtPnl(exp.combined_pnl)}
-                        {exp.is_cross_pair && <CrossPairTooltip />}
+                        {exp.is_cross_pair && <CrossPairTooltip baseCurrency={baseCurrency} />}
                       </td>
 
                       {/* Corridor */}

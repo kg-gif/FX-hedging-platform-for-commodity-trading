@@ -77,6 +77,37 @@ def _to_usd_rate(currency: str, rates: dict) -> float:
     return 1.0  # fallback — no conversion
 
 
+# ── Currency symbols ─────────────────────────────────────────
+
+CURRENCY_SYMBOLS: dict[str, str] = {
+    "EUR": "€",
+    "GBP": "£",
+    "USD": "$",
+    "NOK": "kr",
+    "SEK": "kr",
+    "DKK": "kr",
+    "CHF": "CHF ",
+    "JPY": "¥",
+    "AUD": "A$",
+    "CAD": "C$",
+    "NZD": "NZ$",
+    "SGD": "S$",
+}
+
+
+def format_pnl(value: float, base_currency: str) -> str:
+    """Format a P&L value with the correct base currency symbol.
+
+    Examples:
+        format_pnl(-124529, "EUR")  → "-€124,529"
+        format_pnl(+42000,  "GBP")  → "+£42,000"
+        format_pnl(-8000,   "NOK")  → "-kr8,000"
+    """
+    symbol = CURRENCY_SYMBOLS.get(base_currency, base_currency + " ")
+    sign   = "+" if value >= 0 else "-"
+    return f"{sign}{symbol}{abs(value):,.0f}"
+
+
 # ── Date formatting (European convention) ────────────────────
 
 def format_date_eu(dt) -> str:

@@ -1163,9 +1163,11 @@ async def send_daily_alerts(
     resend_api_key = os.getenv("RESEND_API_KEY")
     frontend_url = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
 
+    from services.currency_utils import CURRENCY_SYMBOLS
+
     # Get all companies with an alert email configured
     companies = db.execute(text("""
-        SELECT id, name, alert_email
+        SELECT id, name, alert_email, base_currency
         FROM companies
         WHERE alert_email IS NOT NULL AND alert_email != ''
     """)).fetchall()
@@ -1178,9 +1180,11 @@ async def send_daily_alerts(
 
     for company_row in companies:
         c = company_row._mapping
-        company_id = c["id"]
-        company_name = c["name"]
-        alert_email = c["alert_email"]
+        company_id    = c["id"]
+        company_name  = c["name"]
+        alert_email   = c["alert_email"]
+        base_currency = c.get("base_currency") or "EUR"
+        ccy_symbol    = CURRENCY_SYMBOLS.get(base_currency, base_currency + " ")
 
         # Get exposures with P&L data
         exposures = db.execute(text("""
@@ -1202,37 +1206,46 @@ async def send_daily_alerts(
         ]))
         live_rates = await get_current_rates(pairs)
 
-        # Calculate P&L for each exposure using live rates
+        # Calculate P&L for each exposure, converted to base_currency
         breaches, warnings, healthy = [], [], []
         total_pnl = 0
 
         for row in exposures:
             r = row._mapping
-            pair = f"{r['from_currency']}/{r['to_currency']}"
-            rate_info = live_rates.get(pair)
-            current_rate = rate_info["rate"] if rate_info and rate_info.get("rate") else float(r.get("current_rate", 0))
-            pnl = (current_rate - float(r["budget_rate"])) * float(r["amount"])
-            total_pnl += pnl
-            pair = f"{r['from_currency']}/{r['to_currency']}"
+            from_ccy = r['from_currency']
+            to_ccy   = r['to_currency']
+            pair = f"{from_ccy}/{to_ccy}"
+            rate_info    = live_rates.get(pair)
+            current_rate = rate_info["rate"] if rate_info and rate_info.get("rate") else 0.0
+            # P&L in native settlement currency (to_ccy)
+            pnl_native = (current_rate - float(r["budget_rate"])) * float(r["amount"])
+            # Convert to base_currency
+            if to_ccy == base_currency:
+                pnl_base = pnl_native
+            else:
+                conv = await get_rate_async(to_ccy, base_currency)
+                pnl_base = pnl_native * conv
+            total_pnl += pnl_base
             entry = {
                 "pair": pair,
-                "pnl": pnl,
+                "pnl": pnl_base,
                 "amount": float(r["amount"]),
+                "from_currency": from_ccy,
                 "current_rate": current_rate,
                 "budget_rate": float(r["budget_rate"]),
                 "description": r["description"] or ""
             }
-            if pnl < -50000:
+            if pnl_base < -50000:
                 breaches.append(entry)
-            elif pnl < -10000:
+            elif pnl_base < -10000:
                 warnings.append(entry)
             else:
                 healthy.append(entry)
 
-        # Format P&L
+        # Format P&L with base currency symbol
         def fmt_pnl(n):
-            sign = "+" if n >= 0 else ""
-            return f"{sign}{int(n):,}"
+            sign = "+" if n >= 0 else "-"
+            return f"{sign}{ccy_symbol}{abs(int(n)):,}"
 
         def pnl_color(n):
             return "#27AE60" if n >= 0 else "#E74C3C"
@@ -1243,7 +1256,7 @@ async def send_daily_alerts(
               <td style="padding:10px 12px;font-weight:600;color:#1A2744;">{e['pair']}</td>
               <td style="padding:10px 12px;color:#555;">{e['description'][:40] if e['description'] else '—'}</td>
               <td style="padding:10px 12px;text-align:right;font-family:monospace;color:#1A2744;">
-                {e['pair'].split('/')[0]} {int(e['amount']):,}
+                {e['from_currency']} {int(e['amount']):,}
               </td>
               <td style="padding:10px 12px;text-align:right;font-family:monospace;color:#555;">
                 {e['budget_rate']:.4f}
@@ -1284,21 +1297,27 @@ async def send_daily_alerts(
             {company_name} · {datetime.utcnow().strftime('%A %d %B %Y')}
           </p>
 
-          <div style="background:#F4F6FA;border-radius:10px;padding:16px 20px;margin-bottom:24px;
-                      display:flex;justify-content:space-between;align-items:center;">
-            <div>
-              <p style="margin:0;font-size:13px;color:#888;">Total Portfolio P&L</p>
-              <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:{pnl_color(total_pnl)};">
-                {fmt_pnl(total_pnl)}
-              </p>
-            </div>
-            <div style="text-align:right;">
-              <p style="margin:0;font-size:13px;color:#888;">Status</p>
-              <p style="margin:4px 0 0;font-size:14px;font-weight:700;color:{status_color};">
-                {status_text}
-              </p>
-            </div>
-          </div>
+          <table width="100%" cellpadding="0" cellspacing="0"
+                 style="background:#F4F6FA;border-radius:10px;margin-bottom:24px;">
+            <tr>
+              <td style="padding:16px 20px;width:50%;vertical-align:top;">
+                <p style="margin:0;font-size:13px;color:#888;">Total Portfolio P&amp;L
+                  <span style="font-size:11px;color:#aaa;font-style:italic;">
+                    &nbsp;({base_currency}, base currency)
+                  </span>
+                </p>
+                <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:{pnl_color(total_pnl)};">
+                  {fmt_pnl(total_pnl)}
+                </p>
+              </td>
+              <td style="padding:16px 20px;width:50%;vertical-align:top;text-align:right;">
+                <p style="margin:0;font-size:13px;color:#888;">Status</p>
+                <p style="margin:4px 0 0;font-size:14px;font-weight:700;color:{status_color};">
+                  {status_text}
+                </p>
+              </td>
+            </tr>
+          </table>
 
           {'<p style="font-size:13px;font-weight:700;color:#E74C3C;margin-bottom:8px;">⚠️ Breaches</p>' if breaches else ''}
           <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
@@ -1309,7 +1328,12 @@ async def send_daily_alerts(
                 <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Amount</th>
                 <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Budget</th>
                 <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Current</th>
-                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">P&L</th>
+                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">
+                  P&amp;L<br>
+                  <span style="font-size:10px;color:#8DA4C4;font-style:italic;font-weight:400;">
+                    ({base_currency}, base currency)
+                  </span>
+                </th>
               </tr>
             </thead>
             <tbody>

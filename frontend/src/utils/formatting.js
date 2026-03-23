@@ -4,6 +4,29 @@
 // Import from here — never define formatters inline.
 // ============================================================
 
+// ── Currency symbols ─────────────────────────────────────────
+
+export const CURRENCY_SYMBOLS = {
+  EUR: '€', GBP: '£', USD: '$',
+  NOK: 'kr', SEK: 'kr', DKK: 'kr',
+  CHF: 'CHF ', JPY: '¥', AUD: 'A$', CAD: 'C$',
+  NZD: 'NZ$', SGD: 'S$',
+}
+
+// "+£1,234,567" / "-€124,529" — use company.base_currency
+// compact=true → "+€1.2M"
+export const formatPnL = (value, baseCurrency = 'EUR', compact = false) => {
+  if (value === null || value === undefined) return '—'
+  const symbol = CURRENCY_SYMBOLS[baseCurrency] || baseCurrency + ' '
+  const abs  = Math.abs(value)
+  const sign = value >= 0 ? '+' : '-'
+  if (compact) {
+    if (abs >= 1_000_000) return `${sign}${symbol}${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${sign}${symbol}${(abs / 1_000).toFixed(0)}K`
+  }
+  return `${sign}${symbol}${abs.toLocaleString('de-DE', { maximumFractionDigits: 0 })}`
+}
+
 // ── Numbers ──────────────────────────────────────────────────
 
 // "+€1,234,567" or "-€1,234,567"

@@ -1,5 +1,57 @@
 # CLAUDE.md — Sumnohow FX Risk Platform
 
+## QA REQUIREMENT
+Before committing ANY change, check TESTING.md.
+All relevant checklist items must pass.
+Flag any failures to Kevin before deploying.
+
+---
+
+## SHARED UTILITIES — MANDATORY RULES
+
+### Frontend — always import from:
+| What | File |
+|------|------|
+| Currency flags, `flagCurrency()`, `flagPair()` | `src/utils/currency.js` |
+| `CURRENCY_SYMBOLS` | `src/utils/currency.js` |
+| `formatEUR()`, `formatDate()`, `pnlColour()`, etc. | `src/utils/formatting.js` |
+| `formatPnL(value, baseCurrency)` — dynamic symbol | `src/utils/formatting.js` |
+| Status colours, zone labels, `getFacilityStatus()` | `src/utils/constants.js` |
+| API endpoint URL builders | `src/utils/api.js` |
+
+### Backend — always import from:
+| What | File |
+|------|------|
+| EUR conversion (`to_eur`, `pnl_to_eur`) | `services/currency_utils.py` |
+| P&L formatting (`format_pnl(value, base_currency)`) | `services/currency_utils.py` |
+| `CURRENCY_SYMBOLS` dict | `services/currency_utils.py` |
+| Live-rate EUR conversion (request handlers) | `get_rate(from_ccy, "EUR")` in `database.py` |
+| Date formatting (`format_date_eu`, etc.) | `services/currency_utils.py` |
+
+### Rules
+- **NEVER** define `CURRENCY_FLAGS` inline — import from `utils/currency.js`
+- **NEVER** write EUR conversion logic inline — use `get_rate()` or `to_eur()`
+- **NEVER** hardcode `€` — use `formatPnL(value, company.base_currency)` / `format_pnl(value, base_currency)`
+- **NEVER** hardcode `onrender.com` URLs — add to `utils/api.js` and import
+- **NEVER** define status colours inline — import from `utils/constants.js`
+- **NEVER** format dates without the shared functions — European format (dd/mm/yyyy)
+- If a utility doesn't exist yet → **ADD IT to the shared file**, never create a one-off
+
+### Date format
+European throughout: `dd/mm/yyyy` · Time: 24-hour `HH:MM`
+
+### EUR conversion summary
+- Backend request handlers: `get_rate(from_ccy, "EUR")` from `database.py` (live, cached)
+- Frontend: read `portfolioStats.total_base`, `combined_pnl`, `total_amount_eur` from the
+  enriched endpoint — do NOT recompute from raw `amount × current_rate`
+- Per-item EUR notional is in `item.total_amount_eur` (set by enriched endpoint)
+
+### Migration note
+Existing components have local `API_BASE` and inline formatters — migrate them to the
+shared utils **when you next touch that file**. Do not do a bulk blind replacement.
+
+---
+
 This file gives you the context you need before touching any code.
 Read it fully before making changes.
 
