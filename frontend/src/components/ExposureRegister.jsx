@@ -7,6 +7,8 @@ import { Edit2, Trash2, ChevronDown, ChevronUp, RefreshCw, Archive, ArchiveResto
 import { CurrencyPairFlags } from './CurrencyFlag'
 import LoadingAnimation from './LoadingAnimation'
 import { useCompany } from '../contexts/CompanyContext'
+import { COLUMN_TOOLTIPS, GLOSSARY } from '../utils/constants'
+import { slugify } from './Glossary'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const NAVY    = '#1A2744'
@@ -30,6 +32,52 @@ const fmtPnl = (n) => {
 }
 
 const pnlColor = (n) => n == null ? '#9CA3AF' : n >= 0 ? SUCCESS : DANGER
+
+// Column header with optional ⓘ tooltip linked to the glossary.
+// termName comes from COLUMN_TOOLTIPS — looks up the matching glossary entry.
+function ColHeader({ label }) {
+  const [visible, setVisible] = useState(false)
+  const termName = COLUMN_TOOLTIPS[label.toUpperCase()]
+  const entry    = termName
+    ? Object.values(GLOSSARY).flat().find(t => t.term === termName)
+    : null
+
+  if (!entry) return <span>{label}</span>
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      {label}
+      <span className="relative"
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+      >
+        <span style={{ color: GOLD, cursor: 'pointer', fontSize: 11 }}>ⓘ</span>
+        {visible && (
+          <span style={{
+            position: 'absolute', bottom: '130%', left: '50%', transform: 'translateX(-50%)',
+            background: '#1A2744', color: '#fff', borderRadius: 6, padding: '8px 12px',
+            fontSize: 11, lineHeight: 1.5, minWidth: 220, maxWidth: 300,
+            whiteSpace: 'normal', zIndex: 100, pointerEvents: 'none',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+          }}>
+            <strong style={{ color: '#C9A86C', fontSize: 11 }}>{entry.term}</strong>
+            <br />
+            {entry.plain}
+            <br />
+            <a
+              href={`/glossary#${slugify(entry.term)}`}
+              style={{ color: '#8DA4C4', fontSize: 10, pointerEvents: 'auto' }}
+              onClick={e => e.stopPropagation()}
+            >
+              Learn more →
+            </a>
+          </span>
+        )}
+      </span>
+    </span>
+  )
+}
+
 
 // Tooltip shown next to P&L values on cross-currency pairs (e.g. CHF/USD, GBP/NOK)
 // where neither leg is the company base currency.
@@ -696,7 +744,9 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                   'Locked P&L', 'Floating P&L', 'Combined P&L',
                   'Corridor', 'Status', 'Actions'].map(h => (
                   <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider"
-                    style={{ color: NAVY, whiteSpace: 'nowrap' }}>{h}</th>
+                    style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                    <ColHeader label={h} />
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -879,9 +929,9 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                                       <th className="px-3 py-1.5 text-left">Status</th>
                                       <th className="px-3 py-1.5 text-left">By</th>
                                       <th className="px-3 py-1.5 text-left">Date</th>
-                                      <th className="px-3 py-1.5 text-left" title="Bank reference number from the trade confirmation note">Bank Ref</th>
-                                      <th className="px-3 py-1.5 text-left" title="Mark-to-market vs forward inception rate (EUR)">MTM vs Inception</th>
-                                      <th className="px-3 py-1.5 text-left" title="Mark-to-market vs budget rate (EUR)">MTM vs Budget</th>
+                                      <th className="px-3 py-1.5 text-left"><ColHeader label="Bank Ref" /></th>
+                                      <th className="px-3 py-1.5 text-left"><ColHeader label="MTM vs Inception" /></th>
+                                      <th className="px-3 py-1.5 text-left"><ColHeader label="MTM vs Budget" /></th>
                                     </tr>
                                   </thead>
                                   <tbody>

@@ -6,7 +6,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useCompany } from '../contexts/CompanyContext'
 import { Save, Building2, Landmark, Bell, ShieldCheck, History, AlertTriangle,
-  CheckCircle, Layers, Upload, Settings as SettingsIcon } from 'lucide-react'
+  CheckCircle, Layers, Upload, Settings as SettingsIcon, BookOpen } from 'lucide-react'
 import { NAVY, GOLD, DANGER, SUCCESS, WARNING } from '../brand'
 import DataImportDashboard from './DataImportDashboard'
 import Admin from './Admin'
@@ -120,6 +120,7 @@ export default function Settings({ authUser }) {
     'notifications': '/settings/notifications',
     'data-import':   '/settings/import',
     'admin':         '/settings/admin',
+    'glossary':      '/glossary',
   }
 
   const NAV_ITEMS = [
@@ -129,6 +130,7 @@ export default function Settings({ authUser }) {
     { id: 'notifications', label: 'Notifications',    icon: Bell          },
     { id: 'data-import',   label: 'Data Import',      icon: Upload        },
     ...(isAdmin ? [{ id: 'admin', label: 'Admin Panel', icon: SettingsIcon }] : []),
+    { id: 'glossary',      label: 'Help & Glossary',  icon: BookOpen      },
   ]
 
   // ── Data state ───────────────────────────────────────────────────────────

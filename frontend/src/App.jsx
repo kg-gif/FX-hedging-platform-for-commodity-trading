@@ -15,6 +15,7 @@ import HedgingPage from './components/HedgingPage'
 import RiskEngine from './components/RiskEngine'
 import Reports from './components/Reports'
 import Settings from './components/Settings'
+import Glossary from './components/Glossary'
 import Login from './components/Login'
 import ResetPassword from './components/ResetPassword'
 
@@ -164,6 +165,8 @@ function AuthenticatedApp({ authUser, onLogout }) {
         } />
 
         <Route path="/risk-engine" element={<RiskEngine />} />
+
+        <Route path="/glossary" element={<Glossary />} />
 
         {/* Legacy redirects */}
         <Route path="/admin"       element={<Navigate to="/settings/admin" replace />} />

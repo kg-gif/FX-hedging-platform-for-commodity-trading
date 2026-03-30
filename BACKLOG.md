@@ -150,25 +150,29 @@ Tranches showing `confirmed` without a recorded confirmation event. Find where `
 
 ---
 
-## ℹ️ Glossary / Info Tooltips
-**Priority:** Pre-pilot (needed for CFO demos)
-**Description:** Contextual info icons (ⓘ) next to financial terms throughout the UI. Click or hover reveals a plain-English definition inline — no page navigation required.
+## ℹ️ Help System — Three Layers
 
-**Terms to cover at minimum:**
-Budget Rate, Inception Rate, Spot Rate, Forward Rate, Forward Points, MTM (Mark-to-Market), Locked P&L, Floating P&L, Hedge Coverage %, Corridor, Zone (Defensive / Base / Opportunistic), Margin Call, Trading Facility, VaR, CFaR
+### Layer 1: Inline Tooltips ✅ Live
+- ⓘ icon on every column header in Exposure Register (Locked P&L, Floating P&L, Combined P&L, Hedge %, Corridor, Status, Bank Ref, MTM vs Inception, MTM vs Budget)
+- Plain English explanation on hover with "Learn more →" link to /glossary
+- COLUMN_TOOLTIPS and GLOSSARY in `frontend/src/utils/constants.js`
 
-**Tone:** CFO-level, not trader-level. Plain English first, technical definition second. One sentence max per tooltip.
+### Layer 2: Glossary Page ✅ Live
+- Route: `/glossary` — accessible from Settings → Help & Glossary
+- 27 terms grouped by category: Rates & Pricing, P&L, Hedging, Risk & Policy, Reporting
+- Each term: Name → Plain English → Why it matters → Example
+- Real-time search across all terms and definitions
+- Print/PDF export via browser print dialog (branded header)
 
-**Glossary page:** Full A–Z reference accessible from Settings or Reports sidebar — useful to share with auditors or new finance hires.
+### Layer 3: Help Bot (Post-pilot)
+- Embedded AI assistant using Claude API
+- Context-aware: knows user's actual portfolio data
+- Triggered by floating help button bottom-right
+- Example questions: "Why is my EUR/NOK in defensive zone?", "What should I do about the margin call risk?", "Explain my MTM vs budget"
+- Always adds disclaimer: not financial advice
+- Validate need with 2+ pilot customers before building
 
-**Implementation approach:**
-- Single `Tooltip` component: `<InfoTooltip term="Budget Rate" />` — renders ⓘ icon, shows definition on hover/click
-- Definitions stored in a single `glossary.js` constant file — easy to extend
-- Accessible (keyboard-focusable, screen-reader-friendly)
-
-**Why it matters:** CFOs unfamiliar with hedging terminology should never feel lost during a demo. Reduces sales friction and support load significantly.
-
-**Status:** Backlog — prioritise before first live CFO demo
+**Status:** Layers 1 and 2 live. Layer 3 post-pilot.
 
 ---
 
