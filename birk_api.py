@@ -352,21 +352,55 @@ async def get_exposures(
         q = q.filter(_text("(archived IS NULL OR archived = false)"))
     exposures = q.all()
 
+    # Fetch company base currency so we can EUR-convert every P&L and notional
+    company_row = db.execute(
+        _text("SELECT base_currency FROM companies WHERE id = :cid"), {"cid": safe_id}
+    ).fetchone()
+    base_currency = company_row._mapping["base_currency"] if company_row else "EUR"
+
+    # Fetch pair rates + from_ccy→base_ccy conversion rates in one batch
     pairs = list(dict.fromkeys([f"{e.from_currency}/{e.to_currency}" for e in exposures]))
-    rates_map = await get_current_rates(pairs)
+    conv_pairs = list(dict.fromkeys([
+        f"{e.from_currency}/{base_currency}"
+        for e in exposures
+        if e.from_currency != base_currency
+    ]))
+    rates_map = await get_current_rates(list(dict.fromkeys(pairs + conv_pairs)))
 
     enriched = []
     for exp in exposures:
-        pair = f"{exp.from_currency}/{exp.to_currency}"
-        rate_info = rates_map.get(pair)
-        current_rate = rate_info["rate"] if rate_info and rate_info.get("rate") else get_mock_current_rate(exp.from_currency, exp.to_currency)
-        pnl_data = calculate_pnl_and_status(exp, current_rate)
+        from_ccy = exp.from_currency
+        to_ccy   = exp.to_currency
+        pair     = f"{from_ccy}/{to_ccy}"
+
+        rate_info    = rates_map.get(pair)
+        current_rate = rate_info["rate"] if rate_info and rate_info.get("rate") else get_mock_current_rate(from_ccy, to_ccy)
+        pnl_data     = calculate_pnl_and_status(exp, current_rate)
+
+        # EUR conversion factor — same formula as the enriched endpoint:
+        #   P&L is in to_currency; factor = (from→base) / (from→to) = to→base
+        # Examples:
+        #   EUR/NOK: factor = 1.0 / spot(EUR/NOK)        → NOK → EUR
+        #   GBP/NOK: factor = rate(GBP/EUR) / spot(GBP/NOK)  → NOK → EUR
+        if to_ccy == base_currency:
+            from_base_rate = float((rates_map.get(f"{from_ccy}/{base_currency}") or {}).get("rate") or 1.0)
+            pnl_factor     = 1.0
+        elif from_ccy == base_currency:
+            from_base_rate = 1.0
+            pnl_factor     = (1.0 / current_rate) if current_rate else 1.0
+        else:
+            fb_info        = rates_map.get(f"{from_ccy}/{base_currency}")
+            from_base_rate = float(fb_info["rate"]) if fb_info and fb_info.get("rate") else None
+            pnl_factor     = (from_base_rate / current_rate) if (from_base_rate and current_rate) else 1.0
+
+        current_pnl_eur  = round((pnl_data["current_pnl"] or 0.0) * pnl_factor, 2)
+        total_amount_eur = round(float(exp.amount) * (from_base_rate or 1.0), 2)
 
         enriched.append({
             "id": exp.id,
             "company_id": exp.company_id,
-            "from_currency": exp.from_currency,
-            "to_currency": exp.to_currency,
+            "from_currency": from_ccy,
+            "to_currency": to_ccy,
             "amount": exp.amount,
             "instrument_type": getattr(exp, 'instrument_type', 'Spot'),
             "exposure_type": exp.exposure_type if hasattr(exp, 'exposure_type') else "payable",
@@ -380,7 +414,9 @@ async def get_exposures(
             "hedge_ratio_policy": exp.hedge_ratio_policy if hasattr(exp, 'hedge_ratio_policy') else 1.0,
             "amount_currency": exp.amount_currency if hasattr(exp, 'amount_currency') else getattr(exp, 'from_currency', None),
             "current_rate": current_rate,
-            "current_pnl": pnl_data["current_pnl"],
+            "current_pnl": pnl_data["current_pnl"],       # raw to_currency — kept for compatibility
+            "current_pnl_eur": current_pnl_eur,            # base_currency-converted — use this for display
+            "total_amount_eur": total_amount_eur,          # notional in base_currency — for currency mix chart
             "hedged_amount": pnl_data["hedged_amount"],
             "unhedged_amount": pnl_data["unhedged_amount"],
             "pnl_status": pnl_data["pnl_status"]

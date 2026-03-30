@@ -342,7 +342,7 @@ function Dashboard() {
     ?? activeEnriched.reduce((s, e) => s + (e.total_amount_eur || 0), 0)
   const totalPnl = activeEnriched.length > 0
     ? activeEnriched.reduce((s, e) => s + (e.combined_pnl || 0), 0)
-    : exposures.reduce((s, e) => s + (e.current_pnl || 0), 0)   // pre-load fallback only
+    : exposures.reduce((s, e) => s + (e.current_pnl_eur || 0), 0)  // EUR-converted fallback (basic endpoint)
   const hedgedValue   = exposures.reduce((s, e) => s + (e.hedged_amount || 0), 0)
   const unhedgedValue = exposures.reduce((s, e) => s + (e.unhedged_amount || 0), 0)
   const breaches      = exposures.filter(e => e.pnl_status === 'BREACH')
@@ -363,7 +363,7 @@ function Dashboard() {
         return acc
       }, [])
     : exposures.reduce((acc, e) => {
-        const v = Math.abs(e.amount)
+        const v = e.total_amount_eur ?? Math.abs(e.amount)  // prefer EUR-converted; raw only if unavailable
         const x = acc.find(i => i.currency === e.from_currency)
         if (x) x.value += v
         else acc.push({ currency: e.from_currency, value: v })
