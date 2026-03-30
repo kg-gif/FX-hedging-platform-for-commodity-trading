@@ -51,6 +51,7 @@ from routes.monte_carlo_routes_fastapi import router as monte_carlo_router
 from routes.margin_call_routes import router as margin_call_router
 from routes.facility_routes import router as facility_router
 from routes.market_report_routes import router as market_report_router
+from routes.forecasting_routes import router as forecasting_router
 
 Base.metadata.create_all(bind=engine)
 print("✅ Database ready")
@@ -86,6 +87,7 @@ app.include_router(auth_router)
 app.include_router(margin_call_router)
 app.include_router(facility_router)
 app.include_router(market_report_router)
+app.include_router(forecasting_router)
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 import logging
@@ -425,6 +427,50 @@ async def get_exposures(
     return enriched
 
 
+@app.patch("/api/exposures/{exposure_id}/confidence")
+async def update_exposure_confidence(
+    exposure_id: int,
+    payload_body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload),
+):
+    """
+    Update the confidence field on a single exposure (COMMITTED / PROBABLE / ESTIMATED).
+    Writes an audit log entry so the change is visible in Reports → Hedge Audit Trail.
+    """
+    from sqlalchemy import text as _text
+    VALID = {"COMMITTED", "PROBABLE", "ESTIMATED"}
+    confidence = (payload_body.get("confidence") or "").upper()
+    if confidence not in VALID:
+        raise HTTPException(status_code=400, detail=f"confidence must be one of {VALID}")
+
+    # Verify the exposure belongs to this company (multi-tenancy guard)
+    row = db.execute(
+        _text("SELECT company_id FROM exposures WHERE id = :eid"), {"eid": exposure_id}
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Exposure not found")
+    safe_id = resolve_company_id(row._mapping["company_id"], payload)
+
+    db.execute(
+        _text("UPDATE exposures SET confidence = :conf WHERE id = :eid AND company_id = :cid"),
+        {"conf": confidence, "eid": exposure_id, "cid": safe_id},
+    )
+    # Audit log
+    sent_by = payload.get("email") or payload.get("sub") or "unknown"
+    db.execute(_text("""
+        INSERT INTO order_audit_log (company_id, exposure_id, action, sent_by)
+        VALUES (:cid, :eid, :action, :by)
+    """), {
+        "cid":    safe_id,
+        "eid":    exposure_id,
+        "action": f"Confidence updated to {confidence}",
+        "by":     sent_by,
+    })
+    db.commit()
+    return {"ok": True, "confidence": confidence}
+
+
 @app.put("/api/exposure-data/exposures/{exposure_id}")
 async def update_exposure(
     exposure_id: int,
@@ -733,6 +779,14 @@ async def _get_recommendations_impl(company_id: int, db, payload: dict):
     ]))
     live_rates = await get_current_rates(pairs)
 
+    # Confidence weights: how much of the gross exposure to treat as real for hedging purposes.
+    # COMMITTED = confirmed PO/invoice (full weight), PROBABLE = likely (80%), ESTIMATED = pattern-based (50%).
+    CONFIDENCE_WEIGHTS = {
+        "COMMITTED": 1.0,
+        "PROBABLE":  0.8,
+        "ESTIMATED": 0.5,
+    }
+
     recommendations = []
     for exp_row in exposures:
         exp = exp_row._mapping
@@ -742,10 +796,15 @@ async def _get_recommendations_impl(company_id: int, db, payload: dict):
         if unhedged <= 0:
             continue
 
-        # Flat (size-band) base ratio from active policy
-        if amount >= 5000000:
+        # Weight gross exposure by confidence before calculating recommendation
+        confidence     = (exp.get("confidence") or "COMMITTED").upper()
+        conf_weight    = CONFIDENCE_WEIGHTS.get(confidence, 1.0)
+        weighted_amount = amount * conf_weight
+
+        # Flat (size-band) base ratio from active policy — applied to weighted exposure
+        if weighted_amount >= 5000000:
             base_ratio = float(p["hedge_ratio_over_5m"])
-        elif amount >= 1000000:
+        elif weighted_amount >= 1000000:
             base_ratio = float(p["hedge_ratio_1m_to_5m"])
         else:
             base_ratio = float(p["hedge_ratio_under_1m"])
@@ -761,10 +820,23 @@ async def _get_recommendations_impl(company_id: int, db, payload: dict):
         zone       = calculate_zone(spot, budget, adv_trig, fav_trig, direction)
         target_ratio = zone_target_ratio(zone, dict(p), base_ratio)
 
-        recommended_amount = max((amount * target_ratio) - actual_hedged, 0)
+        # Recommended amount is based on weighted exposure (not gross)
+        recommended_amount = max((weighted_amount * target_ratio) - actual_hedged, 0)
         if recommended_amount <= 0:
             continue
         if recommended_amount > 100000:
+            # Build reason string — include confidence weighting context when < 100%
+            base_reason = (
+                f"Zone: {zone.upper()} — target {int(target_ratio * 100)}% hedge. "
+                f"Recommended: {exp['from_currency']} {int(recommended_amount):,} "
+                f"of {int(amount):,} total exposure."
+            )
+            if conf_weight < 1.0:
+                base_reason += (
+                    f" Confidence: {confidence} ({int(conf_weight * 100)}% weight) — "
+                    f"weighted exposure {exp['from_currency']} {int(weighted_amount):,} "
+                    f"vs gross {exp['from_currency']} {int(amount):,}."
+                )
             recommendations.append({
                 "exposure_id":        exp["id"],
                 "currency_pair":      f"{exp['from_currency']}/{exp['to_currency']}",
@@ -772,13 +844,12 @@ async def _get_recommendations_impl(company_id: int, db, payload: dict):
                 "target_ratio":       f"{int(target_ratio * 100)}%",
                 "recommended_amount": int(recommended_amount),
                 "total_exposure":     int(amount),
+                "weighted_exposure":  int(weighted_amount),
+                "confidence":         confidence,
+                "confidence_weight":  conf_weight,
                 "instrument":         exp.get("instrument_type") or "Forward",
                 "urgency":            "HIGH" if unhedged > amount * 0.5 else "MEDIUM",
-                "reason":             (
-                    f"Zone: {zone.upper()} — target {int(target_ratio * 100)}% hedge. "
-                    f"Recommended: {exp['from_currency']} {int(recommended_amount):,} "
-                    f"of {int(amount):,} total exposure."
-                ),
+                "reason":             base_reason,
                 "exposure_type":      exp.get("exposure_type") or "payable",
                 "end_date":           exp["end_date"].isoformat() if exp.get("end_date") else None,
                 "current_zone":       zone,
@@ -1742,6 +1813,15 @@ async def startup_event():
             "UPDATE exposures SET is_settled = false WHERE is_settled IS NULL",
             # Trade Confirmation — Phase 1: bank reference number on executed tranches
             "ALTER TABLE hedge_tranches ADD COLUMN IF NOT EXISTS bank_reference VARCHAR(100)",
+
+            # ── Exposure Forecasting — Phase 1 ───────────────────────────────
+            # data_source: how this exposure was created (manual / csv_import / erp / bank_feed / crm / ai)
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS data_source VARCHAR(50) DEFAULT 'manual'",
+            "UPDATE exposures SET data_source = 'manual' WHERE data_source IS NULL",
+            # confidence: how certain we are about this exposure amount
+            # COMMITTED = confirmed PO/invoice, PROBABLE = expected, ESTIMATED = historical pattern
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'COMMITTED'",
+            "UPDATE exposures SET confidence = 'COMMITTED' WHERE confidence IS NULL",
         ]
         for sql in migrations:
             try:

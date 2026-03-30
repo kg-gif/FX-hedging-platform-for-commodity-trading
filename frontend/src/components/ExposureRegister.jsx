@@ -160,6 +160,75 @@ function CrossPairTooltip({ baseCurrency = 'EUR', settlementCurrency, isDirectPa
   )
 }
 
+// ── Confidence badge — editable inline ───────────────────────────────────────
+const CONFIDENCE_CYCLE = ['COMMITTED', 'PROBABLE', 'ESTIMATED']
+const CONFIDENCE_STYLE = {
+  COMMITTED: { bg: 'rgba(16,185,129,0.12)', color: '#10B981' },
+  PROBABLE:  { bg: 'rgba(245,158,11,0.12)',  color: '#F59E0B' },
+  ESTIMATED: { bg: 'rgba(156,163,175,0.12)', color: '#9CA3AF' },
+}
+
+function ConfidenceBadge({ exposureId, value, onChange }) {
+  const [saving, setSaving] = useState(false)
+  const current = value || 'COMMITTED'
+  const s = CONFIDENCE_STYLE[current] || CONFIDENCE_STYLE.COMMITTED
+
+  async function cycle(e) {
+    e.stopPropagation()
+    const next = CONFIDENCE_CYCLE[(CONFIDENCE_CYCLE.indexOf(current) + 1) % CONFIDENCE_CYCLE.length]
+    setSaving(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/exposures/${exposureId}/confidence`, {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify({ confidence: next }),
+      })
+      if (res.ok) onChange(next)
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <button
+      onClick={cycle}
+      disabled={saving}
+      title="Click to change confidence level"
+      className="px-2 py-0.5 rounded-full text-xs font-semibold transition-opacity disabled:opacity-50"
+      style={{ background: s.bg, color: s.color, cursor: 'pointer' }}
+    >
+      {current}
+    </button>
+  )
+}
+
+// ── Data source icon ──────────────────────────────────────────────────────────
+const DATA_SOURCE_ICONS = {
+  manual:     '📋',
+  csv_import: '📤',
+  erp:        '🔗',
+  bank_feed:  '🏦',
+  ai:         '🤖',
+}
+const DATA_SOURCE_LABELS = {
+  manual:     'Manual entry',
+  csv_import: 'CSV import',
+  erp:        'ERP integration',
+  bank_feed:  'Bank feed',
+  ai:         'AI generated',
+}
+
+function DataSourceIcon({ source }) {
+  const key   = source || 'manual'
+  const icon  = DATA_SOURCE_ICONS[key]  || '📋'
+  const label = DATA_SOURCE_LABELS[key] || 'Manual entry'
+  return (
+    <span title={`Data source: ${label}`}
+      className="ml-1 opacity-70 hover:opacity-100 transition-opacity cursor-default"
+      style={{ fontSize: 13 }}>
+      {icon}
+    </span>
+  )
+}
+
 function ZoneBadge({ zone }) {
   if (!zone || zone === 'base') return null
   const styles = {
@@ -794,7 +863,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
               <tr>
                 {['Pair', 'Description', 'Total', 'Hedged', 'Open', 'Hedge %',
                   'Locked P&L', 'Floating P&L', 'Combined P&L',
-                  'Corridor', 'Status', 'Actions'].map(h => (
+                  'Corridor', 'Status', 'Confidence', 'Actions'].map(h => (
                   <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider"
                     style={{ color: NAVY, whiteSpace: 'nowrap' }}>
                     <ColHeader label={h} />
@@ -825,9 +894,12 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                         </div>
                       </td>
 
-                      {/* Description */}
+                      {/* Description + data source icon */}
                       <td className="px-3 py-3 text-gray-500 max-w-xs truncate">
-                        <div>{exp.description || '—'}</div>
+                        <div className="flex items-center gap-0.5">
+                          <span>{exp.description || '—'}</span>
+                          <DataSourceIcon source={exp.data_source} />
+                        </div>
                         {isArchived && exp.archived_at && (
                           <div className="text-xs text-gray-400 mt-0.5">
                             Archived {new Date(exp.archived_at).toLocaleDateString('en-GB')}
@@ -930,6 +1002,17 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                           <StatusBadge status={exp.status} archived={isArchived} />
                           {!isArchived && exp.budget_rate > 0 && <ZoneBadge zone={exp.current_zone} />}
                         </div>
+                      </td>
+
+                      {/* Confidence — editable inline badge */}
+                      <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        <ConfidenceBadge
+                          exposureId={exp.id}
+                          value={exp.confidence}
+                          onChange={next => setExposures(prev =>
+                            prev.map(e => e.id === exp.id ? { ...e, confidence: next } : e)
+                          )}
+                        />
                       </td>
 
                       {/* Actions */}

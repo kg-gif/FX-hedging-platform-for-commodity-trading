@@ -785,6 +785,10 @@ async def get_enriched_exposures(
             "archived":           bool(exp.get("archived")),
             "archived_at":        exp["archived_at"].isoformat() if exp.get("archived_at") else None,
             "archive_reason":     exp.get("archive_reason") or "",
+
+            # Forecasting — Phase 1
+            "confidence":         exp.get("confidence") or "COMMITTED",
+            "data_source":        exp.get("data_source") or "manual",
         })
 
     # ── Portfolio totals — convert all active exposure amounts to base_currency ──

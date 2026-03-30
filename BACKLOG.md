@@ -214,6 +214,71 @@ Tranches showing `confirmed` without a recorded confirmation event. Find where `
 
 ---
 
+## 📅 FX Exposure Forecasting Module
+**Priority:** Pre-pilot (Phase 1 immediate, Phases 2–4 staged)
+
+### Strategic context
+Most mid-market CFOs hedge off incomplete exposure data — they hedge what they know about, not what they owe. This module aggregates multiple data sources into a single auditable exposure position, feeding the existing policy engine with better inputs.
+
+### Architecture: Eight data layers (additive — customers onboard layers they can, starting simple)
+
+| Layer | Name | Status |
+|-------|------|--------|
+| 1 | Historical Baseline — CSV bank statement upload | Phase 2 |
+| 2 | Budget Rate Exposure — already built (`budget_rate` field) | ✅ Live |
+| 3 | ERP / AP / AR — structured CSV upload | Phase 3 |
+| 4 | Open Banking — live bank feed API | Phase 4 |
+| 5 | Payroll & CapEx — HR/finance manual input | Phase 2 |
+| 6 | CRM Pipeline — Salesforce/HubSpot | Phase 3 |
+| 7 | Hedge Book Import — existing derivatives import | Phase 2 |
+| 8 | AI Forecast Enhancement — ML + macro signals | Phase 4 |
+
+### DB changes (Phase 1 — low cost, enables everything)
+```sql
+ALTER TABLE exposures ADD COLUMN IF NOT EXISTS data_source VARCHAR(50) DEFAULT 'manual';
+-- Values: manual | csv_import | erp | bank_feed | crm | ai
+
+ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'COMMITTED';
+-- Values: COMMITTED | PROBABLE | ESTIMATED
+```
+
+### Phase 1 ✅ (built)
+- Exposure timeline view: maturity date chart grouped by currency (stacked bar — hedged/open split per month)
+- Confidence badges on every exposure row (COMMITTED/PROBABLE/ESTIMATED) — click to cycle, saved via PATCH
+- `data_source` field displayed in register and audit trail
+- Forecasting section in Risk Engine tab with summary strip (30/90/12-month) + expandable month detail
+- Confidence-weighted exposure in hedging recommendations engine (COMMITTED 1.0 / PROBABLE 0.8 / ESTIMATED 0.5)
+
+### Phase 2 (post-pilot 1)
+- Layer 1: Historical baseline from CSV bank statement upload — statistical rolling 12-month forecast per currency pair, seasonal index detection
+- Layer 5: Payroll & CapEx manual input schedule
+- Layer 7: Hedge book import (existing forwards from other banks)
+
+### Phase 3 (post-pilot 2)
+- Layer 3: ERP structured CSV with AP/AR committed exposures — template: entity, currency pair, amount, settlement date, counterparty, probability %, document reference
+- Layer 6: CRM pipeline integration (Salesforce/HubSpot) — probability-weighted exposure from open deals
+
+### Phase 4 (Series A)
+- Layer 4: Open banking live feed
+- Layer 8: AI forecast with confidence intervals — minimum 18–24 months customer data before showing to clients; explainability via Claude API; anomaly detection flags deviations from historical patterns
+
+### Key architectural decisions
+- CSV first, always — no ERP API integrations until post-pilot
+- Keep forecasting (data inputs) separate from policy engine (actions)
+- Every forecast record gets `data_source` + `confidence` + audit trail
+- Multi-entity consolidation via existing `parent_company_id` foundation
+- Confidence score surfaced to user on every exposure record
+
+### Open questions (resolve with pilot customers)
+- Do clients prefer weekly CSV refresh or want real-time feeds?
+- Which ERP systems are most common in our ICP? (SAP / Business Central)
+- What training data volume before AI forecasts shown? (estimate: 18 months)
+- Data residency requirements for open banking data?
+
+**Status:** Phase 1 live — Phases 2–4 post-pilot
+
+---
+
 ## 💰 MTM-Based Billing Model
 **Priority:** Post-pilot
 **Description:** Invoice clients 30% of favourable MTM vs budget rate (monthly or quarterly). Core monetisation idea: align Sumnohow's revenue with value delivered to the CFO.

@@ -736,8 +736,28 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
               </div>
 
               {expandedId === rec.exposure_id && (
-                <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                <div className="bg-gray-50 rounded-lg p-3 mb-3 space-y-2">
                   <p className="text-sm text-gray-600">{rec.reason}</p>
+                  {rec.confidence && rec.confidence_weight != null && (
+                    <div className="flex items-center gap-2 text-xs pt-1 border-t border-gray-200">
+                      <span className="text-gray-500">Exposure weighting:</span>
+                      <span className="font-semibold" style={{ color: '#1A2744' }}>
+                        Gross {rec.currency_pair?.split('/')[0]} {(rec.total_exposure || 0).toLocaleString()}
+                      </span>
+                      <span className="text-gray-400">→</span>
+                      <span className="font-semibold" style={{ color: '#C9A86C' }}>
+                        Weighted {rec.currency_pair?.split('/')[0]} {(rec.weighted_exposure || rec.total_exposure || 0).toLocaleString()}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-full font-semibold"
+                        style={
+                          rec.confidence === 'COMMITTED' ? { background: 'rgba(16,185,129,0.12)', color: '#10B981' } :
+                          rec.confidence === 'PROBABLE'  ? { background: 'rgba(245,158,11,0.12)',  color: '#F59E0B' } :
+                                                           { background: 'rgba(156,163,175,0.12)', color: '#9CA3AF' }
+                        }>
+                        {rec.confidence} · {Math.round((rec.confidence_weight || 1) * 100)}%
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
