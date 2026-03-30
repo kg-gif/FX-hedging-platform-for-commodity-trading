@@ -4,7 +4,7 @@ import ExposureRegister from './ExposureRegister'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
-import { flagCurrency as ccyLabel } from '../utils/currency'
+import { flagCurrency as ccyLabel, flagPair } from '../utils/currency'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
@@ -370,12 +370,17 @@ function Dashboard() {
         return acc
       }, [])
 
-  const rateChanges = exposures
-    .filter(e => e.budget_rate && e.current_rate)
+  // Rate vs Budget — one bar per unique pair, labelled with both flags
+  // Deduplicate by pair first so GBP/USD and GBP/NOK each get their own bar
+  const rateChanges = [...new Map(
+    exposures
+      .filter(e => e.budget_rate && e.current_rate)
+      .map(e => [`${e.from_currency}/${e.to_currency}`, e])
+  ).values()]
     .map(e => ({
-      currency: e.from_currency,
-      label: ccyLabel(e.from_currency),
-      change: ((e.current_rate - e.budget_rate) / e.budget_rate) * 100
+      pair:   `${e.from_currency}/${e.to_currency}`,
+      label:  flagPair(`${e.from_currency}/${e.to_currency}`),
+      change: ((e.current_rate - e.budget_rate) / e.budget_rate) * 100,
     }))
     .sort((a, b) => b.change - a.change)
 
