@@ -3,12 +3,12 @@
 // Shows: Total | Hedged | Open | Locked P&L | Floating P&L | Combined P&L | Corridor | Status
 
 import React, { useState, useEffect, useRef } from 'react'
+import ReactDOM from 'react-dom'
 import { Edit2, Trash2, ChevronDown, ChevronUp, RefreshCw, Archive, ArchiveRestore } from 'lucide-react'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import LoadingAnimation from './LoadingAnimation'
 import { useCompany } from '../contexts/CompanyContext'
-import { COLUMN_TOOLTIPS, GLOSSARY } from '../utils/constants'
-import { slugify } from './Glossary'
+import { COLUMN_TOOLTIPS } from '../utils/constants'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const NAVY    = '#1A2744'
@@ -33,77 +33,129 @@ const fmtPnl = (n) => {
 
 const pnlColor = (n) => n == null ? '#9CA3AF' : n >= 0 ? SUCCESS : DANGER
 
-// Column header with optional ⓘ tooltip linked to the glossary.
-// termName comes from COLUMN_TOOLTIPS — looks up the matching glossary entry.
+// ── Portal tooltip infrastructure ──────────────────────────────────────────
+// Renders tooltip into document.body via a React portal so it is never
+// clipped by overflow:hidden on any ancestor (table container, etc.).
+// Supports a small hide-delay so the user can mouse into the tooltip to
+// click the "Learn more" link before it disappears.
+
+function usePortalTooltip() {
+  const [state, setState]  = useState({ visible: false, top: 0, left: 0 })
+  const triggerRef         = useRef(null)
+  const hideTimer          = useRef(null)
+
+  function show() {
+    clearTimeout(hideTimer.current)
+    if (!triggerRef.current) return
+    const r = triggerRef.current.getBoundingClientRect()
+    setState({ visible: true, top: r.bottom + 6, left: r.left + r.width / 2 })
+  }
+
+  function scheduleHide() {
+    hideTimer.current = setTimeout(() => setState(s => ({ ...s, visible: false })), 150)
+  }
+
+  function cancelHide() { clearTimeout(hideTimer.current) }
+
+  return { triggerRef, show, scheduleHide, cancelHide, ...state }
+}
+
+function TooltipPortal({ visible, top, left, onEnter, onLeave, children }) {
+  if (!visible || typeof document === 'undefined') return null
+  return ReactDOM.createPortal(
+    <div
+      style={{
+        position: 'fixed', top, left,
+        transform: 'translateX(-50%)',
+        background: NAVY, color: '#fff',
+        borderRadius: 8, padding: '10px 14px',
+        fontSize: 12, lineHeight: 1.6,
+        maxWidth: 300, whiteSpace: 'normal',
+        zIndex: 9999,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+        pointerEvents: 'auto',
+      }}
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+    >
+      {children}
+    </div>,
+    document.body
+  )
+}
+
+// Column header with ⓘ icon. Tooltip content comes from COLUMN_TOOLTIPS in constants.js.
+// Uses a portal so the tooltip is never clipped by the table's overflow container.
 function ColHeader({ label }) {
-  const [visible, setVisible] = useState(false)
-  const termName = COLUMN_TOOLTIPS[label.toUpperCase()]
-  const entry    = termName
-    ? Object.values(GLOSSARY).flat().find(t => t.term === termName)
-    : null
+  const tt  = usePortalTooltip()
+  const entry = COLUMN_TOOLTIPS[label.toUpperCase()]
 
   if (!entry) return <span>{label}</span>
 
   return (
     <span className="inline-flex items-center gap-1">
       {label}
-      <span className="relative"
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
+      <span
+        ref={tt.triggerRef}
+        style={{ color: GOLD, cursor: 'pointer', fontSize: 11, userSelect: 'none' }}
+        onMouseEnter={tt.show}
+        onMouseLeave={tt.scheduleHide}
+        aria-label={`${label} — what does this mean?`}
+      >ⓘ</span>
+      <TooltipPortal
+        visible={tt.visible} top={tt.top} left={tt.left}
+        onEnter={tt.cancelHide} onLeave={tt.scheduleHide}
       >
-        <span style={{ color: GOLD, cursor: 'pointer', fontSize: 11 }}>ⓘ</span>
-        {visible && (
-          <span style={{
-            position: 'absolute', bottom: '130%', left: '50%', transform: 'translateX(-50%)',
-            background: '#1A2744', color: '#fff', borderRadius: 6, padding: '8px 12px',
-            fontSize: 11, lineHeight: 1.5, minWidth: 220, maxWidth: 300,
-            whiteSpace: 'normal', zIndex: 100, pointerEvents: 'none',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-          }}>
-            <strong style={{ color: '#C9A86C', fontSize: 11 }}>{entry.term}</strong>
-            <br />
-            {entry.plain}
-            <br />
-            <a
-              href={`/glossary#${slugify(entry.term)}`}
-              style={{ color: '#8DA4C4', fontSize: 10, pointerEvents: 'auto' }}
-              onClick={e => e.stopPropagation()}
-            >
-              Learn more →
-            </a>
-          </span>
-        )}
-      </span>
+        <div style={{ fontWeight: 700, color: GOLD, marginBottom: 5, fontSize: 11 }}>
+          {label}
+        </div>
+        <div style={{ marginBottom: 4 }}>{entry.short}</div>
+        <div style={{ color: '#8DA4C4', fontSize: 11, marginBottom: 8 }}>{entry.detail}</div>
+        <a
+          href={`/glossary#${entry.glossary}`}
+          style={{ color: GOLD, fontSize: 11, textDecoration: 'none', display: 'block' }}
+          onClick={e => e.stopPropagation()}
+        >
+          Learn more in glossary →
+        </a>
+      </TooltipPortal>
     </span>
   )
 }
 
+// Tooltip for cross-pair P&L cells — explains the currency conversion.
+// settlementCurrency = the "to" currency of the pair (e.g. NOK for GBP/NOK).
+// For direct base-currency pairs pass isDirectPair=true.
+function CrossPairTooltip({ baseCurrency = 'EUR', settlementCurrency, isDirectPair = false }) {
+  const tt = usePortalTooltip()
 
-// Tooltip shown next to P&L values on cross-currency pairs (e.g. CHF/USD, GBP/NOK)
-// where neither leg is the company base currency.
-function CrossPairTooltip({ baseCurrency = 'EUR' }) {
-  const [visible, setVisible] = useState(false)
+  const message = isDirectPair || !settlementCurrency
+    ? `P&L calculated directly in ${baseCurrency}.`
+    : `P&L converted from ${settlementCurrency} to ${baseCurrency} at today's spot rate.`
+
   return (
-    <span className="relative inline-block ml-1 align-middle">
-      <span
-        style={{ color: GOLD, cursor: 'pointer', fontSize: 13 }}
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
-        aria-label="Cross-pair P&L explanation"
-      >ⓘ</span>
-      {visible && (
-        <span style={{
-          position: 'absolute', bottom: '120%', left: '50%', transform: 'translateX(-50%)',
-          background: '#1A2744', color: '#fff', borderRadius: 6, padding: '8px 12px',
-          fontSize: 12, lineHeight: 1.5, minWidth: 280, maxWidth: 340,
-          whiteSpace: 'normal', zIndex: 50, pointerEvents: 'none',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.25)'
-        }}>
-          P&L shown in {baseCurrency} (base currency).<br />
-          For cross pairs, the settlement currency<br />
-          is converted at today's spot rate.
-        </span>
-      )}
+    <span
+      ref={tt.triggerRef}
+      className="inline-block ml-1 align-middle"
+      style={{ color: GOLD, cursor: 'pointer', fontSize: 13, userSelect: 'none' }}
+      onMouseEnter={tt.show}
+      onMouseLeave={tt.scheduleHide}
+      aria-label="P&L currency conversion explanation"
+    >
+      ⓘ
+      <TooltipPortal
+        visible={tt.visible} top={tt.top} left={tt.left}
+        onEnter={tt.cancelHide} onLeave={tt.scheduleHide}
+      >
+        <div style={{ marginBottom: 8 }}>{message}</div>
+        <a
+          href="/glossary#floating-p-l"
+          style={{ color: GOLD, fontSize: 11, textDecoration: 'none', display: 'block' }}
+          onClick={e => e.stopPropagation()}
+        >
+          Learn more in glossary →
+        </a>
+      </TooltipPortal>
     </span>
   )
 }
@@ -814,29 +866,44 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                         <HedgeBar pct={exp.hedge_pct} />
                       </td>
 
-                      {/* Locked P&L — shown in base currency (EUR) */}
+                      {/* Locked P&L — shown in base currency */}
                       <td className="px-3 py-3 font-semibold text-right whitespace-nowrap"
                         style={{ color: pnlColor(exp.locked_pnl) }}>
                         {fmtPnl(exp.locked_pnl)}
-                        {exp.is_cross_pair && exp.locked_pnl !== 0 && <CrossPairTooltip baseCurrency={baseCurrency} />}
+                        {exp.is_cross_pair && exp.locked_pnl !== 0 && (
+                          <CrossPairTooltip
+                            baseCurrency={baseCurrency}
+                            settlementCurrency={exp.to_currency || exp.currency_pair?.split('/')[1]}
+                          />
+                        )}
                       </td>
 
-                      {/* Floating P&L — shown in base currency (EUR) */}
+                      {/* Floating P&L — shown in base currency */}
                       <td className="px-3 py-3 font-semibold text-right whitespace-nowrap"
                         style={{ color: pnlColor(exp.floating_pnl) }}>
                         {exp.open_amount > 0 ? (
                           <>
                             {fmtPnl(exp.floating_pnl)}
-                            {exp.is_cross_pair && <CrossPairTooltip baseCurrency={baseCurrency} />}
+                            {exp.is_cross_pair && (
+                              <CrossPairTooltip
+                                baseCurrency={baseCurrency}
+                                settlementCurrency={exp.to_currency || exp.currency_pair?.split('/')[1]}
+                              />
+                            )}
                           </>
                         ) : '—'}
                       </td>
 
-                      {/* Combined P&L — shown in base currency (EUR) */}
+                      {/* Combined P&L — shown in base currency */}
                       <td className="px-3 py-3 font-bold text-right whitespace-nowrap"
                         style={{ color: pnlColor(exp.combined_pnl) }}>
                         {fmtPnl(exp.combined_pnl)}
-                        {exp.is_cross_pair && <CrossPairTooltip baseCurrency={baseCurrency} />}
+                        {exp.is_cross_pair && (
+                          <CrossPairTooltip
+                            baseCurrency={baseCurrency}
+                            settlementCurrency={exp.to_currency || exp.currency_pair?.split('/')[1]}
+                          />
+                        )}
                       </td>
 
                       {/* Corridor */}
