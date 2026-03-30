@@ -101,6 +101,35 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
+## ✅ Trade Confirmation — Audit Trail
+**Priority:** Pre-pilot
+
+### Phase 1 (build next): Trade Reference Number
+- Add `bank_reference` field to `hedge_tranches`
+- Editable field on executed tranches in register
+- Required to move status from `executed` → `confirmed`
+- Audit log: reference number, added by, timestamp
+- Display in MTM report and Hedge Audit Trail
+
+### Phase 2 (pre-scale): Contract Note Upload
+- Upload PDF/image of bank confirmation per tranche
+- Store securely, link to tranche record
+- Paperclip icon on confirmed tranches
+- Downloadable in audit trail export
+- Compliance requirement for $20M+ ICP
+
+### Phase 3 (post-pilot): Full Confirmation Workflow
+- Structured confirmation: date, counterparty, agreed rate vs executed rate, value date match
+- Rate tolerance check: flag if confirmed rate differs from executed rate by more than 2 pips
+- Four-eyes principle option: execute and confirm must be different users
+
+### Current issue to fix alongside Phase 1
+Tranches showing `confirmed` without a recorded confirmation event. Find where `confirmed` status is set in codebase — ensure it requires explicit user action and audit log entry.
+
+**Status:** Phase 1 ready to build when fix queue cleared
+
+---
+
 ## 📐 Forward Points / Interest Rate Differentials
 **Priority:** Pre-scale
 **Description:** Calculate and display forward points on each tranche.
