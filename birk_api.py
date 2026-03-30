@@ -1704,6 +1704,8 @@ async def startup_event():
             "UPDATE hedge_tranches SET is_settled = false WHERE is_settled IS NULL",
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS is_settled BOOLEAN DEFAULT FALSE",
             "UPDATE exposures SET is_settled = false WHERE is_settled IS NULL",
+            # Trade Confirmation — Phase 1: bank reference number on executed tranches
+            "ALTER TABLE hedge_tranches ADD COLUMN IF NOT EXISTS bank_reference VARCHAR(100)",
         ]
         for sql in migrations:
             try:

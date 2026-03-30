@@ -72,6 +72,7 @@ def ensure_tables(db: Session):
             value_date          DATE,
             status              VARCHAR(20) DEFAULT 'pending',
             order_ref           VARCHAR(100),
+            bank_reference      VARCHAR(100),
             confirmation_doc    VARCHAR(500),
             created_at          TIMESTAMP DEFAULT NOW(),
             created_by          VARCHAR(255),
@@ -284,28 +285,66 @@ def confirm_tranche(
 ):
     """
     Mark a tranche as bank-confirmed.
-    Optional: attach confirmation reference or document path.
+    bank_reference is required — must be the reference number from the
+    bank's trade confirmation. Recorded in audit log with confirmer and timestamp.
     """
     ensure_tables(db)
 
+    bank_reference = (body.get("bank_reference") or "").strip()
+    if not bank_reference:
+        raise HTTPException(status_code=400, detail="bank_reference is required to confirm a tranche")
+
+    # Fetch the tranche to verify it exists and belongs to an authorised company
+    tranche = db.execute(
+        text("SELECT ht.*, e.company_id AS exp_company_id, e.from_currency, e.to_currency, e.id AS exp_id FROM hedge_tranches ht JOIN exposures e ON e.id = ht.exposure_id WHERE ht.id = :id"),
+        {"id": tranche_id}
+    ).fetchone()
+    if not tranche:
+        raise HTTPException(status_code=404, detail="Tranche not found")
+
+    t = tranche._mapping
+    safe_company_id = resolve_company_id(t["exp_company_id"], payload)
+    currency_pair   = f"{t['from_currency']}/{t['to_currency']}"
+    confirmed_by    = payload.get("email")
+
+    # Only 'executed' tranches can be confirmed — guard against double-confirmation
+    if t["status"] == "confirmed":
+        raise HTTPException(status_code=400, detail="Tranche is already confirmed")
+    if t["status"] != "executed":
+        raise HTTPException(status_code=400, detail=f"Only executed tranches can be confirmed (current status: {t['status']})")
+
     db.execute(text("""
         UPDATE hedge_tranches
-        SET status = 'confirmed',
-            confirmed_at = NOW(),
-            confirmed_by = :confirmed_by,
-            order_ref = COALESCE(:order_ref, order_ref),
-            notes = COALESCE(:notes, notes)
+        SET status         = 'confirmed',
+            bank_reference = :bank_reference,
+            confirmed_at   = NOW(),
+            confirmed_by   = :confirmed_by,
+            notes          = COALESCE(:notes, notes)
         WHERE id = :id
     """), {
-        "id":           tranche_id,
-        "confirmed_by": payload.get("email"),
-        "order_ref":    body.get("order_ref"),
-        "notes":        body.get("notes"),
+        "id":            tranche_id,
+        "bank_reference": bank_reference,
+        "confirmed_by":  confirmed_by,
+        "notes":         body.get("notes"),
     })
-    db.commit()
 
-    logger.info(f"Tranche {tranche_id} confirmed by {payload.get('email')}")
-    return {"message": "Tranche confirmed"}
+    # Audit log — every confirmation must have a traceable record
+    db.execute(text("""
+        INSERT INTO order_audit_log
+            (company_id, exposure_id, currency_pair, action, sent_by, sent_at, status)
+        VALUES
+            (:company_id, :exposure_id, :pair, :action, :by, NOW(), 'confirmed')
+    """), {
+        "company_id":  safe_company_id,
+        "exposure_id": t["exp_id"],
+        "pair":        currency_pair,
+        "action":      f"Tranche {tranche_id} confirmed — bank ref: {bank_reference}",
+        "by":          confirmed_by,
+    })
+
+    db.commit()
+    logger.info(f"Tranche {tranche_id} confirmed by {confirmed_by}, ref={bank_reference}")
+    return {"message": "Tranche confirmed", "bank_reference": bank_reference}
 
 
 @router.post("/api/exposures/{exposure_id}/reset-corridor")

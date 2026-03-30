@@ -132,7 +132,7 @@ function MtmCell({ value }) {
   )
 }
 
-function TrancheRow({ tranche, ccy, mtm }) {
+function TrancheRow({ tranche, ccy, mtm, onConfirm }) {
   const statusColor = tranche.status === 'confirmed' ? SUCCESS : tranche.status === 'executed' ? GOLD : '#9CA3AF'
 
   // MTM only shown for forward instruments that are executed/confirmed
@@ -146,13 +146,32 @@ function TrancheRow({ tranche, ccy, mtm }) {
       <td className="px-3 py-2 font-mono text-gray-600">{tranche.rate ? parseFloat(tranche.rate).toFixed(4) : '—'}</td>
       <td className="px-3 py-2 text-gray-500">{tranche.value_date || '—'}</td>
       <td className="px-3 py-2">
-        <span className="font-semibold" style={{ color: statusColor }}>
-          {tranche.status?.toUpperCase()}
-        </span>
+        {tranche.status === 'executed' ? (
+          // Executed tranches show a Confirm button — bank_reference required to proceed
+          <button
+            onClick={() => onConfirm(tranche)}
+            className="text-xs font-semibold px-2 py-0.5 rounded"
+            style={{ background: '#FEF9C3', color: '#92400E', border: '1px solid #FDE68A' }}
+            title="Add bank reference number to confirm this tranche"
+          >
+            EXECUTED · Confirm →
+          </button>
+        ) : (
+          <span className="font-semibold" style={{ color: statusColor }}>
+            {tranche.status?.toUpperCase()}
+          </span>
+        )}
       </td>
       <td className="px-3 py-2 text-gray-400">{tranche.executed_by || '—'}</td>
       <td className="px-3 py-2 text-gray-400">
         {tranche.executed_at ? new Date(tranche.executed_at).toLocaleDateString('en-GB') : '—'}
+      </td>
+      {/* Bank reference — shown for confirmed tranches */}
+      <td className="px-3 py-2 font-mono text-gray-500">
+        {tranche.status === 'confirmed'
+          ? (tranche.bank_reference || <span className="text-gray-300">—</span>)
+          : <span className="text-gray-200">—</span>
+        }
       </td>
       {/* MTM columns — only meaningful for executed/confirmed Forwards */}
       {hasMtm
@@ -164,6 +183,92 @@ function TrancheRow({ tranche, ccy, mtm }) {
         : <td className="px-3 py-2 text-gray-300">—</td>
       }
     </tr>
+  )
+}
+
+
+// Modal to record bank reference number and move tranche status to 'confirmed'
+function ConfirmTrancheModal({ tranche, ccy, onClose, onConfirmed }) {
+  const [bankRef, setBankRef]   = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [error, setError]       = useState('')
+
+  async function handleSubmit() {
+    if (!bankRef.trim()) { setError('Bank reference number is required.'); return }
+    setSaving(true)
+    setError('')
+    try {
+      const res = await fetch(`${API_BASE}/api/tranches/${tranche.id}/confirm`, {
+        method: 'PATCH',
+        headers: authHeaders(),
+        body: JSON.stringify({ bank_reference: bankRef.trim() })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.detail || 'Confirmation failed.'); return }
+      onConfirmed()
+      onClose()
+    } catch (e) {
+      setError('Network error — please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const trnLabel = `TRN-${String(tranche.id).padStart(5, '0')}`
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.6)' }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <div className="px-6 py-5" style={{ background: NAVY }}>
+          <h2 className="text-base font-bold text-white">Confirm Trade — {trnLabel}</h2>
+          <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>
+            {ccy} {fmtAmount(tranche.amount)} · Rate {parseFloat(tranche.rate || 0).toFixed(4)} · {tranche.value_date || '—'}
+          </p>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-gray-600">
+            Enter the bank's trade reference number from the confirmation note.
+            This is required to move the tranche to <strong>CONFIRMED</strong> status
+            and creates an audit log entry.
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Bank Reference Number <span style={{ color: DANGER }}>*</span>
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. FX-2024-009341"
+              value={bankRef}
+              onChange={e => { setBankRef(e.target.value); setError('') }}
+              onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+              autoFocus
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono
+                         focus:outline-none focus:border-blue-400"
+              style={{ background: '#F9FAFB' }}
+            />
+            {error && <p className="text-xs mt-1" style={{ color: DANGER }}>{error}</p>}
+          </div>
+          <div className="rounded-lg p-3 text-xs text-gray-500" style={{ background: '#F4F6FA' }}>
+            <strong>Audit trail:</strong> Confirmation will be logged with your email, the bank
+            reference, and a timestamp. This record cannot be edited.
+          </div>
+        </div>
+        <div className="px-6 py-4 flex justify-end gap-3 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100">
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving || !bankRef.trim()}
+            className="px-5 py-2 rounded-lg text-sm font-semibold text-white"
+            style={{ background: saving ? '#9CA3AF' : NAVY, cursor: saving ? 'not-allowed' : 'pointer' }}
+          >
+            {saving ? 'Confirming…' : 'Confirm Trade'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -343,6 +448,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
   const [expanded, setExpanded]           = useState({})
   const [mtmData, setMtmData]             = useState({})   // { [exposureId]: { [trancheId]: mtmRow } }
   const [corridorModal, setCorridorModal] = useState(null)
+  const [confirmModal, setConfirmModal]   = useState(null)  // { tranche, ccy }
   const [archiveModal, setArchiveModal]   = useState(null)
   const [searchText, setSearchText]       = useState('')
   const [filterCcy, setFilterCcy]         = useState('')
@@ -773,6 +879,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                                       <th className="px-3 py-1.5 text-left">Status</th>
                                       <th className="px-3 py-1.5 text-left">By</th>
                                       <th className="px-3 py-1.5 text-left">Date</th>
+                                      <th className="px-3 py-1.5 text-left" title="Bank reference number from the trade confirmation note">Bank Ref</th>
                                       <th className="px-3 py-1.5 text-left" title="Mark-to-market vs forward inception rate (EUR)">MTM vs Inception</th>
                                       <th className="px-3 py-1.5 text-left" title="Mark-to-market vs budget rate (EUR)">MTM vs Budget</th>
                                     </tr>
@@ -784,6 +891,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
                                         tranche={t}
                                         ccy={exp.from_currency}
                                         mtm={mtmData[exp.id]?.[t.id]}
+                                        onConfirm={(tranche) => setConfirmModal({ tranche, ccy: exp.from_currency })}
                                       />
                                     ))}
                                   </tbody>
@@ -811,6 +919,15 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
           )}
         </div>
       </div>
+
+      {confirmModal && (
+        <ConfirmTrancheModal
+          tranche={confirmModal.tranche}
+          ccy={confirmModal.ccy}
+          onClose={() => setConfirmModal(null)}
+          onConfirmed={() => load()}
+        />
+      )}
 
       {corridorModal && (
         <CorridorResetModal
