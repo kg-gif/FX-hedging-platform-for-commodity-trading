@@ -5,9 +5,11 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useCompany } from '../contexts/CompanyContext'
-import { NAVY, GOLD } from '../brand'
+import { NAVY } from '../brand'
 import HedgingRecommendations from './HedgingRecommendations'
 import ExposureRegister from './ExposureRegister'
+import JumpNav from './JumpNav'
+import ScrollToTop from './ScrollToTop'
 
 const SECTIONS = [
   { id: 'recommendations', label: 'Hedge Recommendations' },
@@ -54,26 +56,12 @@ export default function HedgingPage() {
         </p>
       </div>
 
-      {/* Jump nav — two items, underline active */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-5 mb-5 flex gap-1 sticky top-[73px] z-30">
-        {SECTIONS.map(s => {
-          const isActive = active === s.id
-          return (
-            <button
-              key={s.id}
-              onClick={() => scrollTo(s.id)}
-              className="px-4 py-3.5 text-sm font-semibold transition-all"
-              style={{
-                color:        isActive ? GOLD : '#6B7280',
-                borderBottom: isActive ? `2px solid ${GOLD}` : '2px solid transparent',
-                background:   'transparent',
-              }}
-            >
-              {s.label}
-            </button>
-          )
-        })}
+      {/* Jump nav */}
+      <div className="mb-5">
+        <JumpNav sections={SECTIONS} active={active} onNavigate={scrollTo} variant="tab" />
       </div>
+
+      <ScrollToTop />
 
       {/* Hedge Recommendations section */}
       <div

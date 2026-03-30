@@ -5,6 +5,8 @@ import { LineChart, Line, ResponsiveContainer } from 'recharts'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { CURRENCY_FLAGS } from '../utils/currency'
 import LoadingAnimation from './LoadingAnimation'
+import JumpNav from './JumpNav'
+import ScrollToTop from './ScrollToTop'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const authHeaders = () => ({
@@ -347,9 +349,9 @@ export default function Reports() {
   const [enrichedLoading, setEnrichedLoading] = useState(true)
   const [toast, setToast]                     = useState(null)
 
-  // Audit trail pagination
-  const [auditPage, setAuditPage]     = useState(1)
-  const AUDIT_PAGE_SIZE = 15
+  // Audit trail pagination + page size
+  const [auditPage, setAuditPage]         = useState(1)
+  const [auditPageSize, setAuditPageSize] = useState(15)
 
   // P&L report filters + pagination
   const [pnlFilterPair,    setPnlFilterPair]    = useState('')
@@ -676,8 +678,8 @@ export default function Reports() {
     ? events.filter(e => e.event_type === filterEventType)
     : events
 
-  const auditPages   = Math.max(1, Math.ceil(displayed.length / AUDIT_PAGE_SIZE))
-  const auditPaged   = displayed.slice((auditPage - 1) * AUDIT_PAGE_SIZE, auditPage * AUDIT_PAGE_SIZE)
+  const auditPages   = Math.max(1, Math.ceil(displayed.length / auditPageSize))
+  const auditPaged   = displayed.slice((auditPage - 1) * auditPageSize, auditPage * auditPageSize)
 
   const hasFilters = filterPair || filterEventType || filterFromDate || filterToDate || !showDeleted
 
@@ -766,24 +768,9 @@ export default function Reports() {
       </div>
 
       {/* ── Jump nav ────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3 flex flex-wrap gap-2 sticky top-[73px] z-30">
-        {REPORT_SECTIONS.map(s => {
-          const isActive = activeSection === s.id
-          return (
-            <button
-              key={s.id}
-              onClick={() => scrollToSection(s.id)}
-              className="px-4 py-1.5 rounded-full text-sm font-semibold transition-all border"
-              style={isActive
-                ? { background: GOLD,    color: NAVY,      borderColor: GOLD      }
-                : { background: 'white', color: '#6B7280', borderColor: '#E5E7EB' }
-              }
-            >
-              {s.label}
-            </button>
-          )
-        })}
-      </div>
+      <JumpNav sections={REPORT_SECTIONS} active={activeSection} onNavigate={scrollToSection} />
+
+      <ScrollToTop />
 
       {/* ── Market Reports ────────────────────────────────────────────── */}
       <div ref={el => { sectionRefs.current['market-reports'] = el }} className="scroll-mt-32">
@@ -1141,25 +1128,45 @@ export default function Reports() {
                 </tbody>
               </table>
             </div>
-            {/* Pagination */}
-            {auditPages > 1 && (
-              <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2 text-xs">
-                <span className="text-gray-400">Page {auditPage} of {auditPages}</span>
-                <div className="ml-auto flex items-center gap-1">
-                  <button onClick={() => setAuditPage(p => Math.max(1, p - 1))} disabled={auditPage === 1}
-                    className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">← Prev</button>
-                  {Array.from({ length: auditPages }, (_, i) => i + 1).map(p => (
-                    <button key={p} onClick={() => setAuditPage(p)}
-                      className="px-2.5 py-1.5 rounded border text-xs font-semibold"
-                      style={{ background: p === auditPage ? NAVY : 'white', color: p === auditPage ? 'white' : '#6B7280', borderColor: p === auditPage ? NAVY : '#E5E7EB' }}>
-                      {p}
-                    </button>
-                  ))}
-                  <button onClick={() => setAuditPage(p => Math.min(auditPages, p + 1))} disabled={auditPage === auditPages}
-                    className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">Next →</button>
-                </div>
-              </div>
-            )}
+            {/* Pagination + page size selector */}
+            <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2 text-xs">
+              {/* Page size selector — always visible */}
+              <span className="text-gray-400 mr-1">Show:</span>
+              {[15, 25, 50].map(n => (
+                <button
+                  key={n}
+                  onClick={() => { setAuditPageSize(n); setAuditPage(1) }}
+                  className="px-2 py-1 rounded border text-xs font-semibold"
+                  style={{
+                    background:  n === auditPageSize ? NAVY    : 'white',
+                    color:       n === auditPageSize ? 'white' : '#6B7280',
+                    borderColor: n === auditPageSize ? NAVY    : '#E5E7EB',
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+
+              {auditPages > 1 && (
+                <>
+                  <span className="text-gray-300 mx-1">|</span>
+                  <span className="text-gray-400">Page {auditPage} of {auditPages}</span>
+                  <div className="ml-auto flex items-center gap-1">
+                    <button onClick={() => setAuditPage(p => Math.max(1, p - 1))} disabled={auditPage === 1}
+                      className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">← Prev</button>
+                    {Array.from({ length: auditPages }, (_, i) => i + 1).map(p => (
+                      <button key={p} onClick={() => setAuditPage(p)}
+                        className="px-2.5 py-1.5 rounded border text-xs font-semibold"
+                        style={{ background: p === auditPage ? NAVY : 'white', color: p === auditPage ? 'white' : '#6B7280', borderColor: p === auditPage ? NAVY : '#E5E7EB' }}>
+                        {p}
+                      </button>
+                    ))}
+                    <button onClick={() => setAuditPage(p => Math.min(auditPages, p + 1))} disabled={auditPage === auditPages}
+                      className="px-2.5 py-1.5 rounded border border-gray-200 disabled:opacity-40">Next →</button>
+                  </div>
+                </>
+              )}
+            </div>
           </>
         )}
       </div>
