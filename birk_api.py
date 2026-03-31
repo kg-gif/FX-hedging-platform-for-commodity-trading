@@ -1060,13 +1060,18 @@ async def get_simulator(
     ]))
     live_rates = await get_current_rates(exp_pairs)
 
+    from services.currency_utils import to_eur
+
     # Fetch USD rates for all currencies needed for base_currency conversion (USD pivot)
+    # Also always include EUR so to_eur() can convert any notional to EUR.
     unique_from_ccys = list(dict.fromkeys([
         e._mapping["from_currency"] for e in exposures
         if e._mapping["from_currency"] != base_currency
     ]))
     ccys_for_usd = list(dict.fromkeys(
-        unique_from_ccys + ([base_currency] if base_currency != "USD" else [])
+        unique_from_ccys
+        + ([base_currency] if base_currency != "USD" else [])
+        + (["EUR"] if "EUR" not in unique_from_ccys and base_currency != "EUR" else [])
     ))
     usd_rate_map: dict = {}
     if ccys_for_usd:
@@ -1078,6 +1083,9 @@ async def get_simulator(
             if not isinstance(rate_val, Exception) and rate_val is not None:
                 usd_rate_map[ccy] = float(rate_val)
     base_usd = usd_rate_map.get(base_currency, 1.0) if base_currency != "USD" else 1.0
+
+    # Build rates dict in the format to_eur() expects: {"CCY/USD": rate}
+    rates_for_eur = {f"{ccy}/USD": rate for ccy, rate in usd_rate_map.items()}
 
     # Fetch executed/confirmed tranches for all exposures in one query
     exp_ids = [e._mapping["id"] for e in exposures]
@@ -1170,6 +1178,7 @@ async def get_simulator(
             "id":            exp["id"],
             "pair":          pair,
             "from_currency": from_ccy,
+            "to_currency":   exp["to_currency"],
             "total_amount":  total_amount,
             "hedged_amount": hedged_amount,
             "open_amount":   open_amount,
@@ -1193,30 +1202,44 @@ async def get_simulator(
             if not budget_rate:
                 continue  # can't calculate P&L without a budget rate
 
-            shocked_rate = e["current_spot"] * (1 + shock)
-            sign         = e["direction_sign"]
+            sign = e["direction_sign"]
+
+            # Apply the shock in the adverse direction for THIS exposure type.
+            # Multiplying by direction_sign flips the shock for payables so that
+            # "-5% Adverse" always means "5% worse for the client", not a uniform
+            # rate move. Receivable (sign=+1): adverse = rate falls.
+            # Payable (sign=-1): adverse = rate rises.
+            shocked_rate = e["current_spot"] * (1 + sign * shock)
 
             # Unhedged: what P&L would be with no hedges (all open at shocked rate)
             unhedged_pnl = sign * (shocked_rate - budget_rate) * e["total_amount"]
 
-            # Hedged: locked portion (fixed) + floating on open amount at shocked rate
+            # Hedged: locked portion (fixed regardless of scenario) + floating on
+            # open amount at shocked rate
             floating_pnl = sign * (shocked_rate - budget_rate) * e["open_amount"]
             hedged_pnl   = e["locked_pnl"] + floating_pnl
 
+            # Hedge saving: how much better off the client is vs being fully unhedged
             protection_value = hedged_pnl - unhedged_pnl
+
+            # EUR notionals for the per-pair breakdown table (Fix 2)
+            total_amount_eur  = to_eur(e["total_amount"],  e["from_currency"], e["to_currency"], rates_for_eur)
+            hedged_amount_eur = to_eur(e["hedged_amount"], e["from_currency"], e["to_currency"], rates_for_eur)
 
             if safe_id == 1 and round(shock * 100) == -5:
                 print(f"[sim-check] {e['pair']}: unhedged={round(unhedged_pnl,2)}, hedged={round(hedged_pnl,2)}, protection={round(protection_value,2)}")
 
             per_pair.append({
-                "pair":             e["pair"],
-                "shock_pct":        round(shock * 100, 0),
-                "hedge_ratio":      round(e["hedge_ratio"] * 100, 1),
-                "total_amount":     round(e["total_amount"], 2),
-                "hedged_amount":    round(e["hedged_amount"], 2),
-                "unhedged_pnl":     round(unhedged_pnl, 2),
-                "hedged_pnl":       round(hedged_pnl, 2),
-                "protection_value": round(protection_value, 2),
+                "pair":              e["pair"],
+                "shock_pct":         round(shock * 100, 0),
+                "hedge_ratio":       round(e["hedge_ratio"] * 100, 1),
+                "total_amount":      round(e["total_amount"], 2),
+                "total_amount_eur":  round(total_amount_eur, 2),
+                "hedged_amount":     round(e["hedged_amount"], 2),
+                "hedged_amount_eur": round(hedged_amount_eur, 2),
+                "unhedged_pnl":      round(unhedged_pnl, 2),
+                "hedged_pnl":        round(hedged_pnl, 2),
+                "protection_value":  round(protection_value, 2),
             })
 
             # Aggregate in base_currency
@@ -1225,9 +1248,16 @@ async def get_simulator(
                 total_hedged_base   += hedged_pnl   * e["to_base_rate"]
 
         total_protection = total_hedged_base - total_unhedged_base
-        protection_pct   = 0.0
-        if total_unhedged_base != 0:
-            protection_pct = abs(total_protection / total_unhedged_base) * 100
+
+        # Coverage % = what % of the unhedged loss is covered by hedges.
+        # Only meaningful when the unhedged outcome is adverse (negative).
+        # Capped at 100% — a hedge can't save more than the full loss.
+        # Returns None for favourable scenarios (no loss to protect against).
+        if total_unhedged_base < 0:
+            raw_pct = (total_protection / abs(total_unhedged_base)) * 100
+            protection_pct = round(min(raw_pct, 100.0), 1)
+        else:
+            protection_pct = None
 
         shock_pct_int = int(round(shock * 100))
         label = (
@@ -1241,7 +1271,7 @@ async def get_simulator(
             "total_unhedged_pnl":  round(total_unhedged_base, 2),
             "total_hedged_pnl":    round(total_hedged_base, 2),
             "protection_value":    round(total_protection, 2),
-            "protection_pct":      round(protection_pct, 1),
+            "protection_pct":      protection_pct,  # float or None (None = favourable scenario)
             "per_pair":            per_pair,
         })
 

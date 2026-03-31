@@ -128,6 +128,14 @@ function fmtPnl(n, ccy) {
 
 function fmtRate(n) { return n == null ? '—' : n.toFixed(4) }
 
+function fmtEur(n) {
+  if (n == null) return '—'
+  const abs = Math.abs(n)
+  if (abs >= 1_000_000) return `€${(abs / 1_000_000).toFixed(2)}M`
+  if (abs >= 1_000)     return `€${(abs / 1_000).toFixed(1)}K`
+  return `€${abs.toFixed(0)}`
+}
+
 function pnlColor(n) {
   if (n == null) return '#6B7280'
   if (n > 0)  return SUCCESS
@@ -171,21 +179,21 @@ const TIPS = {
   hedgedPnl:
     'Your total portfolio P&L in this scenario vs budget rates, including locked gains from executed hedges and floating P&L on open positions. Negative means rates have moved against your budget.',
   protectionValue:
-    'The net impact of your current hedges vs being unhedged at today\'s rates. Positive means your hedges are currently working in your favour.',
+    'How much your hedges save you vs being fully unhedged in this scenario. Positive means your hedges reduced your loss.',
   protectionCoverage:
-    'What percentage of your downside is protected by current hedges. Higher is better in adverse scenarios.',
+    'What % of the potential unhedged loss your hedges protect against (max 100%). Only shown for adverse scenarios — there is no loss to protect against when rates move in your favour.',
   liveRates:
     'Current mid-market rates fetched at page load. Used to calculate floating P&L on unhedged positions.',
   scenario:
-    'A uniform % move applied to all spot rates simultaneously from today\'s levels.',
+    'Rate move applied in the adverse or favourable direction relative to each exposure\'s type — receivables see the rate fall in adverse scenarios; payables see the rate rise. This gives a true client-perspective stress test.',
   unhedgedPnl:
-    'What your total P&L would be if you had zero hedges in place. Shows your raw currency exposure.',
+    'What you would lose if this scenario happened with zero hedging in place. Shows your raw unprotected exposure.',
   hedgedPnlCol:
-    'Your actual P&L with current hedges in place. Locked P&L from executed forwards is fixed regardless of scenario.',
+    'Your actual P&L in this scenario given your current hedge coverage. Locked P&L from executed forwards is fixed regardless of scenario.',
   protection:
     'The value your hedges add or cost in this scenario. Positive = hedges reduced your loss or protected gains. Negative = rates moved in your favour and your locked hedges captured less upside than an unhedged position would have. This is the normal trade-off of hedging.',
   coveragePct:
-    'How much of the scenario impact is absorbed by your hedges.',
+    'What % of the potential unhedged loss your hedges protect against (max 100%). Shows — when the scenario is favourable (no loss to cover).',
   hedgePct:
     'Percentage of this exposure covered by executed or confirmed hedges.',
   pairUnhedgedPnl:
@@ -194,6 +202,10 @@ const TIPS = {
     'Actual P&L combining locked hedge gains and floating P&L on the open portion.',
   pairProtection:
     'The value your hedges add or cost on this pair in this scenario. Positive = hedges reduced your loss or protected gains. Negative = rates moved in your favour and locked hedges captured less upside than an unhedged position. This is the normal trade-off of hedging.',
+  totalExpEur:
+    'Total notional converted to EUR at current spot rates, regardless of the exposure\'s native currency.',
+  hedgedEur:
+    'Hedged notional converted to EUR at current spot rates.',
 }
 
 // ── Print report ──────────────────────────────────────────────────────────────
@@ -223,15 +235,23 @@ function openPrintReport(data, selectedScenario) {
       <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:${color(s.total_unhedged_pnl)}">${fmtP(s.total_unhedged_pnl, ccy)}</td>
       <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:${color(s.total_hedged_pnl)}">${fmtP(s.total_hedged_pnl, ccy)}</td>
       <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:${color(s.protection_value)}">${fmtP(s.protection_value, ccy)}</td>
-      <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #F0F2F7;color:#6B7280">${s.protection_pct?.toFixed(1)}%</td>
+      <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #F0F2F7;color:#6B7280">${s.protection_pct != null ? s.protection_pct.toFixed(1) + '%' : '—'}</td>
     </tr>`).join('')
+
+  const fmtEurPrint = n => {
+    if (n == null) return '—'
+    const abs = Math.abs(n)
+    if (abs >= 1_000_000) return `€${(abs / 1_000_000).toFixed(2)}M`
+    if (abs >= 1_000)     return `€${(abs / 1_000).toFixed(1)}K`
+    return `€${abs.toFixed(0)}`
+  }
 
   const pairRows = (selectedScenario?.per_pair || []).map(p => `
     <tr>
       <td style="padding:8px 12px;font-weight:600;color:#1A2744;border-bottom:1px solid #F0F2F7">${p.pair}</td>
       <td style="padding:8px 12px;text-align:right;border-bottom:1px solid #F0F2F7;color:#6B7280">${p.hedge_ratio?.toFixed(1)}%</td>
-      <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:#374151">${fmtNum(p.total_amount)}</td>
-      <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:#10B981">${fmtNum(p.hedged_amount)}</td>
+      <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:#374151">${fmtEurPrint(p.total_amount_eur)}</td>
+      <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:#10B981">${fmtEurPrint(p.hedged_amount_eur)}</td>
       <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:${color(p.unhedged_pnl)}">${fmtP(p.unhedged_pnl, '')}</td>
       <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:${color(p.hedged_pnl)}">${fmtP(p.hedged_pnl, '')}</td>
       <td style="padding:8px 12px;text-align:right;font-family:monospace;border-bottom:1px solid #F0F2F7;color:${color(p.protection_value)}">${fmtP(p.protection_value, '')}</td>
@@ -310,8 +330,8 @@ function openPrintReport(data, selectedScenario) {
           <tr>
             <th style="${thStyle}">Pair</th>
             <th style="${thR}">Hedge %</th>
-            <th style="${thR}">Total Exposure</th>
-            <th style="${thR}">Hedged Amount</th>
+            <th style="${thR}">Total Exposure (€)</th>
+            <th style="${thR}">Hedged (€)</th>
             <th style="${thR}">Unhedged P&amp;L</th>
             <th style="${thR}">Hedged P&amp;L</th>
             <th style="${thR}">Hedge Saving</th>
@@ -498,10 +518,11 @@ export default function Simulator() {
             <SummaryCard
               label="Coverage"
               tooltip={TIPS.protectionCoverage}
-              value={`${selectedScenario.protection_pct?.toFixed(1) ?? '—'}%`}
-              sub="of unhedged exposure protected"
+              value={selectedScenario.protection_pct != null ? `${selectedScenario.protection_pct.toFixed(1)}%` : '—'}
+              sub={selectedScenario.protection_pct != null ? 'of unhedged loss protected' : 'Favourable scenario — no loss to cover'}
               accent={
-                selectedScenario.protection_pct >= 60 ? SUCCESS
+                selectedScenario.protection_pct == null ? '#9CA3AF'
+                : selectedScenario.protection_pct >= 60 ? SUCCESS
                 : selectedScenario.protection_pct >= 30 ? WARNING
                 : DANGER
               }
@@ -598,8 +619,8 @@ export default function Simulator() {
                       <td className="px-4 py-3 font-mono text-right whitespace-nowrap" style={{ color: pnlColor(s.protection_value) }}>
                         {fmtPnl(s.protection_value, ccy)}
                       </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap text-gray-600">
-                        {s.protection_pct?.toFixed(1)}%
+                      <td className="px-4 py-3 text-right whitespace-nowrap text-gray-400">
+                        {s.protection_pct != null ? `${s.protection_pct.toFixed(1)}%` : '—'}
                       </td>
                       <td className="px-4 py-3">
                         <PnlBar value={s.total_hedged_pnl} maxAbs={maxAbsPnl} />
@@ -667,8 +688,12 @@ export default function Simulator() {
                     <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
                       <TipLabel tip={TIPS.hedgePct}>Hedge %</TipLabel>
                     </th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>Total Exposure</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>Hedged Amount</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                      <TipLabel tip={TIPS.totalExpEur}>Total Exposure (€)</TipLabel>
+                    </th>
+                    <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
+                      <TipLabel tip={TIPS.hedgedEur}>Hedged (€)</TipLabel>
+                    </th>
                     <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider" style={{ color: NAVY, whiteSpace: 'nowrap' }}>
                       <TipLabel tip={TIPS.pairUnhedgedPnl}>Unhedged P&amp;L</TipLabel>
                     </th>
@@ -691,8 +716,8 @@ export default function Simulator() {
                         }}>
                         <td className="px-4 py-2.5 font-semibold" style={{ color: NAVY }}>{p.pair}</td>
                         <td className="px-4 py-2.5 text-right text-gray-600">{p.hedge_ratio?.toFixed(1)}%</td>
-                        <td className="px-4 py-2.5 font-mono text-right text-gray-700">{fmt(p.total_amount)}</td>
-                        <td className="px-4 py-2.5 font-mono text-right" style={{ color: SUCCESS }}>{fmt(p.hedged_amount)}</td>
+                        <td className="px-4 py-2.5 font-mono text-right text-gray-700">{fmtEur(p.total_amount_eur)}</td>
+                        <td className="px-4 py-2.5 font-mono text-right" style={{ color: SUCCESS }}>{fmtEur(p.hedged_amount_eur)}</td>
                         <td className="px-4 py-2.5 font-mono text-right" style={{ color: pnlColor(p.unhedged_pnl) }}>{fmtPnl(p.unhedged_pnl, '')}</td>
                         <td className="px-4 py-2.5 font-mono text-right" style={{ color: pnlColor(p.hedged_pnl) }}>{fmtPnl(p.hedged_pnl, '')}</td>
                         <td className="px-4 py-2.5 font-mono text-right" style={{ color: pnlColor(p.protection_value) }}>{fmtPnl(p.protection_value, '')}</td>
@@ -709,10 +734,12 @@ export default function Simulator() {
         {/* ── Disclaimer ───────────────────────────────────────────── */}
         <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: 16, color: '#6B7280', fontSize: 12, lineHeight: 1.7 }}>
           <strong style={{ color: '#9CA3AF', fontWeight: 600 }}>Methodology: </strong>
-          Scenarios apply a uniform % shock to each pair's current spot rate simultaneously.
+          Scenarios are applied in the adverse or favourable direction relative to each exposure's type —
+          receivables (SELL) see the rate fall in adverse scenarios; payables (BUY) see the rate rise.
+          This gives a true client-perspective stress test rather than a uniform market move.
           Locked P&amp;L from executed hedges is scenario-independent (already crystallised at the forward rate).
-          Floating P&amp;L on open amounts is recalculated at the shocked rate vs your budget rate.
-          Portfolio totals are converted to {ccy} using live spot rates.
+          Floating P&amp;L on open amounts is recalculated at the scenario rate vs your budget rate.
+          Notionals shown in EUR at current spot rates. Portfolio P&amp;L totals are in {ccy}.
           This tool is for indicative purposes only and does not constitute financial advice.
         </div>
 
