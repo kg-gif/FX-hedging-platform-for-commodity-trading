@@ -427,7 +427,7 @@ function ForecastingSection({ companyId }) {
 
 export default function HedgingPage() {
   const { selectedCompanyId } = useCompany()
-  const companyId = selectedCompanyId || 1
+  const companyId = selectedCompanyId
   const location  = useLocation()
   const navigate  = useNavigate()
 

@@ -197,8 +197,10 @@ async def send_margin_call_alerts_for_company(company_id: int, db) -> dict:
     """
     import httpx
 
+    print(f"[mc-alert] send_margin_call_alerts_for_company called for company_id={company_id}")
     resend_api_key = os.getenv("RESEND_API_KEY")
     frontend_url   = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
+    print(f"[mc-alert] RESEND_API_KEY present={bool(resend_api_key)}")
 
     # Company settings
     company_row = db.execute(
@@ -341,7 +343,7 @@ async def send_margin_call_alerts_for_company(company_id: int, db) -> dict:
                             "Content-Type": "application/json",
                         },
                         json={
-                            "from": "Sumnohow Alerts <alerts@sumnohow.com>",
+                            "from": "Sumnohow Alerts <alerts@updates.sumnohow.com>",
                             "to": recipient_emails,
                             "subject": subject,
                             "html": html_body,
@@ -350,8 +352,10 @@ async def send_margin_call_alerts_for_company(company_id: int, db) -> dict:
                     email_sent = resp.status_code == 200
                     if not email_sent:
                         logger.error(f"[mc-alert] Email failed tranche={tranche_id}: {resp.text}")
+                        print(f"[mc-alert] Email FAILED tranche={tranche_id} status={resp.status_code}: {resp.text}")
             except Exception as e:
                 logger.error(f"[mc-alert] Email error tranche={tranche_id}: {e}")
+                print(f"[mc-alert] Email EXCEPTION tranche={tranche_id}: {e}")
 
         # Write audit log row regardless of email success (compliance requirement)
         db.execute(text("""

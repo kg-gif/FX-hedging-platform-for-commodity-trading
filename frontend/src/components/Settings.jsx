@@ -91,7 +91,7 @@ function ZoneSummaryCard({ policies, zones }) {
 
 export default function Settings({ authUser }) {
   const { selectedCompanyId } = useCompany()
-  const companyId = selectedCompanyId || 1
+  const companyId = selectedCompanyId
   const isAdmin = ['superadmin', 'company_admin', 'admin'].includes(authUser?.role)
   const navigate = useNavigate()
   const location = useLocation()

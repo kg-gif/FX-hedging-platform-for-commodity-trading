@@ -336,7 +336,7 @@ function MtmReport({ rows, loading, filterPair, setFilterPair, filterStatus, set
 
 export default function Reports() {
   const { selectedCompanyId } = useCompany()
-  const companyId = selectedCompanyId || 1
+  const companyId = selectedCompanyId
 
   const [downloading, setDownloading]         = useState(false)
   const [csvLoading, setCsvLoading]           = useState(false)

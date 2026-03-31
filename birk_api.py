@@ -764,11 +764,17 @@ async def _get_recommendations_impl(company_id: int, db, payload: dict):
     p = policy_row._mapping
     exposures = db.execute(text("""
         SELECT e.*,
-            COALESCE(SUM(CASE WHEN ht.status IN ('executed','confirmed') THEN ht.amount ELSE 0 END), 0) as actual_hedged
+            COALESCE(SUM(
+                CASE WHEN ht.status IN ('executed','confirmed')
+                          AND (ht.is_settled IS NULL OR ht.is_settled = false)
+                     THEN ht.amount ELSE 0 END
+            ), 0) as actual_hedged
         FROM exposures e
         LEFT JOIN hedge_tranches ht ON ht.exposure_id = e.id
-        WHERE e.company_id = :cid AND (e.is_active IS NULL OR e.is_active = true)
-              AND (e.archived IS NULL OR e.archived = false)
+        WHERE e.company_id = :cid
+          AND (e.is_active  IS NULL OR e.is_active  = true)
+          AND (e.archived   IS NULL OR e.archived   = false)
+          AND (e.is_settled IS NULL OR e.is_settled = false)
         GROUP BY e.id
     """), {"cid": safe_id}).fetchall()
 
@@ -824,20 +830,20 @@ async def _get_recommendations_impl(company_id: int, db, payload: dict):
         recommended_amount = max((weighted_amount * target_ratio) - actual_hedged, 0)
         if recommended_amount <= 0:
             continue
-        if recommended_amount > 100000:
-            # Build reason string — include confidence weighting context when < 100%
-            base_reason = (
-                f"Zone: {zone.upper()} — target {int(target_ratio * 100)}% hedge. "
-                f"Recommended: {exp['from_currency']} {int(recommended_amount):,} "
-                f"of {int(amount):,} total exposure."
+
+        # Build reason string — include confidence weighting context when < 100%
+        base_reason = (
+            f"Zone: {zone.upper()} — target {int(target_ratio * 100)}% hedge. "
+            f"Recommended: {exp['from_currency']} {int(recommended_amount):,} "
+            f"of {int(amount):,} total exposure."
+        )
+        if conf_weight < 1.0:
+            base_reason += (
+                f" Confidence: {confidence} ({int(conf_weight * 100)}% weight) — "
+                f"weighted exposure {exp['from_currency']} {int(weighted_amount):,} "
+                f"vs gross {exp['from_currency']} {int(amount):,}."
             )
-            if conf_weight < 1.0:
-                base_reason += (
-                    f" Confidence: {confidence} ({int(conf_weight * 100)}% weight) — "
-                    f"weighted exposure {exp['from_currency']} {int(weighted_amount):,} "
-                    f"vs gross {exp['from_currency']} {int(amount):,}."
-                )
-            recommendations.append({
+        recommendations.append({
                 "exposure_id":        exp["id"],
                 "currency_pair":      f"{exp['from_currency']}/{exp['to_currency']}",
                 "action":             f"Hedge {exp['from_currency']} {int(recommended_amount):,}",

@@ -11,7 +11,10 @@ export const useCompany = () => {
 }
 
 export const CompanyProvider = ({ children }) => {
-  const [selectedCompanyId, setSelectedCompanyId] = useState(null)
+  // Initialise from localStorage synchronously so components don't fire API calls
+  // with company_id=null during the async fetch window.
+  const storedId = parseInt(localStorage.getItem('selectedCompanyId'))
+  const [selectedCompanyId, setSelectedCompanyId] = useState(storedId || null)
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -74,6 +77,7 @@ export const CompanyProvider = ({ children }) => {
     selectCompany,
     companies,
     loading,
+    companyLoading: loading,   // alias — lets callers gate rendering without overloading "loading"
     error,
     getSelectedCompany,
     refreshCompanies: fetchCompanies,

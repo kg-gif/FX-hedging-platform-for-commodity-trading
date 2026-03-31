@@ -5,6 +5,7 @@
 // Without this, direct URL access and page refresh breaks on all routes.
 
 import { useState, useEffect } from 'react'
+import { useCompany } from './contexts/CompanyContext'
 import {
   BrowserRouter, Routes, Route, Navigate, Link, useLocation
 } from 'react-router-dom'
@@ -145,6 +146,23 @@ function AppShell({ authUser, onLogout, children }) {
 // ── Authenticated route tree ─────────────────────────────────────────────────
 
 function AuthenticatedApp({ authUser, onLogout }) {
+  const { companyLoading, selectedCompanyId } = useCompany()
+
+  // Block rendering until CompanyContext has resolved from the API.
+  // The sync localStorage init means selectedCompanyId is usually set immediately,
+  // but companyLoading guards the edge case where localStorage had no saved ID.
+  if (companyLoading && !selectedCompanyId) {
+    return (
+      <div className="flex items-center justify-center h-screen" style={{ background: '#F3F4F6' }}>
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto mb-3"
+            style={{ borderColor: '#1A2744', borderTopColor: 'transparent' }} />
+          <p className="text-sm text-gray-500">Loading your portfolio…</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <AppShell authUser={authUser} onLogout={onLogout}>
       <Routes>
