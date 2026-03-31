@@ -1,6 +1,9 @@
+// Dashboard.jsx — Executive view only.
+// No exposure register — that lives in Hedging → Exposure Register.
+// A CFO should understand the full portfolio position in 30 seconds.
+
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import ExposureRegister from './ExposureRegister'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
@@ -15,9 +18,7 @@ const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('auth_token')}`
 })
 
-
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
-
 
 const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtM    = (n) => `${(Math.abs(n) / 1_000_000).toFixed(1)}M`
@@ -25,8 +26,7 @@ const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { ma
 
 // ── Portfolio Summary Strip ───────────────────────────────────────────────────
 
-function PortfolioSummaryStrip({ summary, loading }) {
-  // Format a EUR amount compactly: ±€1.2M  or  ±€842K
+function PortfolioSummaryStrip({ summary, loading, onNextMaturityClick }) {
   const fmtEur = (v) => {
     if (v == null) return '—'
     const n = Number(v)
@@ -49,8 +49,6 @@ function PortfolioSummaryStrip({ summary, loading }) {
     if (v == null) return 'white'
     return Number(v) >= 0 ? '#10B981' : '#EF4444'
   }
-
-  // Format next maturity notional
   const fmtNotional = (n, ccy) => {
     if (n == null) return '—'
     const abs = Math.abs(Number(n))
@@ -66,7 +64,6 @@ function PortfolioSummaryStrip({ summary, loading }) {
   }
   const fmtTranchId = (id) => `TRN-${String(id).padStart(5, '0')}`
 
-  // Skeleton shimmer card
   const Skeleton = () => (
     <div className="flex-1 min-w-0 animate-pulse" style={{ minWidth: 100 }}>
       <div className="h-2.5 w-16 rounded mb-3" style={{ background: 'rgba(255,255,255,0.15)' }} />
@@ -78,51 +75,18 @@ function PortfolioSummaryStrip({ summary, loading }) {
   const nm = summary?.next_maturity
 
   const cards = loading ? null : [
-    {
-      label: 'Total Exposure',
-      value: fmtEurPlain(summary?.total_exposure_eur),
-      color: 'white',
-      sub:   'All active exposures',
-    },
-    {
-      label: 'Hedged',
-      value: fmtEurPlain(summary?.hedged_eur),
-      color: 'white',
-      sub:   'Executed + confirmed',
-    },
-    {
-      label: 'Open / Unhedged',
-      value: fmtEurPlain(summary?.open_eur),
-      color: 'white',
-      sub:   'Not yet hedged',
-    },
-    {
-      label: 'Locked P&L',
-      value: fmtEur(summary?.locked_pnl_eur),
-      color: pnlColor(summary?.locked_pnl_eur),
-      sub:   'Crystallised from hedges',
-    },
-    {
-      label: 'Floating P&L',
-      value: fmtEur(summary?.floating_pnl_eur),
-      color: pnlColor(summary?.floating_pnl_eur),
-      sub:   'Open positions vs spot',
-    },
-    {
-      label: 'Portfolio P&L',
-      value: fmtEur(summary?.portfolio_pnl_eur),
-      color: pnlColor(summary?.portfolio_pnl_eur),
-      sub:   'Locked + floating',
-    },
+    { label: 'Total Exposure',   value: fmtEurPlain(summary?.total_exposure_eur), color: 'white',               sub: 'All active exposures'     },
+    { label: 'Hedged',           value: fmtEurPlain(summary?.hedged_eur),          color: 'white',               sub: 'Executed + confirmed'     },
+    { label: 'Open / Unhedged',  value: fmtEurPlain(summary?.open_eur),            color: 'white',               sub: 'Not yet hedged'           },
+    { label: 'Locked P&L',       value: fmtEur(summary?.locked_pnl_eur),           color: pnlColor(summary?.locked_pnl_eur),   sub: 'Crystallised from hedges' },
+    { label: 'Floating P&L',     value: fmtEur(summary?.floating_pnl_eur),         color: pnlColor(summary?.floating_pnl_eur), sub: 'Open positions vs spot'   },
+    { label: 'Portfolio P&L',    value: fmtEur(summary?.portfolio_pnl_eur),        color: pnlColor(summary?.portfolio_pnl_eur), sub: 'Locked + floating'       },
   ]
 
   return (
-    <div
-      className="rounded-xl flex items-stretch overflow-hidden"
-      style={{ background: NAVY, height: 88, minHeight: 88 }}
-    >
+    <div className="rounded-xl flex items-stretch overflow-hidden"
+      style={{ background: NAVY, height: 88, minHeight: 88 }}>
       {loading ? (
-        // Skeleton shimmer — 7 equal slots
         <div className="flex w-full">
           {Array.from({ length: 7 }).map((_, i) => (
             <div key={i} className="flex-1 flex flex-col justify-center px-5 py-0"
@@ -133,7 +97,6 @@ function PortfolioSummaryStrip({ summary, loading }) {
         </div>
       ) : (
         <div className="flex w-full">
-          {/* KPI cards 1-6 */}
           {cards.map((card, i) => (
             <div key={i} className="flex-1 flex flex-col justify-center px-5 py-0"
               style={{ borderRight: '1px solid rgba(255,255,255,0.12)', minWidth: 0 }}>
@@ -151,62 +114,117 @@ function PortfolioSummaryStrip({ summary, loading }) {
             </div>
           ))}
 
-          {/* Next Maturity card — wider, 3-line value */}
-          <div className="flex flex-col justify-center px-5 py-0" style={{ minWidth: 160, maxWidth: 200 }}>
+          {/* Next Maturity — clickable to hedging register sorted by value date */}
+          <button
+            className="flex flex-col justify-center px-5 py-0 text-left hover:bg-white/5 transition-colors"
+            style={{ minWidth: 160, maxWidth: 200 }}
+            onClick={onNextMaturityClick}
+            title="View in Hedging → Exposure Register">
             <p className="uppercase tracking-wider font-semibold"
               style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', marginBottom: 4 }}>
               Next Maturity
             </p>
             {nm ? (
               <>
-                <p className="font-bold leading-tight"
-                  style={{ fontSize: 16, color: 'white' }}>
+                <p className="font-bold leading-tight" style={{ fontSize: 16, color: 'white' }}>
                   {fmtValueDate(nm.value_date)}
                 </p>
-                <p className="leading-tight mt-0.5"
-                  style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                <p className="leading-tight mt-0.5" style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
                   {nm.pair} · {fmtNotional(nm.notional, nm.currency)}
                 </p>
-                <p className="leading-tight"
-                  style={{ fontSize: 11, color: GOLD }}>
+                <p className="leading-tight" style={{ fontSize: 11, color: GOLD }}>
                   {fmtTranchId(nm.tranche_id)}
                 </p>
               </>
             ) : (
               <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.35)' }}>—</p>
             )}
-          </div>
+          </button>
         </div>
       )}
     </div>
   )
 }
 
+// ── Market Report Headline ────────────────────────────────────────────────────
+
+function MarketReportCard({ report, navigate }) {
+  if (!report) return null
+
+  // Extract first sentence from the report body for the headline preview
+  const getHeadline = () => {
+    try {
+      const content = typeof report.content_json === 'string'
+        ? JSON.parse(report.content_json)
+        : report.content_json
+      const body = content?.body || content?.summary || content?.analysis || ''
+      if (typeof body === 'string' && body.length > 0) {
+        const firstSentence = body.split(/[.!?]/)[0]?.trim()
+        return firstSentence && firstSentence.length > 20 ? firstSentence + '.' : body.slice(0, 140) + '…'
+      }
+      const title = content?.title || report.title || ''
+      return title || null
+    } catch {
+      return null
+    }
+  }
+
+  const fmtDate = (s) => {
+    if (!s) return ''
+    const d = new Date(s)
+    if (isNaN(d)) return s
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
+
+  const headline = getHeadline()
+  if (!headline) return null
+
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white shadow-sm px-5 py-4 flex items-start justify-between gap-4">
+      <div className="flex items-start gap-3 min-w-0">
+        <span className="text-xl shrink-0 mt-0.5">📊</span>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-0.5">
+            Weekly FX Report — {fmtDate(report.report_date)}
+          </p>
+          <p className="text-sm text-gray-700 leading-relaxed line-clamp-2">
+            {headline}
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={() => navigate('/reports')}
+        className="text-xs font-semibold shrink-0 px-3 py-1.5 rounded-lg transition-colors hover:opacity-80"
+        style={{ background: 'rgba(26,39,68,0.06)', color: NAVY }}>
+        Read full report →
+      </button>
+    </div>
+  )
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
 function Dashboard() {
-  // Use the shared CompanyContext so the navbar CompanySelector drives which company is shown
   const { selectedCompanyId, getSelectedCompany } = useCompany()
   const navigate = useNavigate()
   const selectedCompany = getSelectedCompany()
 
   const [exposures,         setExposures]         = useState([])
   const [enrichedExposures, setEnrichedExposures] = useState([])
-  const [portfolioStats, setPortfolioStats]       = useState(null)
+  const [portfolioStats,    setPortfolioStats]    = useState(null)
   const [loading,           setLoading]           = useState(false)
   const [refreshing,        setRefreshing]        = useState(false)
   const [lastUpdated,       setLastUpdated]       = useState(null)
   const [error,             setError]             = useState(null)
   const [policy,            setPolicy]            = useState(null)
-  const [editingExposure,   setEditingExposure]   = useState(null)
-  const [deletingExposure,  setDeletingExposure]  = useState(null)
-  const [showEditModal,     setShowEditModal]     = useState(false)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [dismissedZones,    setDismissedZones]    = useState({ defensive: false, opportunistic: false })
   const [summary,           setSummary]           = useState(null)
   const [summaryLoading,    setSummaryLoading]    = useState(true)
   const [mcRisk,            setMcRisk]            = useState(null)
-  const [facilities,        setFacilities]        = useState(null)   // utilisation data per bank
+  const [facilities,        setFacilities]        = useState(null)
+  const [marketReport,      setMarketReport]      = useState(null)
 
-  // When selected company changes — load everything
+  // Load all data when company changes
   useEffect(() => {
     if (!selectedCompanyId) return
     fetchExposures(selectedCompanyId)
@@ -215,9 +233,10 @@ function Dashboard() {
     fetchSummary(selectedCompanyId)
     fetchMcRisk(selectedCompanyId)
     fetchFacilities(selectedCompanyId)
+    fetchMarketReport(selectedCompanyId)
   }, [selectedCompanyId])
 
-  // Refresh dashboard when an execution happens on the Hedging tab
+  // Refresh when an execution happens on the Hedging tab
   useEffect(() => {
     function handlePortfolioUpdated() {
       if (!selectedCompanyId) return
@@ -230,40 +249,33 @@ function Dashboard() {
     return () => window.removeEventListener('portfolio-updated', handlePortfolioUpdated)
   }, [selectedCompanyId])
 
-  const fetchFacilities = async (companyId) => {
+  const fetchFacilities = async (cid) => {
     try {
-      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${cid}`, { headers: authHeaders() })
       if (res.ok) setFacilities(await res.json())
     } catch (e) { console.error('[facilities] fetch error:', e) }
   }
 
-  const fetchMcRisk = async (companyId) => {
+  const fetchMcRisk = async (cid) => {
     try {
-      const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/margin-call/status/${cid}`, { headers: authHeaders() })
       if (res.ok) setMcRisk(await res.json())
     } catch (e) { console.error('[mc-risk] fetch error:', e) }
   }
 
-  const fetchSummary = async (companyId) => {
+  const fetchSummary = async (cid) => {
     setSummaryLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/dashboard/summary?company_id=${companyId}`, { headers: authHeaders() })
-      if (res.ok) {
-        setSummary(await res.json())
-      } else {
-        const body = await res.text().catch(() => '')
-        console.error(`[dashboard/summary] HTTP ${res.status}:`, body)
-      }
-    } catch (e) {
-      console.error('[dashboard/summary] fetch error:', e)
-    } finally {
-      setSummaryLoading(false)
-    }
+      const res = await fetch(`${API_BASE}/api/dashboard/summary?company_id=${cid}`, { headers: authHeaders() })
+      if (res.ok) setSummary(await res.json())
+      else console.error(`[dashboard/summary] HTTP ${res.status}`)
+    } catch (e) { console.error('[dashboard/summary] fetch error:', e) }
+    finally { setSummaryLoading(false) }
   }
 
-  const fetchPolicy = async (companyId) => {
+  const fetchPolicy = async (cid) => {
     try {
-      const r = await fetch(`${API_BASE}/api/policies?company_id=${companyId}`, { headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/policies?company_id=${cid}`, { headers: authHeaders() })
       if (r.ok) {
         const data = await r.json()
         const active = (data.policies || []).find(p => p.is_active)
@@ -272,11 +284,11 @@ function Dashboard() {
     } catch {}
   }
 
-  const fetchExposures = async (companyId) => {
+  const fetchExposures = async (cid) => {
     setLoading(true)
     setError(null)
     try {
-      const res  = await fetch(`${API_BASE}/exposures?company_id=${companyId}`, { headers: authHeaders() })
+      const res  = await fetch(`${API_BASE}/exposures?company_id=${cid}`, { headers: authHeaders() })
       const data = await res.json()
       setExposures(Array.isArray(data) ? data : [])
       setLastUpdated(new Date())
@@ -284,9 +296,9 @@ function Dashboard() {
     finally { setLoading(false) }
   }
 
-  const fetchEnriched = async (companyId) => {
+  const fetchEnriched = async (cid) => {
     try {
-      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${cid}`, { headers: authHeaders() })
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data)) {
@@ -300,6 +312,13 @@ function Dashboard() {
     } catch (e) { console.error('Enriched fetch failed:', e) }
   }
 
+  const fetchMarketReport = async (cid) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/reports/market/${cid}`, { headers: authHeaders() })
+      if (res.ok) setMarketReport(await res.json())
+    } catch {}
+  }
+
   const refreshRates = async () => {
     if (!selectedCompanyId) return
     setRefreshing(true)
@@ -311,62 +330,24 @@ function Dashboard() {
     setRefreshing(false)
   }
 
-  const handleEditSave = async (updated) => {
-    try {
-      const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${updated.id}`, {
-        method: 'PUT', headers: authHeaders(), body: JSON.stringify(updated)
-      })
-      if (r.ok) {
-        setShowEditModal(false)
-        setEditingExposure(null)
-        fetchExposures(selectedCompanyId)
-        fetchEnriched(selectedCompanyId)
-      } else { alert('Failed to update') }
-    } catch { alert('Error updating') }
-  }
-
-  const handleDeleteConfirm = async () => {
-    try {
-      const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, {
-        method: 'DELETE', headers: authHeaders()
-      })
-      if (r.ok) {
-        setShowDeleteConfirm(false)
-        setDeletingExposure(null)
-        fetchExposures(selectedCompanyId)
-        fetchEnriched(selectedCompanyId)
-      } else { alert('Failed to delete') }
-    } catch { alert('Error deleting') }
-  }
-
-  // ── Derived values ────────────────────────────────────────────
-  // All EUR totals come from the enriched endpoint which runs proper currency conversion
-  // (USD pivot cross-rate). Never use raw amounts × cross-rate for EUR aggregation.
-  //
-  // totalExposure: portfolioStats.total_base is already EUR-converted (preferred).
-  //               Fall back to summing total_amount_eur from enriched items if portfolioStats
-  //               hasn't arrived yet.
-  // totalPnl:     combined_pnl on each enriched item is EUR-converted by the backend
-  //               via pnl_factor = from_base_rate / current_spot.
-  // currencyDist: uses total_amount_eur per item so pie slices reflect EUR values,
-  //               not raw JPY/NOK notionals.
+  // ── Derived values ────────────────────────────────────────────────────────
   const activeEnriched = enrichedExposures.filter(e => !e.archived)
   const totalExposure  = portfolioStats?.total_base
     ?? activeEnriched.reduce((s, e) => s + (e.total_amount_eur || 0), 0)
   const totalPnl = activeEnriched.length > 0
     ? activeEnriched.reduce((s, e) => s + (e.combined_pnl || 0), 0)
-    : exposures.reduce((s, e) => s + (e.current_pnl_eur || 0), 0)  // EUR-converted fallback (basic endpoint)
+    : exposures.reduce((s, e) => s + (e.current_pnl_eur || 0), 0)
   const hedgedValue   = exposures.reduce((s, e) => s + (e.hedged_amount || 0), 0)
   const unhedgedValue = exposures.reduce((s, e) => s + (e.unhedged_amount || 0), 0)
   const breaches      = exposures.filter(e => e.pnl_status === 'BREACH')
   const warnings      = exposures.filter(e => e.pnl_status === 'WARNING')
   const hedgePct      = totalExposure > 0 ? (hedgedValue / totalExposure) * 100 : 0
 
-  // Zone alert pairs — derived from enriched endpoint (has budget_rate + live spot)
+  // Zone alert pairs — from enriched endpoint (has live spot + budget)
   const defensivePairs     = [...new Set(enrichedExposures.filter(e => e.current_zone === 'defensive').map(e => e.currency_pair))]
   const opportunisticPairs = [...new Set(enrichedExposures.filter(e => e.current_zone === 'opportunistic').map(e => e.currency_pair))]
 
-  // Currency mix pie — use EUR-converted notionals so JPY 500M doesn't dominate the chart
+  // Currency mix pie
   const currencyDist = activeEnriched.length > 0
     ? activeEnriched.reduce((acc, e) => {
         const v = e.total_amount_eur || 0
@@ -376,15 +357,14 @@ function Dashboard() {
         return acc
       }, [])
     : exposures.reduce((acc, e) => {
-        const v = e.total_amount_eur ?? Math.abs(e.amount)  // prefer EUR-converted; raw only if unavailable
+        const v = e.total_amount_eur ?? Math.abs(e.amount)
         const x = acc.find(i => i.currency === e.from_currency)
         if (x) x.value += v
         else acc.push({ currency: e.from_currency, value: v })
         return acc
       }, [])
 
-  // Rate vs Budget — one bar per unique pair, labelled with both flags
-  // Deduplicate by pair first so GBP/USD and GBP/NOK each get their own bar
+  // Rate vs Budget bar chart
   const rateChanges = [...new Map(
     exposures
       .filter(e => e.budget_rate && e.current_rate)
@@ -397,7 +377,7 @@ function Dashboard() {
     }))
     .sort((a, b) => b.change - a.change)
 
-  // ── Coverage card data ────────────────────────────────────────
+  // Hedge coverage by pair
   const coverageByPair = Object.entries(
     enrichedExposures.reduce((acc, e) => {
       const pair = e.currency_pair
@@ -417,87 +397,107 @@ function Dashboard() {
   return (
     <div className="space-y-4">
 
-      {/* ── Portfolio Summary Strip ──────────────────────────────────────── */}
-      <PortfolioSummaryStrip summary={summary} loading={summaryLoading} />
+      {/* 1 ── Portfolio Summary Strip */}
+      <PortfolioSummaryStrip
+        summary={summary}
+        loading={summaryLoading}
+        onNextMaturityClick={() => navigate('/hedging', {
+          state: { section: 'register', sortBy: 'value_date' }
+        })}
+      />
 
-      {/* Breach banner */}
+      {/* 2 ── Breach banner — one per breaching pair, links to recommendations */}
       {breaches.length > 0 && (
-        <div className="rounded-xl px-5 py-4 flex items-center gap-3"
+        <div className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
           style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>
-          <AlertTriangle size={20} color={DANGER} />
-          <div>
-            <span className="font-bold text-sm" style={{ color: DANGER }}>
-              {breaches.length} breach{breaches.length > 1 ? 'es' : ''} require attention —{' '}
-            </span>
-            <span className="text-sm text-gray-600">
-              {breaches.map(e => `${e.from_currency}/${e.to_currency}`).join(', ')}
-            </span>
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={20} color={DANGER} />
+            <div>
+              <span className="font-bold text-sm" style={{ color: DANGER }}>
+                {breaches.length} breach{breaches.length > 1 ? 'es' : ''} require attention
+              </span>
+              <span className="text-sm text-gray-600 ml-1.5">
+                {breaches.map(e => `${e.from_currency}/${e.to_currency}`).join(', ')}
+              </span>
+            </div>
           </div>
+          <button
+            onClick={() => navigate('/hedging', { state: { section: 'recommendations' } })}
+            className="text-xs px-3 py-1.5 rounded-lg font-semibold shrink-0"
+            style={{ background: DANGER, color: 'white' }}>
+            Review recommendations →
+          </button>
         </div>
       )}
 
-      {/* Margin call risk banner */}
+      {/* 3 ── Margin call banner — links to MTM report */}
       {mcRisk && mcRisk.at_risk_count > 0 && (
-        <div className="rounded-xl px-5 py-4 flex items-center gap-3"
+        <div className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
           style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.5)' }}>
-          <AlertTriangle size={20} color={DANGER} />
-          <div>
-            <span className="font-bold text-sm" style={{ color: DANGER }}>
-              Margin Call Risk — {mcRisk.at_risk_count} tranche{mcRisk.at_risk_count > 1 ? 's' : ''} at risk
-              {' '}(€{(mcRisk.total_exposure_at_risk_eur / 1000).toFixed(0)}K exposure){' '}
-            </span>
-            <span className="text-sm text-gray-600">
-              MTM loss exceeds {mcRisk.threshold_pct}% threshold. Review in MTM Report.
-            </span>
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={20} color={DANGER} />
+            <div>
+              <span className="font-bold text-sm" style={{ color: DANGER }}>
+                Margin Call Risk — {mcRisk.at_risk_count} tranche{mcRisk.at_risk_count > 1 ? 's' : ''} at risk
+                {' '}(€{(mcRisk.total_exposure_at_risk_eur / 1000).toFixed(0)}K exposure)
+              </span>
+              <span className="text-sm text-gray-600 ml-1.5">
+                MTM loss exceeds {mcRisk.threshold_pct}% threshold.
+              </span>
+            </div>
           </div>
+          <button
+            onClick={() => navigate('/reports', { state: { mtmFilter: 'at_risk' } })}
+            className="text-xs px-3 py-1.5 rounded-lg font-semibold shrink-0"
+            style={{ background: DANGER, color: 'white' }}>
+            Review in MTM Report →
+          </button>
         </div>
       )}
 
-      {/* Facility utilisation cards — only shown when facilities exist */}
-      {facilities && facilities.facilities && facilities.facilities.length > 0 && (
-        <div>
-          <div className="flex flex-wrap gap-3">
-            {facilities.facilities.map(fac => {
-              const barColor = fac.utilisation_pct > 90 ? '#EF4444'
-                             : fac.utilisation_pct >= 70 ? '#F59E0B'
-                             : '#10B981'
-              const fmtM = (n) => {
-                if (n >= 1_000_000) return `EUR ${(n / 1_000_000).toFixed(1)}M`
-                if (n >= 1_000)     return `EUR ${(n / 1_000).toFixed(0)}K`
-                return `EUR ${n.toFixed(0)}`
-              }
-              const fmtDate = (s) => {
-                if (!s) return null
-                const d = new Date(s)
-                return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-              }
-              return (
-                <div key={fac.id} className="rounded-xl border p-4"
-                  style={{ background: 'white', borderColor: '#E5E7EB', minWidth: 200, flex: '1 1 200px', maxWidth: 280 }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-bold" style={{ color: NAVY }}>{fac.bank_name}</span>
-                    <span className="text-sm font-bold" style={{ color: barColor }}>{fac.utilisation_pct.toFixed(0)}%</span>
-                  </div>
-                  {/* Progress bar */}
-                  <div className="rounded-full overflow-hidden mb-2" style={{ background: '#E5E7EB', height: 6 }}>
-                    <div className="h-full rounded-full transition-all"
-                      style={{ width: `${Math.min(fac.utilisation_pct, 100)}%`, background: barColor }} />
-                  </div>
-                  <p className="text-xs text-gray-500">{fmtM(fac.utilised_eur)} used of {fmtM(fac.facility_limit_eur)}</p>
-                  <p className="text-xs font-semibold mt-0.5" style={{ color: barColor }}>{fmtM(fac.available_eur)} available</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {fac.tranche_count} forward{fac.tranche_count !== 1 ? 's' : ''}
-                    {fac.next_maturity ? ` · Next: ${fmtDate(fac.next_maturity)}` : ''}
-                  </p>
+      {/* 4 ── Facility utilisation cards — clickable to bank settings */}
+      {facilities?.facilities?.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {facilities.facilities.map(fac => {
+            const barColor = fac.utilisation_pct > 90 ? '#EF4444'
+                           : fac.utilisation_pct >= 70 ? '#F59E0B'
+                           : '#10B981'
+            const fmtFac = (n) => {
+              if (n >= 1_000_000) return `EUR ${(n / 1_000_000).toFixed(1)}M`
+              if (n >= 1_000)     return `EUR ${(n / 1_000).toFixed(0)}K`
+              return `EUR ${n.toFixed(0)}`
+            }
+            const fmtDate = (s) => {
+              if (!s) return null
+              return new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+            }
+            return (
+              <button key={fac.id}
+                onClick={() => navigate('/settings/bank')}
+                className="rounded-xl border p-4 text-left hover:shadow-md transition-shadow"
+                style={{ background: 'white', borderColor: '#E5E7EB', minWidth: 200, flex: '1 1 200px', maxWidth: 280 }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-bold" style={{ color: NAVY }}>{fac.bank_name}</span>
+                  <span className="text-sm font-bold" style={{ color: barColor }}>{fac.utilisation_pct.toFixed(0)}%</span>
                 </div>
-              )
-            })}
-          </div>
+                <div className="rounded-full overflow-hidden mb-2" style={{ background: '#E5E7EB', height: 6 }}>
+                  <div className="h-full rounded-full transition-all"
+                    style={{ width: `${Math.min(fac.utilisation_pct, 100)}%`, background: barColor }} />
+                </div>
+                <p className="text-xs text-gray-500">{fmtFac(fac.utilised_eur)} used of {fmtFac(fac.facility_limit_eur)}</p>
+                <p className="text-xs font-semibold mt-0.5" style={{ color: barColor }}>{fmtFac(fac.available_eur)} available</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {fac.tranche_count} forward{fac.tranche_count !== 1 ? 's' : ''}
+                  {fac.next_maturity ? ` · Next: ${fmtDate(fac.next_maturity)}` : ''}
+                </p>
+              </button>
+            )
+          })}
         </div>
       )}
 
-      {/* Facility critical banner — shown when any facility exceeds 90% */}
-      {facilities && facilities.facilities && facilities.facilities.some(f => f.status === 'CRITICAL') && (
+      {/* Facility critical banner */}
+      {facilities?.facilities?.some(f => f.status === 'CRITICAL') &&
         facilities.facilities.filter(f => f.status === 'CRITICAL').map(fac => (
           <div key={fac.id} className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
             style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
@@ -509,19 +509,17 @@ function Dashboard() {
                 EUR {(fac.available_eur / 1000).toFixed(0)}K remaining headroom
               </span>
             </div>
-            {(
-              <button
-                onClick={() => navigate('/settings/bank')}
-                className="text-xs px-3 py-1.5 rounded-lg font-semibold shrink-0"
-                style={{ background: WARNING, color: 'white' }}>
-                Review →
-              </button>
-            )}
+            <button
+              onClick={() => navigate('/settings/bank')}
+              className="text-xs px-3 py-1.5 rounded-lg font-semibold shrink-0"
+              style={{ background: WARNING, color: 'white' }}>
+              Review →
+            </button>
           </div>
         ))
-      )}
+      }
 
-      {/* Defensive zone banner */}
+      {/* 5a ── Defensive zone banners — per pair, links to register filtered */}
       {defensivePairs.length > 0 && !dismissedZones.defensive && (
         <div className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
           style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
@@ -532,17 +530,18 @@ function Dashboard() {
                 {defensivePairs.join(', ')}
               </span>
               <span className="text-sm text-gray-600 ml-1">
-                {defensivePairs.length === 1 ? 'has' : 'have'} moved adversely vs budget rate.
-                Defensive hedging recommended.
+                {defensivePairs.length === 1 ? 'has' : 'have'} moved adversely vs budget. Defensive hedging recommended.
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => navigate('/hedging')}
+              onClick={() => navigate('/hedging', {
+                state: { section: 'register', focusPair: defensivePairs[0] }
+              })}
               className="text-xs px-3 py-1.5 rounded-lg font-semibold"
               style={{ background: WARNING, color: 'white' }}>
-              Review
+              Review →
             </button>
             <button onClick={() => setDismissedZones(d => ({ ...d, defensive: true }))}>
               <X size={15} color={WARNING} />
@@ -551,7 +550,7 @@ function Dashboard() {
         </div>
       )}
 
-      {/* Opportunistic zone banner */}
+      {/* 5b ── Opportunistic zone banner */}
       {opportunisticPairs.length > 0 && !dismissedZones.opportunistic && (
         <div className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
           style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)' }}>
@@ -562,17 +561,18 @@ function Dashboard() {
                 {opportunisticPairs.join(', ')}
               </span>
               <span className="text-sm text-gray-600 ml-1">
-                {opportunisticPairs.length === 1 ? 'is' : 'are'} trading favourably.
-                Consider opportunistic hedging.
+                {opportunisticPairs.length === 1 ? 'is' : 'are'} trading favourably. Consider opportunistic hedging.
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => navigate('/hedging')}
+              onClick={() => navigate('/hedging', {
+                state: { section: 'register', focusPair: opportunisticPairs[0] }
+              })}
               className="text-xs px-3 py-1.5 rounded-lg font-semibold"
               style={{ background: SUCCESS, color: 'white' }}>
-              Review
+              Review →
             </button>
             <button onClick={() => setDismissedZones(d => ({ ...d, opportunistic: true }))}>
               <X size={15} color={SUCCESS} />
@@ -581,7 +581,7 @@ function Dashboard() {
         </div>
       )}
 
-      {/* Portfolio summary */}
+      {/* 6 ── BIRK main panel */}
       {exposures.length > 0 && (
         <div className="rounded-xl p-6" style={{ background: NAVY }}>
           <div className="flex items-center justify-between mb-6">
@@ -639,7 +639,10 @@ function Dashboard() {
               </div>
               <div className="mt-3 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)', height: 6 }}>
                 <div className="h-full rounded-full transition-all"
-                  style={{ width: `${Math.min(portfolioStats?.protection_pct ?? hedgePct, 100)}%`, background: (portfolioStats?.protection_pct ?? hedgePct) >= 60 ? SUCCESS : WARNING }} />
+                  style={{
+                    width: `${Math.min(portfolioStats?.protection_pct ?? hedgePct, 100)}%`,
+                    background: (portfolioStats?.protection_pct ?? hedgePct) >= 60 ? SUCCESS : WARNING,
+                  }} />
               </div>
               <p className="text-xs mt-2" style={{ color: '#8DA4C4' }}>
                 {portfolioStats
@@ -648,7 +651,7 @@ function Dashboard() {
               </p>
             </div>
 
-            {/* Attention */}
+            {/* Requires attention */}
             <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8DA4C4' }}>
                 Requires Attention
@@ -671,7 +674,10 @@ function Dashboard() {
         </div>
       )}
 
-      {/* Charts */}
+      {/* 7 ── Market report headline */}
+      <MarketReportCard report={marketReport} navigate={navigate} />
+
+      {/* 8 ── Currency Mix + Rate vs Budget charts */}
       {exposures.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
@@ -703,7 +709,7 @@ function Dashboard() {
         </div>
       )}
 
-      {/* Live Rates + Hedge Coverage */}
+      {/* 9 ── Live Rates + Hedge Coverage by Pair */}
       {exposures.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -787,106 +793,6 @@ function Dashboard() {
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
-      )}
-
-      {/* Exposure Register */}
-      <ExposureRegister
-        companyId={selectedCompanyId}
-        onEdit={(exp) => { setEditingExposure(exp); setShowEditModal(true) }}
-        onDelete={(exp) => { setDeletingExposure(exp); setShowDeleteConfirm(true) }}
-        onHedgeNow={(exp) => navigate('/hedging', { state: { focusExposure: exp } })}
-      />
-
-      {/* Edit Modal */}
-      {showEditModal && editingExposure && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-8 max-w-2xl w-full mx-4 shadow-2xl">
-            <h2 className="text-lg font-bold mb-6" style={{ color: NAVY }}>Edit Exposure</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Reference</label>
-                <input type="text" value={editingExposure.reference || ''}
-                  onChange={(e) => setEditingExposure({ ...editingExposure, reference: e.target.value })}
-                  placeholder="e.g. INV-2024-001"
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Amount</label>
-                <input type="number" value={editingExposure.amount}
-                  onChange={(e) => setEditingExposure({ ...editingExposure, amount: parseFloat(e.target.value) })}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Direction</label>
-                <select value={editingExposure.direction || 'Buy'}
-                  onChange={(e) => setEditingExposure({ ...editingExposure, direction: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm">
-                  <option value="Buy">Buy (Payable)</option>
-                  <option value="Sell">Sell (Receivable)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Budget Rate</label>
-                <input type="number" step="0.0001" value={editingExposure.budget_rate || ''}
-                  onChange={(e) => setEditingExposure({ ...editingExposure, budget_rate: parseFloat(e.target.value) })}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Instrument</label>
-                <select value={editingExposure.instrument_type || 'Spot'}
-                  onChange={(e) => setEditingExposure({ ...editingExposure, instrument_type: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm">
-                  <option value="Spot">Spot</option>
-                  <option value="Forward">Forward</option>
-                  <option value="NDF">NDF</option>
-                  <option value="Option">Option</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Start Date</label>
-                <input type="date" value={editingExposure.start_date || ''}
-                  onChange={(e) => setEditingExposure({ ...editingExposure, start_date: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Due Date</label>
-                <input type="date" value={editingExposure.due_date || ''}
-                  onChange={(e) => setEditingExposure({ ...editingExposure, due_date: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: NAVY }}>Description</label>
-                <textarea value={editingExposure.description || ''}
-                  onChange={(e) => setEditingExposure({ ...editingExposure, description: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm" rows="2" />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => { setShowEditModal(false); setEditingExposure(null) }}
-                className="px-5 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
-              <button onClick={() => handleEditSave(editingExposure)}
-                className="px-5 py-2 text-white rounded-lg text-sm font-semibold" style={{ background: NAVY }}>Save Changes</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Modal */}
-      {showDeleteConfirm && deletingExposure && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4 shadow-2xl">
-            <h2 className="text-lg font-bold mb-2" style={{ color: NAVY }}>Delete Exposure?</h2>
-            <p className="text-gray-500 text-sm mb-6">
-              {deletingExposure.from_currency}/{deletingExposure.to_currency} — {deletingExposure.amount?.toLocaleString()} {deletingExposure.from_currency}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => { setShowDeleteConfirm(false); setDeletingExposure(null) }}
-                className="px-5 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">Cancel</button>
-              <button onClick={handleDeleteConfirm}
-                className="px-5 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700">Delete</button>
-            </div>
-          </div>
-        </div>
       )}
 
     </div>
