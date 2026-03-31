@@ -371,6 +371,7 @@ export default function Simulator() {
   const calcTimerRef                      = useRef(null)
 
   useEffect(() => {
+    if (!companyId) return   // wait until CompanyContext has resolved
     setData(null)
     setError(null)
     setSelectedShock(-5)
