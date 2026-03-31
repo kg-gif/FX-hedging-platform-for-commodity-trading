@@ -118,6 +118,8 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
       }
 
       setExecuted(true)
+      // Notify Dashboard (and any other listeners) that portfolio data has changed
+      window.dispatchEvent(new CustomEvent('portfolio-updated'))
       setTimeout(() => { if (onExecuted) onExecuted() }, 1500)
     } catch (e) {
       console.error('Mark executed failed:', e)
@@ -534,6 +536,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
   const [customAmounts, setCustomAmounts]     = useState({})
   const [allExposures, setAllExposures]       = useState([])
   const [facilities,   setFacilities]         = useState([])   // bank facilities for dropdown
+  const [mcRisk,       setMcRisk]             = useState(null)
   const cardRefs = useRef({})
 
   useEffect(() => {
@@ -545,6 +548,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
     setError(null)
     loadAll()
     loadFacilities()
+    loadMcRisk()
   }, [companyId])
 
   // When navigated here via Hedge Now — expand and scroll to the target card
@@ -576,6 +580,13 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
         zone_target_ratio:  focusExposure.zone_target_ratio ?? null,
       }
     : null
+
+  async function loadMcRisk() {
+    try {
+      const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { headers: authHeaders() })
+      if (res.ok) setMcRisk(await res.json())
+    } catch (e) { console.error('[mc-risk] fetch error:', e) }
+  }
 
   async function loadFacilities() {
     try {
@@ -661,10 +672,16 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
       </div>
 
       {recommendations.length === 0 && !adhocRec && (
-        <div className="bg-green-50 rounded-xl p-6 border border-green-200">
-          <p className="text-green-700 font-semibold text-sm">
-            All exposures are within policy targets. No action required.
-          </p>
+        <div className={`rounded-xl p-6 border ${mcRisk?.at_risk_count > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+          {mcRisk?.at_risk_count > 0 ? (
+            <p className="text-red-700 font-semibold text-sm">
+              {mcRisk.at_risk_count} tranche{mcRisk.at_risk_count > 1 ? 's' : ''} at margin call risk — review MTM exposure before trading.
+            </p>
+          ) : (
+            <p className="text-green-700 font-semibold text-sm">
+              All exposures are within policy targets. No action required.
+            </p>
+          )}
         </div>
       )}
 

@@ -217,6 +217,19 @@ function Dashboard() {
     fetchFacilities(selectedCompanyId)
   }, [selectedCompanyId])
 
+  // Refresh dashboard when an execution happens on the Hedging tab
+  useEffect(() => {
+    function handlePortfolioUpdated() {
+      if (!selectedCompanyId) return
+      fetchExposures(selectedCompanyId)
+      fetchEnriched(selectedCompanyId)
+      fetchSummary(selectedCompanyId)
+      fetchMcRisk(selectedCompanyId)
+    }
+    window.addEventListener('portfolio-updated', handlePortfolioUpdated)
+    return () => window.removeEventListener('portfolio-updated', handlePortfolioUpdated)
+  }, [selectedCompanyId])
+
   const fetchFacilities = async (companyId) => {
     try {
       const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })

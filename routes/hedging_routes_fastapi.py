@@ -29,7 +29,7 @@ def get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(securi
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 def resolve_company_id(requested_id: int, payload: dict) -> int:
-    if payload.get("role") == "admin":
+    if payload.get("role") in ("superadmin", "admin"):
         return requested_id
     token_company_id = payload.get("company_id")
     if not token_company_id:

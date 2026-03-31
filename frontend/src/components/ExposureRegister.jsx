@@ -261,8 +261,8 @@ function StatusBadge({ status, archived }) {
     NO_BUDGET:   'bg-gray-100 text-gray-400',
   }
   const labels = {
-    BREACH: 'BREACH', OPEN: 'OPEN', IN_PROGRESS: 'IN PROGRESS',
-    WELL_HEDGED: 'HEDGED', NO_BUDGET: 'NO BUDGET'
+    BREACH: 'Breach', OPEN: 'Open', IN_PROGRESS: 'In Progress',
+    WELL_HEDGED: 'Hedged', NO_BUDGET: 'No Budget'
   }
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${map[status] || map.OPEN}`}>
