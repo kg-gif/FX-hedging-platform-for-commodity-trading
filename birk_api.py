@@ -2649,21 +2649,9 @@ async def get_dashboard_summary(
             if not isinstance(r, Exception) and r is not None:
                 usd_map[ccy] = float(r)
 
-        eur_usd = usd_map.get("EUR")  # USD per 1 EUR
-
-        def to_eur(amount, currency: str) -> float:
-            """Convert an amount in `currency` to EUR using USD as pivot."""
-            if amount is None:
-                return 0.0
-            v = float(amount)
-            if currency == "EUR":
-                return v
-            ccy_usd = usd_map.get(currency)
-            if ccy_usd is None or eur_usd is None or eur_usd == 0:
-                # Rate unavailable — return unconverted so the endpoint never crashes
-                print(f"[dashboard/summary] WARNING: no USD rate for {currency}, returning unconverted")
-                return v
-            return v * ccy_usd / eur_usd
+        # Build rates dict in the format pnl_to_eur expects: {'CCY/USD': rate}
+        from services.currency_utils import pnl_to_eur as _pnl_to_eur
+        rates_for_eur = {f"{ccy}/USD": rate for ccy, rate in usd_map.items()}
 
         # ── 3. Loop over exposures, accumulate EUR totals ─────────────────────
         total_exposure_eur = 0.0
@@ -2702,12 +2690,12 @@ async def get_dashboard_summary(
                 pnl = calculate_pnl_split(exp_for_pnl, tranche_list, current_spot)
 
                 # total_amount and hedged_amount are in from_currency
-                total_exposure_eur += to_eur(total_amount,           exp["from_currency"])
-                hedged_eur         += to_eur(pnl["hedged_amount"],   exp["from_currency"])
+                total_exposure_eur += _pnl_to_eur(total_amount,           exp["from_currency"], rates_for_eur)
+                hedged_eur         += _pnl_to_eur(pnl["hedged_amount"],   exp["from_currency"], rates_for_eur)
 
                 # P&L = (rate - budget_rate) × amount_from  →  result is in to_currency
-                locked_pnl_eur   += to_eur(pnl["locked_pnl"],   exp["to_currency"])
-                floating_pnl_eur += to_eur(pnl["floating_pnl"], exp["to_currency"])
+                locked_pnl_eur   += _pnl_to_eur(pnl["locked_pnl"],   exp["to_currency"], rates_for_eur)
+                floating_pnl_eur += _pnl_to_eur(pnl["floating_pnl"], exp["to_currency"], rates_for_eur)
 
             except Exception as exp_err:
                 # One bad exposure must not kill the whole summary

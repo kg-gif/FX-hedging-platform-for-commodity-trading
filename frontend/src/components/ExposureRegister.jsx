@@ -607,11 +607,31 @@ function ArchiveModal({ exposure, onClose, onConfirm }) {
   )
 }
 
+// ── Tab definitions ───────────────────────────────────────────────────────────
+const TABS = [
+  { id: 'requires_action',     label: 'Requires Action',     emoji: '⚠️', badgeColor: DANGER  },
+  { id: 'in_progress',         label: 'In Progress',         emoji: '🔄', badgeColor: WARNING },
+  { id: 'hedged',              label: 'Hedged',              emoji: '✅', badgeColor: SUCCESS },
+  { id: 'awaiting_settlement', label: 'Awaiting Settlement', emoji: '🕐', badgeColor: WARNING },
+  { id: 'settled',             label: 'Settled',             emoji: '📁', badgeColor: null    },
+]
+
+// Columns shown per lifecycle tab — each tab surfaces the most relevant data
+const TAB_COLUMNS = {
+  requires_action:     ['Pair', 'Description', 'Total', 'Open', 'Hedge %', 'Combined P&L', 'Zone', 'Status', 'Actions'],
+  in_progress:         ['Pair', 'Description', 'Total', 'Hedged', 'Open', 'Hedge %', 'Locked P&L', 'Floating P&L', 'Zone', 'Actions'],
+  hedged:              ['Pair', 'Description', 'Total', 'Hedged', 'Hedge %', 'Locked P&L', 'Value Date', 'Status'],
+  awaiting_settlement: ['Pair', 'Description', 'Total', 'Hedged', 'Value Date', 'Days Overdue', 'Bank Ref', 'Actions'],
+  settled:             ['Pair', 'Description', 'Total', 'Final Hedge %', 'Settlement Date', 'Final P&L'],
+}
+
 export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeNow }) {
   const { getSelectedCompany } = useCompany()
   const baseCurrency = getSelectedCompany()?.base_currency || 'EUR'
 
-  const [exposures, setExposures]         = useState([])
+  const storageKey = `exposure_tab_${companyId}`
+  const [activeTab, setActiveTab]         = useState(() => localStorage.getItem(storageKey) || 'requires_action')
+  const [tabData, setTabData]             = useState({})
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState(null)
   const [expanded, setExpanded]           = useState({})
@@ -619,29 +639,29 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
   const [corridorModal, setCorridorModal] = useState(null)
   const [confirmModal, setConfirmModal]   = useState(null)  // { tranche, ccy }
   const [archiveModal, setArchiveModal]   = useState(null)
-  const [searchText, setSearchText]       = useState('')
-  const [filterCcy, setFilterCcy]         = useState('')
-  const [page, setPage]                   = useState(1)
-  const [viewMode, setViewMode]           = useState('active') // 'active' | 'archived' | 'all'
-  const [highlightId, setHighlightId]     = useState(null)
-  const highlightRef                      = useRef(null)
-  const PAGE_SIZE = 10
 
-  useEffect(() => { if (companyId) load() }, [companyId, viewMode])
+  useEffect(() => {
+    if (!companyId) return
+    load()
+    // Refresh when another component (e.g. HedgingRecommendations) executes a trade
+    const handler = () => load()
+    window.addEventListener('portfolio-updated', handler)
+    return () => window.removeEventListener('portfolio-updated', handler)
+  }, [companyId])
 
   async function load() {
     setLoading(true)
     setError(null)
     try {
-      const includeArchived = viewMode !== 'active'
-      const res = await fetch(
-        `${API_BASE}/api/exposures/enriched?company_id=${companyId}&include_archived=${includeArchived}`,
-        { headers: authHeaders() }
-      )
+      const res = await fetch(`${API_BASE}/api/exposures/tabbed/${companyId}`, { headers: authHeaders() })
       if (!res.ok) throw new Error('Failed to load')
       const data = await res.json()
-      setExposures(Array.isArray(data) ? data : (data.items || []))
-      setPage(1)
+      setTabData(data)
+      // Auto-select requires_action on first load if it has items and no saved preference
+      if (!localStorage.getItem(storageKey)) {
+        const defaultTab = (data.requires_action?.count || 0) > 0 ? 'requires_action' : 'in_progress'
+        setActiveTab(defaultTab)
+      }
     } catch (e) {
       setError('Failed to load exposure register')
     } finally {
@@ -649,17 +669,20 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
     }
   }
 
+  function switchTab(tabId) {
+    setActiveTab(tabId)
+    localStorage.setItem(storageKey, tabId)
+  }
+
   function toggleExpand(id) {
     const nowExpanding = !expanded[id]
     setExpanded(prev => ({ ...prev, [id]: nowExpanding }))
-
-    // Fetch MTM data the first time an exposure row is expanded (lazy load)
+    // Lazy-load MTM data the first time a row is expanded
     if (nowExpanding && !mtmData[id]) {
       fetch(`${API_BASE}/api/tranches/mtm/${id}`, { headers: authHeaders() })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
-          if (!data || !data.tranches) return
-          // Index by tranche_id for fast lookup in TrancheRow
+          if (!data?.tranches) return
           const byId = {}
           data.tranches.forEach(t => { byId[t.tranche_id] = t })
           setMtmData(prev => ({ ...prev, [id]: byId }))
@@ -668,66 +691,266 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
     }
   }
 
+  async function handleMarkSettled(exp) {
+    try {
+      const res = await fetch(`${API_BASE}/api/exposures/${exp.id}/archive`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ reason: 'Settlement complete' })
+      })
+      if (!res.ok) throw new Error('Failed')
+      load()
+    } catch (e) { alert('Failed to mark as settled') }
+  }
+
   async function handleUnarchive(exp) {
     try {
       const res = await fetch(`${API_BASE}/api/exposures/${exp.id}/unarchive`, {
         method: 'POST', headers: authHeaders()
       })
-      if (!res.ok) throw new Error('Unarchive failed')
+      if (!res.ok) throw new Error('Failed')
       load()
     } catch (e) { alert('Failed to unarchive exposure') }
   }
 
-  // Auto-archive suggestion: past maturity OR 100% hedged with all tranches confirmed
-  const today = new Date().toISOString().split('T')[0]
-  const archiveSuggestions = (viewMode === 'active' ? exposures : []).filter(e => {
-    const pastMaturity = e.end_date && e.end_date < today
-    const fullyConfirmed = e.hedge_pct >= 100 &&
-      e.tranches?.length > 0 &&
-      e.tranches.every(t => t.status === 'confirmed')
-    return pastMaturity || fullyConfirmed
-  })
+  // Portfolio P&L totals — active tabs only (excludes awaiting_settlement + settled)
+  const activeTabsForPnl = ['requires_action', 'in_progress', 'hedged']
+  const allActiveExposures = activeTabsForPnl.flatMap(t => tabData[t]?.exposures || [])
+  const totalLockedPnl   = allActiveExposures.reduce((s, e) => s + (e.locked_pnl   || 0), 0)
+  const totalFloatingPnl = allActiveExposures.reduce((s, e) => s + (e.floating_pnl || 0), 0)
+  const totalCombinedPnl = allActiveExposures.reduce((s, e) => s + (e.combined_pnl || 0), 0)
 
-  function scrollToSuggestion() {
-    const first = archiveSuggestions[0]
-    if (!first) return
-    // Find the page that contains this exposure in the filtered list
-    const idx = filtered.findIndex(e => e.id === first.id)
-    if (idx >= 0) {
-      setPage(Math.floor(idx / PAGE_SIZE) + 1)
-      setHighlightId(first.id)
-      setTimeout(() => {
-        highlightRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }, 100)
+  const currentExposures = tabData[activeTab]?.exposures || []
+  const columns = TAB_COLUMNS[activeTab] || []
+
+  // ── Cell renderer — returns a <td> for each column key ─────────────────────
+  function renderCell(col, exp) {
+    const today = new Date()
+    switch (col) {
+
+      case 'Pair':
+        return (
+          <td key="Pair" className="px-3 py-3 font-semibold whitespace-nowrap" style={{ color: NAVY }}>
+            <div className="flex items-center gap-1.5">
+              {expanded[exp.id]
+                ? <ChevronUp size={13} className="text-gray-400" />
+                : <ChevronDown size={13} className="text-gray-400" />}
+              <CurrencyPairFlags pair={exp.currency_pair} size="sm" />
+              {exp.currency_pair}
+            </div>
+          </td>
+        )
+
+      case 'Description':
+        return (
+          <td key="Description" className="px-3 py-3 text-gray-500 max-w-xs truncate">
+            <div className="flex items-center gap-0.5">
+              <span>{exp.description || '—'}</span>
+              <DataSourceIcon source={exp.data_source} />
+            </div>
+          </td>
+        )
+
+      case 'Total':
+        return (
+          <td key="Total" className="px-3 py-3 font-mono text-right text-gray-700 whitespace-nowrap">
+            {fmtAmount(exp.total_amount, exp.from_currency)}
+          </td>
+        )
+
+      case 'Hedged':
+        return (
+          <td key="Hedged" className="px-3 py-3 font-mono text-right whitespace-nowrap"
+            style={{ color: exp.hedged_amount > 0 ? SUCCESS : '#9CA3AF' }}>
+            {exp.hedged_amount > 0 ? fmtAmount(exp.hedged_amount, exp.from_currency) : '—'}
+            {exp.tranche_count > 0 && (
+              <span className="ml-1 text-xs text-gray-400">({exp.tranche_count})</span>
+            )}
+          </td>
+        )
+
+      case 'Open':
+        return (
+          <td key="Open" className="px-3 py-3 font-mono text-right whitespace-nowrap"
+            style={{ color: exp.open_amount > 0 ? WARNING : '#9CA3AF' }}>
+            {fmtAmount(exp.open_amount, exp.from_currency)}
+          </td>
+        )
+
+      case 'Hedge %':
+        return (
+          <td key="Hedge %" className="px-3 py-3" style={{ minWidth: 100 }}>
+            <HedgeBar pct={exp.hedge_pct} />
+          </td>
+        )
+
+      case 'Final Hedge %':
+        return (
+          <td key="Final Hedge %" className="px-3 py-3 font-mono text-right whitespace-nowrap">
+            <span style={{ color: (exp.hedge_pct || 0) >= 80 ? SUCCESS : WARNING }}>
+              {(exp.hedge_pct || 0).toFixed(0)}%
+            </span>
+          </td>
+        )
+
+      case 'Locked P&L':
+        return (
+          <td key="Locked P&L" className="px-3 py-3 font-semibold text-right whitespace-nowrap"
+            style={{ color: pnlColor(exp.locked_pnl) }}>
+            {fmtPnl(exp.locked_pnl)}
+            {exp.is_cross_pair && exp.locked_pnl !== 0 && (
+              <CrossPairTooltip baseCurrency={baseCurrency} settlementCurrency={exp.to_currency} />
+            )}
+          </td>
+        )
+
+      case 'Floating P&L':
+        return (
+          <td key="Floating P&L" className="px-3 py-3 font-semibold text-right whitespace-nowrap"
+            style={{ color: pnlColor(exp.floating_pnl) }}>
+            {exp.open_amount > 0 ? (
+              <>
+                {fmtPnl(exp.floating_pnl)}
+                {exp.is_cross_pair && (
+                  <CrossPairTooltip baseCurrency={baseCurrency} settlementCurrency={exp.to_currency} />
+                )}
+              </>
+            ) : '—'}
+          </td>
+        )
+
+      case 'Combined P&L':
+        return (
+          <td key="Combined P&L" className="px-3 py-3 font-bold text-right whitespace-nowrap"
+            style={{ color: pnlColor(exp.combined_pnl) }}>
+            {fmtPnl(exp.combined_pnl)}
+            {exp.is_cross_pair && (
+              <CrossPairTooltip baseCurrency={baseCurrency} settlementCurrency={exp.to_currency} />
+            )}
+          </td>
+        )
+
+      case 'Final P&L':
+        return (
+          <td key="Final P&L" className="px-3 py-3 font-bold text-right whitespace-nowrap"
+            style={{ color: pnlColor(exp.combined_pnl) }}>
+            {fmtPnl(exp.combined_pnl)}
+          </td>
+        )
+
+      case 'Zone':
+        return (
+          <td key="Zone" className="px-3 py-3">
+            <ZoneBadge zone={exp.current_zone} />
+          </td>
+        )
+
+      case 'Status':
+        return (
+          <td key="Status" className="px-3 py-3">
+            <div className="flex flex-col gap-0.5">
+              <StatusBadge status={exp.status} archived={exp.archived} />
+              {!exp.archived && exp.budget_rate > 0 && <ZoneBadge zone={exp.current_zone} />}
+            </div>
+          </td>
+        )
+
+      case 'Value Date':
+        return (
+          <td key="Value Date" className="px-3 py-3 text-sm text-gray-600 whitespace-nowrap">
+            {exp.end_date ? new Date(exp.end_date).toLocaleDateString('en-GB') : '—'}
+          </td>
+        )
+
+      case 'Settlement Date':
+        return (
+          <td key="Settlement Date" className="px-3 py-3 text-sm text-gray-600 whitespace-nowrap">
+            {exp.archived_at
+              ? new Date(exp.archived_at).toLocaleDateString('en-GB')
+              : exp.end_date
+              ? new Date(exp.end_date).toLocaleDateString('en-GB')
+              : '—'}
+          </td>
+        )
+
+      case 'Days Overdue': {
+        const daysOverdue = exp.end_date
+          ? Math.floor((today - new Date(exp.end_date)) / (1000 * 60 * 60 * 24))
+          : null
+        return (
+          <td key="Days Overdue" className="px-3 py-3 text-right whitespace-nowrap">
+            {daysOverdue != null && daysOverdue > 0
+              ? <span className="font-semibold" style={{ color: DANGER }}>{daysOverdue}d</span>
+              : <span className="text-gray-400">—</span>}
+          </td>
+        )
+      }
+
+      case 'Bank Ref': {
+        const bankRef = exp.tranches?.find(t => t.status === 'confirmed' && t.bank_reference)?.bank_reference
+        return (
+          <td key="Bank Ref" className="px-3 py-3 font-mono text-sm text-gray-600">
+            {bankRef || <span className="text-gray-300">—</span>}
+          </td>
+        )
+      }
+
+      case 'Actions':
+        return (
+          <td key="Actions" className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              {activeTab === 'settled' ? (
+                <button onClick={() => handleUnarchive(exp)}
+                  className="text-xs text-blue-500 hover:underline flex items-center gap-1">
+                  <ArchiveRestore size={12} /> Unarchive
+                </button>
+              ) : (
+                <>
+                  {onHedgeNow && exp.open_amount > 0 && (
+                    <button onClick={() => onHedgeNow(exp)}
+                      className="text-xs px-2 py-1 rounded text-white font-semibold"
+                      style={{ background: exp.status === 'BREACH' ? DANGER : NAVY }}>
+                      Hedge Now
+                    </button>
+                  )}
+                  {activeTab === 'awaiting_settlement' && (
+                    <button onClick={() => handleMarkSettled(exp)}
+                      className="text-xs px-2 py-1 rounded font-semibold text-white"
+                      style={{ background: SUCCESS }}>
+                      Mark Settled
+                    </button>
+                  )}
+                  {exp.corridor && (
+                    <button onClick={() => setCorridorModal(exp)}
+                      title="Reset corridor"
+                      className="text-xs px-2 py-1 rounded border border-amber-300 text-amber-700 hover:bg-amber-50">
+                      ↺
+                    </button>
+                  )}
+                  {onEdit && (
+                    <button onClick={() => onEdit(exp)} style={{ color: NAVY }}>
+                      <Edit2 size={14} />
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button onClick={() => onDelete(exp)} className="text-red-400">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                  <button onClick={() => setArchiveModal(exp)}
+                    title="Archive exposure"
+                    className="text-gray-400 hover:text-gray-600">
+                    <Archive size={14} />
+                  </button>
+                </>
+              )}
+            </div>
+          </td>
+        )
+
+      default:
+        return <td key={col} className="px-3 py-3 text-gray-300">—</td>
     }
   }
-
-  // Filter based on viewMode
-  const modeFiltered = viewMode === 'active'
-    ? exposures.filter(e => !e.archived)
-    : viewMode === 'archived'
-    ? exposures.filter(e => e.archived)
-    : exposures
-
-  const filtered = modeFiltered.filter(e => {
-    if (filterCcy && e.currency_pair !== filterCcy) return false
-    if (searchText) {
-      const s = searchText.toLowerCase()
-      if (!e.description?.toLowerCase().includes(s) && !e.reference?.toLowerCase().includes(s)) return false
-    }
-    return true
-  })
-
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-
-  // Portfolio totals (active only — archived excluded regardless of view)
-  const activeExposures  = exposures.filter(e => !e.archived)
-  const totalLockedPnl   = activeExposures.reduce((s, e) => s + (e.locked_pnl || 0), 0)
-  const totalFloatingPnl = activeExposures.reduce((s, e) => s + (e.floating_pnl || 0), 0)
-  const totalCombinedPnl = activeExposures.reduce((s, e) => s + (e.combined_pnl || 0), 0)
-
-  const isReadOnly = viewMode === 'archived'
 
   if (loading) return (
     <div className="flex items-center justify-center h-40">
@@ -742,7 +965,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
   return (
     <div className="space-y-4">
 
-      {/* Portfolio P&L Summary — always shows active totals */}
+      {/* Portfolio P&L Summary — active exposures only (requires_action + in_progress + hedged) */}
       <div className="rounded-xl p-5 grid grid-cols-3 gap-4" style={{ background: NAVY }}>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: '#8DA4C4' }}>
@@ -773,98 +996,59 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
         </div>
       </div>
 
-      {/* Auto-archive suggestion banner */}
-      {archiveSuggestions.length > 0 && viewMode === 'active' && (
-        <div className="flex items-center justify-between px-4 py-3 rounded-xl border"
-          style={{ background: '#FFFBEB', borderColor: '#FCD34D' }}>
-          <p className="text-sm text-amber-800">
-            <span className="font-semibold">{archiveSuggestions.length} exposure{archiveSuggestions.length > 1 ? 's' : ''}</span>
-            {' '}are fully hedged or past maturity. Consider archiving to keep your register clean.
-          </p>
-          <button onClick={scrollToSuggestion}
-            className="ml-4 text-xs font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap"
-            style={{ background: WARNING, color: 'white' }}>
-            Review &amp; Archive
-          </button>
-        </div>
-      )}
-
-      {/* View toggle + Filters */}
-      <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100 space-y-3">
-        {/* View toggle */}
-        <div className="flex items-center gap-1">
-          {['active', 'archived', 'all'].map(mode => (
-            <button key={mode} onClick={() => setViewMode(mode)}
-              className="px-4 py-1.5 rounded-lg text-sm font-semibold capitalize transition-colors"
-              style={viewMode === mode
-                ? { background: NAVY, color: 'white' }
-                : { background: '#F4F6FA', color: '#6B7280' }}>
-              {mode === 'active' ? 'Active' : mode === 'archived' ? 'Archived' : 'All'}
-            </button>
-          ))}
-        </div>
-
-        {/* Search + currency filter + pagination */}
-        <div className="flex flex-wrap items-center gap-3">
-          <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)}
-            placeholder="Search description or reference..."
-            className="flex-1 min-w-48 px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          <select value={filterCcy} onChange={e => setFilterCcy(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-            <option value="">All Currencies</option>
-            {[...new Set(exposures.map(e => e.currency_pair))].map(p => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
-          <button onClick={load}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold"
-            style={{ background: NAVY, color: 'white' }}>
-            <RefreshCw size={13} /> Refresh
-          </button>
-          <span className="text-sm text-gray-400">
-            {filtered.length} exposures · Page {page} of {totalPages || 1}
-          </span>
-          <div className="flex items-center gap-1">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-              className="px-3 py-1.5 rounded border border-gray-200 text-sm disabled:opacity-40">
-              ← Prev
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-              <button key={p} onClick={() => setPage(p)}
-                className="px-3 py-1.5 rounded border text-sm font-semibold"
-                style={{
-                  background: p === page ? NAVY : 'white',
-                  color: p === page ? 'white' : '#6B7280',
-                  borderColor: p === page ? NAVY : '#E5E7EB'
-                }}>
-                {p}
-              </button>
-            ))}
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || totalPages === 0}
-              className="px-3 py-1.5 rounded border border-gray-200 text-sm disabled:opacity-40">
-              Next →
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Register */}
+      {/* Tab bar + table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4" style={{ background: NAVY }}>
-          <h3 className="font-semibold text-white text-sm">
-            Exposure Register
-            {viewMode === 'archived' && <span className="ml-2 text-xs font-normal opacity-60">(Archived)</span>}
-          </h3>
+
+        {/* Tab strip */}
+        <div className="flex items-stretch border-b border-gray-100" style={{ background: '#F8FAFC' }}>
+          {TABS.map(tab => {
+            const count    = tabData[tab.id]?.count || 0
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => switchTab(tab.id)}
+                className="flex-1 flex flex-col items-center py-3 px-2 text-xs font-semibold transition-all relative"
+                style={{
+                  background:   isActive ? 'white' : 'transparent',
+                  color:        isActive ? NAVY : '#9CA3AF',
+                  borderBottom: isActive ? `2px solid ${GOLD}` : '2px solid transparent',
+                }}
+              >
+                <span className="text-base mb-0.5">{tab.emoji}</span>
+                <span className="whitespace-nowrap">{tab.label}</span>
+                {count > 0 && (
+                  <span
+                    className="absolute top-2 right-2 font-bold px-1.5 py-0.5 rounded-full"
+                    style={{
+                      fontSize:   10,
+                      background: tab.badgeColor ? `${tab.badgeColor}22` : '#E5E7EB',
+                      color:      tab.badgeColor || '#6B7280',
+                    }}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+          {/* Refresh button in tab strip */}
+          <button
+            onClick={load}
+            className="flex items-center gap-1 px-4 text-xs text-gray-400 hover:text-gray-600 border-l border-gray-100"
+            title="Refresh">
+            <RefreshCw size={12} />
+          </button>
         </div>
 
+        {/* Table for the active tab */}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-100 text-sm">
             <thead style={{ background: '#F4F6FA' }}>
               <tr>
-                {['Pair', 'Description', 'Total', 'Hedged', 'Open', 'Hedge %',
-                  'Locked P&L', 'Floating P&L', 'Combined P&L',
-                  'Corridor', 'Status', 'Confidence', 'Actions'].map(h => (
-                  <th key={h} className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider"
+                {columns.map(h => (
+                  <th key={h}
+                    className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider"
                     style={{ color: NAVY, whiteSpace: 'nowrap' }}>
                     <ColHeader label={h} />
                   </th>
@@ -872,249 +1056,73 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {paginated.map(exp => {
-                const isHighlighted = exp.id === highlightId
-                const isArchived    = exp.archived
-                return (
-                  <React.Fragment key={exp.id}>
-                    <tr
-                      ref={isHighlighted ? highlightRef : null}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      style={isHighlighted ? { background: '#FFFBEB', outline: '2px solid #FCD34D' } : isArchived ? { opacity: 0.6 } : {}}
-                      onClick={() => toggleExpand(exp.id)}>
+              {currentExposures.map(exp => (
+                <React.Fragment key={exp.id}>
+                  <tr
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => toggleExpand(exp.id)}
+                  >
+                    {columns.map(col => renderCell(col, exp))}
+                  </tr>
 
-                      {/* Pair */}
-                      <td className="px-3 py-3 font-semibold whitespace-nowrap" style={{ color: NAVY }}>
-                        <div className="flex items-center gap-1.5">
-                          {expanded[exp.id]
-                            ? <ChevronUp size={13} className="text-gray-400" />
-                            : <ChevronDown size={13} className="text-gray-400" />}
-                          <CurrencyPairFlags pair={exp.currency_pair} size="sm" />
-                          {exp.currency_pair}
-                        </div>
-                      </td>
-
-                      {/* Description + data source icon */}
-                      <td className="px-3 py-3 text-gray-500 max-w-xs truncate">
-                        <div className="flex items-center gap-0.5">
-                          <span>{exp.description || '—'}</span>
-                          <DataSourceIcon source={exp.data_source} />
-                        </div>
-                        {isArchived && exp.archived_at && (
-                          <div className="text-xs text-gray-400 mt-0.5">
-                            Archived {new Date(exp.archived_at).toLocaleDateString('en-GB')}
-                            {exp.archive_reason && ` · ${exp.archive_reason}`}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Total */}
-                      <td className="px-3 py-3 font-mono text-right text-gray-700 whitespace-nowrap">
-                        {fmtAmount(exp.total_amount, exp.from_currency)}
-                        {exp.amount_currency && exp.amount_currency !== exp.from_currency && (
-                          <div className="text-xs text-gray-400 font-normal">
-                            {exp.amount_currency} {(exp.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} entered
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Hedged */}
-                      <td className="px-3 py-3 font-mono text-right whitespace-nowrap"
-                        style={{ color: exp.hedged_amount > 0 ? SUCCESS : '#9CA3AF' }}>
-                        {exp.hedged_amount > 0 ? fmtAmount(exp.hedged_amount, exp.from_currency) : '—'}
-                        {exp.tranche_count > 0 && (
-                          <span className="ml-1 text-xs text-gray-400">({exp.tranche_count})</span>
-                        )}
-                      </td>
-
-                      {/* Open */}
-                      <td className="px-3 py-3 font-mono text-right whitespace-nowrap"
-                        style={{ color: exp.open_amount > 0 ? WARNING : '#9CA3AF' }}>
-                        {fmtAmount(exp.open_amount, exp.from_currency)}
-                      </td>
-
-                      {/* Hedge % bar */}
-                      <td className="px-3 py-3" style={{ minWidth: 100 }}>
-                        <HedgeBar pct={exp.hedge_pct} />
-                      </td>
-
-                      {/* Locked P&L — shown in base currency */}
-                      <td className="px-3 py-3 font-semibold text-right whitespace-nowrap"
-                        style={{ color: pnlColor(exp.locked_pnl) }}>
-                        {fmtPnl(exp.locked_pnl)}
-                        {exp.is_cross_pair && exp.locked_pnl !== 0 && (
-                          <CrossPairTooltip
-                            baseCurrency={baseCurrency}
-                            settlementCurrency={exp.to_currency || exp.currency_pair?.split('/')[1]}
-                          />
-                        )}
-                      </td>
-
-                      {/* Floating P&L — shown in base currency */}
-                      <td className="px-3 py-3 font-semibold text-right whitespace-nowrap"
-                        style={{ color: pnlColor(exp.floating_pnl) }}>
-                        {exp.open_amount > 0 ? (
-                          <>
-                            {fmtPnl(exp.floating_pnl)}
-                            {exp.is_cross_pair && (
-                              <CrossPairTooltip
-                                baseCurrency={baseCurrency}
-                                settlementCurrency={exp.to_currency || exp.currency_pair?.split('/')[1]}
-                              />
-                            )}
-                          </>
-                        ) : '—'}
-                      </td>
-
-                      {/* Combined P&L — shown in base currency */}
-                      <td className="px-3 py-3 font-bold text-right whitespace-nowrap"
-                        style={{ color: pnlColor(exp.combined_pnl) }}>
-                        {fmtPnl(exp.combined_pnl)}
-                        {exp.is_cross_pair && (
-                          <CrossPairTooltip
-                            baseCurrency={baseCurrency}
-                            settlementCurrency={exp.to_currency || exp.currency_pair?.split('/')[1]}
-                          />
-                        )}
-                      </td>
-
-                      {/* Corridor */}
-                      <td className="px-3 py-3 whitespace-nowrap">
-                        {exp.corridor ? (
-                          <div className="text-xs space-y-0.5">
-                            <div style={{ color: SUCCESS }}>▲ {exp.corridor.take_profit_rate?.toFixed(4)}</div>
-                            <div style={{ color: DANGER }}>▼ {exp.corridor.stop_loss_rate?.toFixed(4)}</div>
-                          </div>
-                        ) : isArchived ? (
-                          <span className="text-xs text-gray-300">—</span>
-                        ) : (
-                          <button
-                            onClick={e => { e.stopPropagation(); setCorridorModal(exp) }}
-                            className="text-xs px-2 py-1 rounded border text-gray-500 border-gray-300 hover:border-gray-400">
-                            Set
-                          </button>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-3 py-3">
-                        <div className="flex flex-col gap-0.5">
-                          <StatusBadge status={exp.status} archived={isArchived} />
-                          {!isArchived && exp.budget_rate > 0 && <ZoneBadge zone={exp.current_zone} />}
-                        </div>
-                      </td>
-
-                      {/* Confidence — editable inline badge */}
-                      <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <ConfidenceBadge
-                          exposureId={exp.id}
-                          value={exp.confidence}
-                          onChange={next => setExposures(prev =>
-                            prev.map(e => e.id === exp.id ? { ...e, confidence: next } : e)
-                          )}
-                        />
-                      </td>
-
-                      {/* Actions */}
-                      <td className="px-3 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-2">
-                          {isArchived ? (
-                            <button onClick={() => handleUnarchive(exp)}
-                              className="text-xs text-blue-500 hover:underline flex items-center gap-1">
-                              <ArchiveRestore size={12} /> Unarchive
-                            </button>
-                          ) : (
+                  {/* Expanded tranche detail — colSpan adapts to active column count */}
+                  {expanded[exp.id] && (
+                    <tr>
+                      <td colSpan={columns.length} className="px-6 py-0 bg-gray-50">
+                        <div className="py-3">
+                          {exp.tranches?.length > 0 ? (
                             <>
-                              {onHedgeNow && exp.open_amount > 0 && (
-                                <button onClick={() => onHedgeNow(exp)}
-                                  className="text-xs px-2 py-1 rounded text-white font-semibold"
-                                  style={{ background: exp.status === 'BREACH' ? DANGER : NAVY }}>
-                                  Hedge Now
-                                </button>
-                              )}
-                              {exp.corridor && (
-                                <button onClick={() => setCorridorModal(exp)}
-                                  title="Reset corridor"
-                                  className="text-xs px-2 py-1 rounded border border-amber-300 text-amber-700 hover:bg-amber-50">
-                                  ↺
-                                </button>
-                              )}
-                              {onEdit && (
-                                <button onClick={() => onEdit(exp)} style={{ color: NAVY }}>
-                                  <Edit2 size={14} />
-                                </button>
-                              )}
-                              {onDelete && (
-                                <button onClick={() => onDelete(exp)} className="text-red-400">
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
-                              <button onClick={() => setArchiveModal(exp)}
-                                title="Archive exposure"
-                                className="text-gray-400 hover:text-gray-600">
-                                <Archive size={14} />
-                              </button>
+                              <p className="text-xs font-semibold uppercase tracking-wider mb-2"
+                                style={{ color: NAVY }}>Hedge Tranches</p>
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-gray-400">
+                                    <th className="px-3 py-1.5 text-left">Instrument</th>
+                                    <th className="px-3 py-1.5 text-left">Amount</th>
+                                    <th className="px-3 py-1.5 text-left">Rate</th>
+                                    <th className="px-3 py-1.5 text-left">Value Date</th>
+                                    <th className="px-3 py-1.5 text-left">Status</th>
+                                    <th className="px-3 py-1.5 text-left">By</th>
+                                    <th className="px-3 py-1.5 text-left">Date</th>
+                                    <th className="px-3 py-1.5 text-left"><ColHeader label="Bank Ref" /></th>
+                                    <th className="px-3 py-1.5 text-left"><ColHeader label="MTM vs Inception" /></th>
+                                    <th className="px-3 py-1.5 text-left"><ColHeader label="MTM vs Budget" /></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {exp.tranches.map(t => (
+                                    <TrancheRow
+                                      key={t.id}
+                                      tranche={t}
+                                      ccy={exp.from_currency}
+                                      mtm={mtmData[exp.id]?.[t.id]}
+                                      onConfirm={(tranche) => setConfirmModal({ tranche, ccy: exp.from_currency })}
+                                    />
+                                  ))}
+                                </tbody>
+                              </table>
                             </>
+                          ) : (
+                            <p className="text-xs text-gray-400 py-2">
+                              No hedges recorded yet. Use "Execute with Bank" on the Hedging tab to place orders.
+                            </p>
                           )}
                         </div>
                       </td>
                     </tr>
-
-                    {/* Expanded tranche detail */}
-                    {expanded[exp.id] && (
-                      <tr>
-                        <td colSpan={14} className="px-6 py-0 bg-gray-50">
-                          <div className="py-3">
-                            {exp.tranches?.length > 0 ? (
-                              <>
-                                <p className="text-xs font-semibold uppercase tracking-wider mb-2"
-                                  style={{ color: NAVY }}>Hedge Tranches</p>
-                                <table className="w-full text-xs">
-                                  <thead>
-                                    <tr className="text-gray-400">
-                                      <th className="px-3 py-1.5 text-left">Instrument</th>
-                                      <th className="px-3 py-1.5 text-left">Amount</th>
-                                      <th className="px-3 py-1.5 text-left">Rate</th>
-                                      <th className="px-3 py-1.5 text-left">Value Date</th>
-                                      <th className="px-3 py-1.5 text-left">Status</th>
-                                      <th className="px-3 py-1.5 text-left">By</th>
-                                      <th className="px-3 py-1.5 text-left">Date</th>
-                                      <th className="px-3 py-1.5 text-left"><ColHeader label="Bank Ref" /></th>
-                                      <th className="px-3 py-1.5 text-left"><ColHeader label="MTM vs Inception" /></th>
-                                      <th className="px-3 py-1.5 text-left"><ColHeader label="MTM vs Budget" /></th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {exp.tranches.map(t => (
-                                      <TrancheRow
-                                        key={t.id}
-                                        tranche={t}
-                                        ccy={exp.from_currency}
-                                        mtm={mtmData[exp.id]?.[t.id]}
-                                        onConfirm={(tranche) => setConfirmModal({ tranche, ccy: exp.from_currency })}
-                                      />
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </>
-                            ) : (
-                              <p className="text-xs text-gray-400 py-2">
-                                No hedges recorded yet. Use "Execute with Bank" on the Hedging tab to place orders.
-                              </p>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                )
-              })}
+                  )}
+                </React.Fragment>
+              ))}
             </tbody>
           </table>
 
-          {filtered.length === 0 && (
+          {currentExposures.length === 0 && (
             <div className="text-center py-16 text-gray-400 text-sm">
-              {viewMode === 'archived' ? 'No archived exposures.' : 'No exposures found.'}
+              {activeTab === 'settled'             ? 'No settled exposures yet.'              :
+               activeTab === 'hedged'              ? 'No fully hedged exposures yet.'         :
+               activeTab === 'awaiting_settlement' ? 'No exposures awaiting settlement.'      :
+               activeTab === 'in_progress'         ? 'No exposures in progress.'              :
+                                                     'No exposures require action right now.'}
             </div>
           )}
         </div>

@@ -59,7 +59,15 @@
 - [ ] Non-admin cannot see other companies
 - [ ] Session persists on page refresh
 
-## 11. CODE STANDARDS
+## 11. CALCULATION CONSISTENCY
+- [ ] Hedge % matches across: Register, Dashboard, Policy Compliance, Forecasting
+- [ ] Combined P&L matches across: Register, Dashboard strip, Dashboard panel, P&L report
+- [ ] Zone status matches across: Register, Dashboard banners, Recommendations, Email alerts
+- [ ] Scenario coverage % never exceeds 100%; shows — for favourable scenarios
+- [ ] All notionals EUR-converted before display (never raw amount × rate inline)
+- [ ] All calculations use shared functions from `services/exposure_utils.py`
+
+## 12. CODE STANDARDS
 - [ ] No inline `CURRENCY_FLAGS` definitions — import from `utils/currency.js`
 - [ ] No inline EUR conversion logic — use `get_rate()` or `to_eur()`
 - [ ] No hardcoded `onrender.com` URLs in new code — use `utils/api.js`

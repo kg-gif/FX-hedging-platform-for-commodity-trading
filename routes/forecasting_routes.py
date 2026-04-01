@@ -17,6 +17,7 @@ from database import SessionLocal, get_rate
 from datetime import date, timedelta
 import os, sys
 from calendar import month_abbr
+from services.exposure_utils import calculate_hedge_pct
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -158,7 +159,7 @@ def get_forecasting_timeline(
         amount_eur = to_base(amount, from_ccy)
         hedged_eur = to_base(hedged, from_ccy)
         open_eur   = to_base(open_amt, from_ccy)
-        hedge_pct  = round((hedged / amount * 100), 1) if amount > 0 else 0.0
+        hedge_pct  = calculate_hedge_pct(hedged, amount)
 
         total_exposure_eur += amount_eur
         total_hedged_eur   += hedged_eur

@@ -866,3 +866,235 @@ async def get_enriched_exposures(
             "base_currency":  base_currency,
         }
     }
+
+
+# ── Tabbed Exposure Register ─────────────────────────────────────────────────
+
+@router.get("/api/exposures/tabbed/{company_id}")
+async def get_tabbed_exposures(
+    company_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Returns all exposures organised into five lifecycle tabs.
+
+    Tabs:
+      requires_action     — 0% hedged, breach, or no budget rate set
+      in_progress         — partially hedged, below policy target
+      hedged              — at or above policy target
+      awaiting_settlement — past end_date and not yet archived
+      settled             — archived (lifecycle complete)
+
+    Each exposure has the same fields as /api/exposures/enriched.
+    No zone-shift notifications are triggered (read-only view).
+    """
+    from birk_api import get_current_rates, fetch_fx_rate, calculate_zone, zone_target_ratio
+    from services.exposure_utils import classify_exposure_tab
+    import asyncio as _asyncio
+
+    ensure_tables(db)
+    safe_id = resolve_company_id(company_id, payload)
+
+    # Company settings
+    company_info = db.execute(
+        text("SELECT base_currency FROM companies WHERE id = :cid"), {"cid": safe_id}
+    ).fetchone()
+    base_currency = company_info._mapping["base_currency"] if company_info else "USD"
+
+    policy_row = db.execute(
+        text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"),
+        {"cid": safe_id}
+    ).fetchone()
+    active_policy = dict(policy_row._mapping) if policy_row else {}
+
+    # Fetch ALL exposures (active + archived) for the full lifecycle picture
+    exposures = db.execute(text("""
+        SELECT * FROM exposures
+        WHERE company_id = :cid AND (is_active IS NULL OR is_active = true)
+    """), {"cid": safe_id}).fetchall()
+
+    empty_tabs = {
+        t: {"count": 0, "exposures": []}
+        for t in ("requires_action", "in_progress", "hedged", "awaiting_settlement", "settled")
+    }
+    if not exposures:
+        return empty_tabs
+
+    # Live rates for all exposure pairs + base_currency conversion
+    pairs = list(dict.fromkeys([
+        f"{e._mapping['from_currency']}/{e._mapping['to_currency']}"
+        for e in exposures
+    ]))
+    conv_pairs = list(dict.fromkeys([
+        f"{e._mapping['from_currency']}/{base_currency}"
+        for e in exposures
+        if e._mapping["from_currency"] != base_currency
+    ]))
+    live_rates = await get_current_rates(list(dict.fromkeys(pairs + conv_pairs)))
+
+    # Collect all exposure IDs so tranches can be batch-fetched
+    exp_ids = [e._mapping["id"] for e in exposures]
+    if exp_ids:
+        placeholders = ",".join(str(i) for i in exp_ids)
+        all_tranches = db.execute(text(f"""
+            SELECT * FROM hedge_tranches
+            WHERE exposure_id IN ({placeholders})
+            ORDER BY created_at DESC
+        """)).fetchall()
+        all_corridors = db.execute(text(f"""
+            SELECT DISTINCT ON (exposure_id) *
+            FROM hedge_corridor_log
+            WHERE exposure_id IN ({placeholders})
+            ORDER BY exposure_id, reset_at DESC
+        """)).fetchall()
+    else:
+        all_tranches  = []
+        all_corridors = []
+
+    # Index tranches and corridors by exposure_id
+    tranches_by_exp: dict  = {}
+    for t in all_tranches:
+        eid = t._mapping["exposure_id"]
+        tranches_by_exp.setdefault(eid, []).append(dict(t._mapping))
+
+    corridor_by_exp: dict = {}
+    for c in all_corridors:
+        corridor_by_exp[c._mapping["exposure_id"]] = c
+
+    result = []
+    for exp_row in exposures:
+        exp          = exp_row._mapping
+        exposure_id  = exp["id"]
+        from_ccy     = exp["from_currency"]
+        to_ccy       = exp["to_currency"]
+        pair         = f"{from_ccy}/{to_ccy}"
+
+        rate_info    = live_rates.get(pair)
+        current_spot = float(rate_info["rate"]) if rate_info and rate_info.get("rate") \
+                       else float(exp.get("current_rate") or 0)
+
+        tranche_list = tranches_by_exp.get(exposure_id, [])
+        corridor     = corridor_by_exp.get(exposure_id)
+
+        # P&L split (uses existing shared helper — no change)
+        budget_rate     = float(exp.get("budget_rate") or 0)
+        amount_currency = exp.get("amount_currency") or from_ccy
+        exp_for_pnl     = dict(exp)
+        exp_for_pnl["amount_currency"] = amount_currency
+        pnl = calculate_pnl_split(exp_for_pnl, tranche_list, current_spot)
+
+        # Convert P&L from to_currency to base_currency
+        if to_ccy == base_currency:
+            pnl_factor = 1.0
+        else:
+            from_base_info = live_rates.get(f"{from_ccy}/{base_currency}")
+            if from_ccy == base_currency:
+                from_base_rate = 1.0
+            elif from_base_info and from_base_info.get("rate"):
+                from_base_rate = float(from_base_info["rate"])
+            else:
+                from_base_rate = None
+            pnl_factor = (from_base_rate / current_spot) if (from_base_rate and current_spot) else 1.0
+
+        pnl_locked   = round(pnl["locked_pnl"]   * pnl_factor, 2)
+        pnl_floating = round(pnl["floating_pnl"] * pnl_factor, 2)
+        pnl_combined = round(pnl["combined_pnl"] * pnl_factor, 2)
+
+        # Status
+        if not budget_rate:
+            status = "NO_BUDGET"
+        elif pnl["combined_pnl"] < float(exp.get("max_loss_limit") or -999_999_999):
+            status = "BREACH"
+        elif pnl["hedge_pct"] >= 80:
+            status = "WELL_HEDGED"
+        elif pnl["hedge_pct"] >= 40:
+            status = "IN_PROGRESS"
+        else:
+            status = "OPEN"
+
+        # Zone + policy target ratio
+        total_amount_base = normalize_to_base(
+            float(exp["amount"]), amount_currency, from_ccy, budget_rate
+        )
+        direction   = exp.get("exposure_type") or exp.get("direction") or "payable"
+        adv_trig    = float(active_policy.get("adverse_trigger_pct") or 3.0)
+        fav_trig    = float(active_policy.get("favourable_trigger_pct") or 3.0)
+        current_zone = "base"
+        pct_move     = 0.0
+        if budget_rate and current_spot:
+            current_zone = calculate_zone(current_spot, budget_rate, adv_trig, fav_trig, direction)
+            try:
+                pct_move = (current_spot - budget_rate) / budget_rate * 100
+            except Exception:
+                pass
+
+        if total_amount_base >= 5_000_000:
+            base_ratio = float(active_policy.get("hedge_ratio_over_5m") or 1.0)
+        elif total_amount_base >= 1_000_000:
+            base_ratio = float(active_policy.get("hedge_ratio_1m_to_5m") or 1.0)
+        else:
+            base_ratio = float(active_policy.get("hedge_ratio_under_1m") or 1.0)
+        z_target_ratio = zone_target_ratio(current_zone, active_policy, base_ratio)
+
+        exp_dict = {
+            "id":               exposure_id,
+            "company_id":       exp["company_id"],
+            "currency_pair":    pair,
+            "from_currency":    from_ccy,
+            "to_currency":      to_ccy,
+            "instrument_type":  exp.get("instrument_type") or "Spot",
+            "description":      exp.get("description") or "",
+            "reference":        exp.get("reference") or "",
+            "budget_rate":      budget_rate,
+            "current_spot":     round(current_spot, 6),
+            "amount":           float(exp["amount"]),
+            "amount_currency":  amount_currency,
+            "total_amount":     round(total_amount_base, 2),
+            "end_date":         exp["end_date"].isoformat() if exp.get("end_date") else None,
+            "hedged_amount":    pnl["hedged_amount"],
+            "open_amount":      pnl["open_amount"],
+            "hedge_pct":        pnl["hedge_pct"],
+            "tranche_count":    len([t for t in tranche_list if t["status"] in ("executed", "confirmed")]),
+            "tranches":         tranche_list,
+            "locked_pnl":       pnl_locked,
+            "floating_pnl":     pnl_floating,
+            "combined_pnl":     pnl_combined,
+            "is_cross_pair":    (from_ccy != base_currency and to_ccy != base_currency),
+            "corridor": {
+                "take_profit_rate": float(corridor._mapping["take_profit_rate"]) if corridor else None,
+                "stop_loss_rate":   float(corridor._mapping["stop_loss_rate"])   if corridor else None,
+                "reference_rate":   float(corridor._mapping["reference_rate"])   if corridor else None,
+                "corridor_pct":     float(corridor._mapping["corridor_pct"])     if corridor else None,
+                "reset_at":         corridor._mapping["reset_at"].isoformat()    if corridor else None,
+            } if corridor else None,
+            "status":           status,
+            "max_loss_limit":   float(exp.get("max_loss_limit") or 0),
+            "current_zone":     current_zone,
+            "pct_move_vs_budget": round(pct_move, 2),
+            "zone_target_ratio":  z_target_ratio,
+            "archived":         bool(exp.get("archived")),
+            "archived_at":      exp["archived_at"].isoformat() if exp.get("archived_at") else None,
+            "archive_reason":   exp.get("archive_reason") or "",
+            "confidence":       exp.get("confidence") or "COMMITTED",
+            "data_source":      exp.get("data_source") or "manual",
+        }
+
+        # Classify into lifecycle tab
+        is_breach         = (status == "BREACH")
+        policy_target_pct = z_target_ratio * 100
+        tab = classify_exposure_tab(exp_dict, pnl["hedge_pct"], is_breach, policy_target_pct)
+        exp_dict["_tab"] = tab
+        result.append(exp_dict)
+
+    # Group by tab
+    tabs: dict = {
+        t: [] for t in ("requires_action", "in_progress", "hedged", "awaiting_settlement", "settled")
+    }
+    for exp in result:
+        tabs[exp["_tab"]].append(exp)
+
+    return {
+        tab_name: {"count": len(exps), "exposures": exps}
+        for tab_name, exps in tabs.items()
+    }
