@@ -965,23 +965,26 @@ async def zone_manual_override(
             frontend_url   = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
             if alert_email and resend_api_key:
                 import httpx as _httpx
+                from routes.margin_call_routes import should_send_alert_today as _weekday_check
                 zone_label = {"defensive": "Defensive 🔴", "base": "Base 🔵", "opportunistic": "Opportunistic 🟢"}.get(new_zone, new_zone)
-                await _httpx.AsyncClient().post(
-                    "https://api.resend.com/emails",
-                    headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
-                    json={
-                        "from": "Sumnohow <alerts@updates.sumnohow.com>",
-                        "to": [alert_email],
-                        "subject": f"Zone Override — {currency_pair} shifted to {zone_label}",
-                        "html": (
-                            f"<p>The hedging zone for <strong>{currency_pair}</strong> has been manually set to "
-                            f"<strong>{zone_label}</strong> by {changed_by}.</p>"
-                            f"<p>Reason: {reason}</p>"
-                            f"<p><a href='{frontend_url}'>Review in Sumnohow →</a></p>"
-                        )
-                    },
-                    timeout=10
-                )
+                if _weekday_check():
+                    await _httpx.AsyncClient().post(
+                        "https://api.resend.com/emails",
+                        headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
+                        json={
+                            "from":    "Sumnohow <alerts@updates.sumnohow.com>",
+                            "to":      ["alerts@updates.sumnohow.com"],
+                            "bcc":     [alert_email],
+                            "subject": f"Zone Override — {currency_pair} shifted to {zone_label}",
+                            "html": (
+                                f"<p>The hedging zone for <strong>{currency_pair}</strong> has been manually set to "
+                                f"<strong>{zone_label}</strong> by {changed_by}.</p>"
+                                f"<p>Reason: {reason}</p>"
+                                f"<p><a href='{frontend_url}'>Review in Sumnohow →</a></p>"
+                            )
+                        },
+                        timeout=10
+                    )
         except Exception as e:
             logger.warning(f"Zone override email failed: {e}")
 
@@ -1511,10 +1514,11 @@ async def send_daily_alerts(
                         "Content-Type": "application/json"
                     },
                     json={
-                        "from": "Sumnohow <alerts@updates.sumnohow.com>",
-                        "to": [alert_email],
+                        "from":    "Sumnohow <alerts@updates.sumnohow.com>",
+                        "to":      ["alerts@updates.sumnohow.com"],
+                        "bcc":     [alert_email],
                         "subject": subject,
-                        "html": html
+                        "html":    html
                     }
                 )
             if resp.status_code == 200:
@@ -1773,6 +1777,11 @@ async def startup_event():
                 spot_rate_used  DECIMAL(18,6),
                 alert_sent      BOOLEAN DEFAULT FALSE
             )""",
+            # Acknowledgement tracking — added for grouped alert Phase 1 fix
+            "ALTER TABLE margin_call_alert_log ADD COLUMN IF NOT EXISTS acknowledged_at  TIMESTAMP",
+            "ALTER TABLE margin_call_alert_log ADD COLUMN IF NOT EXISTS acknowledged_by  VARCHAR(200)",
+            "ALTER TABLE margin_call_alert_log ADD COLUMN IF NOT EXISTS cooldown_hours   INTEGER DEFAULT 24",
+            "ALTER TABLE margin_call_alert_log ADD COLUMN IF NOT EXISTS ack_token        VARCHAR(64)",
 
             # ── Trading Facility Usage — Phase 1 ──────────────────────────────
             # Stores bank credit lines; utilisation calculated at query time

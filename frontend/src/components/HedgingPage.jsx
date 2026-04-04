@@ -1,5 +1,7 @@
 // HedgingPage.jsx
-// Hedging tab — jump nav for Hedge Recommendations, Exposure Register, and Exposure Forecast.
+// Hedging tab — 6-tab lifecycle view: Requires Action / In Progress / Hedged /
+// Awaiting Settlement / Settled / Forecast
+// P&L strip sits above the tabs; Hedge Recommendations shown inside action tabs.
 // focusExposure is passed via router location state (navigate('/hedging', { state: { focusExposure } }))
 
 import React, { useState, useRef, useEffect } from 'react'
@@ -14,7 +16,6 @@ import { formatEUR } from '../utils/formatting'
 import { flagCurrency, CURRENCY_FLAGS } from '../utils/currency'
 import HedgingRecommendations from './HedgingRecommendations'
 import ExposureRegister from './ExposureRegister'
-import JumpNav from './JumpNav'
 import ScrollToTop from './ScrollToTop'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
@@ -23,11 +24,27 @@ const authHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
 })
 
-const SECTIONS = [
-  { id: 'recommendations', label: 'Hedge Recommendations' },
-  { id: 'register',        label: 'Exposure Register'     },
-  { id: 'forecast',        label: 'Exposure Forecast'     },
+// ── Page-level tab definitions (mirrors ExposureRegister TABS + Forecast) ────
+const PAGE_TABS = [
+  { id: 'requires_action',     label: 'Requires Action',     emoji: '⚠️', badgeColor: DANGER  },
+  { id: 'in_progress',         label: 'In Progress',         emoji: '🔄', badgeColor: WARNING },
+  { id: 'hedged',              label: 'Hedged',              emoji: '✅', badgeColor: SUCCESS },
+  { id: 'awaiting_settlement', label: 'Awaiting Settlement', emoji: '🕐', badgeColor: WARNING },
+  { id: 'settled',             label: 'Settled',             emoji: '📁', badgeColor: null    },
+  { id: 'forecast',            label: 'Forecast',            emoji: '📊', badgeColor: null    },
 ]
+
+// Tabs that include Hedge Recommendations above the register table
+const RECS_TABS = new Set(['requires_action', 'in_progress'])
+
+// ── P&L formatters ────────────────────────────────────────────────────────────
+
+const fmtPnl = (n) => {
+  if (n == null) return '—'
+  const sign = n >= 0 ? '+' : '-'
+  return `${sign}€${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+}
+const pnlColor = (n) => n == null ? '#9CA3AF' : n >= 0 ? SUCCESS : DANGER
 
 // ── Confidence badge ──────────────────────────────────────────────────────────
 
@@ -434,75 +451,148 @@ export default function HedgingPage() {
   // focusExposure arrives via router state from Dashboard "Hedge Now" button
   const focusExposure = location.state?.focusExposure || null
 
-  const [active, setActive] = useState('recommendations')
-  const sectionRefs = useRef({})
+  const storageKey = `hedging_tab_${companyId}`
+  const [activeTab, setActiveTab] = useState(
+    () => localStorage.getItem(storageKey) || 'requires_action'
+  )
+  // Tab counts + P&L totals — populated by ExposureRegister's onTabDataLoaded callback
+  const [tabCounts, setTabCounts]         = useState({})
+  const [totalLockedPnl,   setLockedPnl]  = useState(null)
+  const [totalFloatingPnl, setFloatPnl]   = useState(null)
+  const [totalCombinedPnl, setCombinedPnl]= useState(null)
 
-  function scrollTo(id) {
-    setActive(id)
-    const el = sectionRefs.current[id]
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  function switchTab(tabId) {
+    setActiveTab(tabId)
+    localStorage.setItem(storageKey, tabId)
   }
 
-  // When arriving at /hedging/register scroll to the register section on mount
-  useEffect(() => {
-    if (location.pathname === '/hedging/register') {
-      scrollTo('register')
-    }
-  }, [location.pathname])
+  function handleTabDataLoaded(tabData) {
+    // Extract counts for badge display
+    const counts = {}
+    PAGE_TABS.forEach(t => { counts[t.id] = tabData[t.id]?.count || 0 })
+    setTabCounts(counts)
+    // Compute portfolio P&L from active lifecycle tabs
+    const activeTabIds = ['requires_action', 'in_progress', 'hedged']
+    const allActive = activeTabIds.flatMap(t => tabData[t]?.exposures || [])
+    setLockedPnl  (allActive.reduce((s, e) => s + (e.locked_pnl   || 0), 0))
+    setFloatPnl   (allActive.reduce((s, e) => s + (e.floating_pnl || 0), 0))
+    setCombinedPnl(allActive.reduce((s, e) => s + (e.combined_pnl || 0), 0))
+  }
 
-  // After focusExposure is consumed, clear router state so a refresh doesn't re-trigger it
+  // When Dashboard sends user here to hedge a specific exposure, switch to requires_action tab
+  useEffect(() => {
+    if (focusExposure) switchTab('requires_action')
+  }, [focusExposure?.id])
+
   function handleFocusConsumed() {
     navigate('/hedging', { replace: true, state: {} })
   }
 
+  const isLifecycleTab = activeTab !== 'forecast'
+
   return (
-    <div className="space-y-0">
-      {/* Page header */}
-      <div className="rounded-xl p-6 mb-4" style={{ background: NAVY }}>
-        <h2 className="text-xl font-bold text-white">Hedging</h2>
-        <p className="text-xs mt-1" style={{ color: '#8DA4C4' }}>
-          Recommendations, execution, your full exposure register, and upcoming pipeline
-        </p>
-      </div>
-
-      {/* Jump nav */}
-      <div className="mb-5">
-        <JumpNav sections={SECTIONS} active={active} onNavigate={scrollTo} variant="tab" />
-      </div>
-
+    <div className="space-y-4">
       <ScrollToTop />
 
-      {/* Hedge Recommendations section */}
-      <div
-        ref={el => { sectionRefs.current['recommendations'] = el }}
-        className="scroll-mt-32"
-      >
-        <HedgingRecommendations
-          focusExposure={focusExposure}
-          onFocusConsumed={handleFocusConsumed}
-        />
+      {/* Portfolio P&L strip — always visible above tabs */}
+      <div className="rounded-xl p-5 grid grid-cols-3 gap-4" style={{ background: NAVY }}>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: '#8DA4C4' }}>
+            Locked P&L
+          </p>
+          <p className="text-xl font-bold" style={{ color: pnlColor(totalLockedPnl) }}>
+            {fmtPnl(totalLockedPnl)}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>Crystallised from executed hedges</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: '#8DA4C4' }}>
+            Floating P&L
+          </p>
+          <p className="text-xl font-bold" style={{ color: pnlColor(totalFloatingPnl) }}>
+            {fmtPnl(totalFloatingPnl)}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>Open portion vs today's spot</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: '#8DA4C4' }}>
+            Combined P&L
+          </p>
+          <p className="text-xl font-bold" style={{ color: pnlColor(totalCombinedPnl) }}>
+            {fmtPnl(totalCombinedPnl)}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>Total portfolio position</p>
+        </div>
       </div>
 
-      {/* Exposure Register section */}
-      <div
-        ref={el => { sectionRefs.current['register'] = el }}
-        className="scroll-mt-32 mt-6"
-      >
-        <ExposureRegister
-          companyId={companyId}
-          onHedgeNow={(exp) => {
-            navigate('/hedging', { state: { focusExposure: exp } })
-            scrollTo('recommendations')
-          }}
-        />
-      </div>
+      {/* 6-tab nav */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="flex items-stretch border-b border-gray-100" style={{ background: '#F8FAFC' }}>
+          {PAGE_TABS.map(tab => {
+            const count    = tabCounts[tab.id] || 0
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => switchTab(tab.id)}
+                className="flex-1 flex flex-col items-center py-3 px-2 text-xs font-semibold transition-all relative"
+                style={{
+                  background:   isActive ? 'white' : 'transparent',
+                  color:        isActive ? NAVY : '#9CA3AF',
+                  borderBottom: isActive ? `2px solid ${GOLD}` : '2px solid transparent',
+                }}
+              >
+                <span className="text-base mb-0.5">{tab.emoji}</span>
+                <span className="whitespace-nowrap">{tab.label}</span>
+                {count > 0 && tab.id !== 'forecast' && (
+                  <span
+                    className="absolute top-2 right-2 font-bold px-1.5 py-0.5 rounded-full"
+                    style={{
+                      fontSize:   10,
+                      background: tab.badgeColor ? `${tab.badgeColor}22` : '#E5E7EB',
+                      color:      tab.badgeColor || '#6B7280',
+                    }}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
 
-      {/* Exposure Forecast section */}
-      <div
-        ref={el => { sectionRefs.current['forecast'] = el }}
-        className="scroll-mt-32 mt-6"
-      >
-        <ForecastingSection companyId={companyId} />
+        {/* Tab content */}
+        <div className="p-0">
+          {activeTab === 'forecast' ? (
+            // ── Forecast tab ──────────────────────────────────────────────────
+            <div className="p-4">
+              <ForecastingSection companyId={companyId} />
+            </div>
+          ) : (
+            // ── Lifecycle tabs (Requires Action / In Progress / Hedged / …) ──
+            <div className="space-y-4 p-4">
+              {/* Hedge Recommendations — only in action-oriented tabs */}
+              {RECS_TABS.has(activeTab) && (
+                <HedgingRecommendations
+                  focusExposure={focusExposure}
+                  onFocusConsumed={handleFocusConsumed}
+                />
+              )}
+
+              {/* Exposure Register — tab driven externally, chrome suppressed */}
+              <ExposureRegister
+                companyId={companyId}
+                externalTab={activeTab}
+                hideChrome={true}
+                onTabDataLoaded={handleTabDataLoaded}
+                onHedgeNow={(exp) => {
+                  navigate('/hedging', { state: { focusExposure: exp } })
+                  switchTab('requires_action')
+                }}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -81,6 +81,28 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
+## 📧 Margin Call — Phase 2 Enhancements
+**Priority:** Pre-pilot
+**Status:** Core fix deployed (BCC, grouped email, weekend suppression, acknowledgement link). Enhancements backlogged.
+
+Phase 1 fixes deployed:
+- ✅ BCC on all alert emails — recipients cannot see each other
+- ✅ Grouped margin call — ONE email per company with all at-risk tranches
+- ✅ Email subject shows count ("3 positions") not pair name
+- ✅ Weekend suppression — no alerts on Saturday/Sunday
+- ✅ One-click acknowledge link in email body
+- ✅ Acknowledged alerts extend cooldown to 48h
+- ✅ MTM Report shows Acknowledged column
+
+Phase 2 enhancements (backlogged):
+- [ ] Configurable cooldown period in Settings (default 24h; default after ack 48h)
+- [ ] Escalation: if unacknowledged after 48h, escalate to company admin
+- [ ] Per-tranche acknowledge from MTM Report (not just email link)
+- [ ] Margin call summary in daily digest (if any active, consolidate into digest rather than separate email)
+- [ ] Severity tiers: Warning (threshold%) vs Critical (2× threshold%) with different email styling
+
+---
+
 ## 🔄 Forward Roll Functionality
 **Priority:** Pre-scale
 **Description:** Roll a maturing forward to a new value date.

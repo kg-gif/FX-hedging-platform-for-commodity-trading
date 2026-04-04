@@ -625,12 +625,25 @@ const TAB_COLUMNS = {
   settled:             ['Pair', 'Description', 'Total', 'Final Hedge %', 'Settlement Date', 'Final P&L'],
 }
 
-export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeNow }) {
+export default function ExposureRegister({
+  companyId,
+  onEdit,
+  onDelete,
+  onHedgeNow,
+  // Optional: when provided, HedgingPage drives the tab selection externally
+  externalTab      = null,
+  onTabDataLoaded  = null,  // callback(tabData) so parent can compute P&L strip
+  hideChrome       = false, // when true: skip P&L strip + tab nav (parent renders them)
+}) {
   const { getSelectedCompany } = useCompany()
   const baseCurrency = getSelectedCompany()?.base_currency || 'EUR'
 
   const storageKey = `exposure_tab_${companyId}`
-  const [activeTab, setActiveTab]         = useState(() => localStorage.getItem(storageKey) || 'requires_action')
+  // When externally controlled, use externalTab; otherwise read from localStorage
+  const [internalTab, setInternalTab] = useState(
+    () => externalTab || localStorage.getItem(storageKey) || 'requires_action'
+  )
+  const activeTab = externalTab || internalTab
   const [tabData, setTabData]             = useState({})
   const [loading, setLoading]             = useState(true)
   const [error, setError]                 = useState(null)
@@ -657,10 +670,11 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
       if (!res.ok) throw new Error('Failed to load')
       const data = await res.json()
       setTabData(data)
+      if (onTabDataLoaded) onTabDataLoaded(data)
       // Auto-select requires_action on first load if it has items and no saved preference
-      if (!localStorage.getItem(storageKey)) {
+      if (!externalTab && !localStorage.getItem(storageKey)) {
         const defaultTab = (data.requires_action?.count || 0) > 0 ? 'requires_action' : 'in_progress'
-        setActiveTab(defaultTab)
+        setInternalTab(defaultTab)
       }
     } catch (e) {
       setError('Failed to load exposure register')
@@ -670,7 +684,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
   }
 
   function switchTab(tabId) {
-    setActiveTab(tabId)
+    setInternalTab(tabId)
     localStorage.setItem(storageKey, tabId)
   }
 
@@ -965,8 +979,8 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
   return (
     <div className="space-y-4">
 
-      {/* Portfolio P&L Summary — active exposures only (requires_action + in_progress + hedged) */}
-      <div className="rounded-xl p-5 grid grid-cols-3 gap-4" style={{ background: NAVY }}>
+      {/* Portfolio P&L Summary — hidden when HedgingPage renders it above the tabs */}
+      {!hideChrome && <div className="rounded-xl p-5 grid grid-cols-3 gap-4" style={{ background: NAVY }}>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: '#8DA4C4' }}>
             Locked P&L
@@ -994,13 +1008,13 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
           </p>
           <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>Total portfolio position</p>
         </div>
-      </div>
+      </div>}
 
       {/* Tab bar + table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
 
-        {/* Tab strip */}
-        <div className="flex items-stretch border-b border-gray-100" style={{ background: '#F8FAFC' }}>
+        {/* Tab strip — hidden when HedgingPage renders it externally */}
+        {!hideChrome && <div className="flex items-stretch border-b border-gray-100" style={{ background: '#F8FAFC' }}>
           {TABS.map(tab => {
             const count    = tabData[tab.id]?.count || 0
             const isActive = activeTab === tab.id
@@ -1039,7 +1053,7 @@ export default function ExposureRegister({ companyId, onEdit, onDelete, onHedgeN
             title="Refresh">
             <RefreshCw size={12} />
           </button>
-        </div>
+        </div>}
 
         {/* Table for the active tab */}
         <div className="overflow-x-auto">

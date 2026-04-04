@@ -684,10 +684,13 @@ async def get_enriched_exposures(
                     db.commit()
                     print(f"[zone-shift] {pair}: logged zone change {last_zone} → {current_zone}")
 
-                    # Send email notification
+                    # Send email notification — weekday only, FX markets closed on weekends
+                    from routes.margin_call_routes import should_send_alert_today as _weekday_check
                     resend_key = os.getenv("RESEND_API_KEY")
                     print(f"[zone-shift] {pair}: resend_key present={bool(resend_key)}, company_alert_email={company_alert_email}")
-                    if resend_key and company_alert_email:
+                    if not _weekday_check():
+                        print(f"[zone-shift] {pair}: weekend — suppressing email")
+                    elif resend_key and company_alert_email:
                         import httpx as _httpx
                         zone_label = current_zone.upper()
                         direction_txt = exp.get("exposure_type") or exp.get("direction") or "payable"
@@ -714,10 +717,11 @@ async def get_enriched_exposures(
                                     "https://api.resend.com/emails",
                                     headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                                     json={
-                                        "from": "Sumnohow <alerts@updates.sumnohow.com>",
-                                        "to":   [company_alert_email],
+                                        "from":    "Sumnohow <alerts@updates.sumnohow.com>",
+                                        "to":      ["alerts@updates.sumnohow.com"],
+                                        "bcc":     [company_alert_email],
                                         "subject": f"{pair} Zone Alert — {zone_label}",
-                                        "html": body_html,
+                                        "html":    body_html,
                                     },
                                 )
                             print(f"[zone-email] sent to {company_alert_email} for {pair} - {current_zone} | status={resp.status_code} body={resp.text}")
