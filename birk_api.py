@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict
 import os
 import asyncio
@@ -1305,6 +1305,11 @@ async def send_daily_alerts(
     expected_secret = os.getenv("CRON_SECRET", "")
     if not expected_secret or secret != expected_secret:
         raise HTTPException(status_code=401, detail="Invalid cron secret")
+
+    # Weekend suppression — FX markets closed Fri 5pm → Sun 5pm; digest on stale rates is noise
+    if datetime.now(timezone.utc).weekday() >= 5:  # 5=Saturday, 6=Sunday
+        print("[daily-digest] Weekend — skipping digest")
+        return {"status": "skipped", "reason": "weekend - markets closed"}
 
     resend_api_key = os.getenv("RESEND_API_KEY")
     frontend_url = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
