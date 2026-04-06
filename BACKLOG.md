@@ -452,3 +452,31 @@ Features needed:
 Commercial note: Proprietary view creates IP, brand authority, and content marketing opportunity. Positions Sumnohow as an FX advisory platform, not just software. High brand value at Series A.
 
 Status: Backlog — do not build until 10+ pilot companies active (need track record to validate house view credibility)
+
+---
+
+## Budget Rate Time Horizon
+Priority: Pre-scale
+Description:
+- Allow budget rate to be set per period (Q1/Q2/Q3/Q4 or annual)
+- Current single rate becomes default/fallback
+- P&L uses rate for the period the exposure matures in
+- Budget rate schedule in Settings → Policy
+- Affects: P&L, scenario analysis, zone calculations
+Validate with pilot customer first — some use annual, some quarterly.
+
+Status: Backlog
+
+---
+
+## Rate Ticker
+Priority: Pre-pilot
+Description:
+- Slim live rate bar between nav and summary strip
+- Shows company's active pairs only
+- Format: 🇬🇧🇺🇸 GBP/USD 1.3407 ▲+0.12%
+- Updates every 5 min from existing rate cache
+- Scrolls horizontally if many pairs
+- No extra API calls — uses cached rates
+
+Status: Backlog

@@ -2623,10 +2623,16 @@ async def get_dashboard_summary(
     empty = {
         "total_exposure_eur": 0, "hedged_eur": 0, "open_eur": 0,
         "locked_pnl_eur": 0, "floating_pnl_eur": 0, "portfolio_pnl_eur": 0,
-        "next_maturity": None,
+        "next_maturity": None, "base_currency": "EUR",
     }
 
     try:
+        # Fetch company base_currency — all summary values are denominated in this
+        company_info = db.execute(
+            text("SELECT base_currency FROM companies WHERE id = :cid"), {"cid": safe_id}
+        ).fetchone()
+        base_currency = (company_info._mapping["base_currency"] if company_info else None) or "EUR"
+
         # Active, non-archived exposures only
         exposures = db.execute(text("""
             SELECT * FROM exposures
@@ -2636,7 +2642,7 @@ async def get_dashboard_summary(
         """), {"cid": safe_id}).fetchall()
 
         if not exposures:
-            return empty
+            return {**empty, "base_currency": base_currency}
 
         # ── 1. Fetch live spot rates for all exposure pairs ───────────────────
         pairs = list(dict.fromkeys([
@@ -2645,14 +2651,14 @@ async def get_dashboard_summary(
         ]))
         live_rates = await get_current_rates(pairs)
 
-        # ── 2. Fetch USD rates for all currencies (for EUR pivot) ─────────────
+        # ── 2. Fetch USD rates for all currencies (for base_currency pivot) ───
+        # Same approach as enriched endpoint: from_usd / base_usd → from → base rate
         all_ccys = list(dict.fromkeys(
             [e._mapping['from_currency'] for e in exposures] +
             [e._mapping['to_currency']   for e in exposures]
         ))
-        # Always include EUR as the pivot denominator
         usd_fetch_list = list(dict.fromkeys(
-            [c for c in all_ccys if c != "USD"] + ["EUR"]
+            [c for c in all_ccys if c != "USD"] + ([base_currency] if base_currency != "USD" else [])
         ))
         usd_results = await asyncio.gather(
             *[get_rate_async(c, "USD") for c in usd_fetch_list],
@@ -2663,15 +2669,24 @@ async def get_dashboard_summary(
             if not isinstance(r, Exception) and r is not None:
                 usd_map[ccy] = float(r)
 
-        # Build rates dict in the format pnl_to_eur expects: {'CCY/USD': rate}
-        from services.currency_utils import pnl_to_eur as _pnl_to_eur
-        rates_for_eur = {f"{ccy}/USD": rate for ccy, rate in usd_map.items()}
+        base_usd = usd_map.get(base_currency, 1.0) if base_currency != "USD" else 1.0
 
-        # ── 3. Loop over exposures, accumulate EUR totals ─────────────────────
-        total_exposure_eur = 0.0
-        hedged_eur         = 0.0
-        locked_pnl_eur     = 0.0
-        floating_pnl_eur   = 0.0
+        def _to_base(amount: float, ccy: str) -> float:
+            """Convert an amount in `ccy` to base_currency via USD pivot."""
+            if ccy == base_currency:
+                return amount
+            if ccy == "USD":
+                return (amount / base_usd) if base_usd else amount
+            from_usd = usd_map.get(ccy)
+            if from_usd and base_usd:
+                return amount * (from_usd / base_usd)
+            return amount  # fallback — no conversion available
+
+        # ── 3. Loop over exposures, accumulate base_currency totals ──────────
+        total_exposure_base = 0.0
+        hedged_base         = 0.0
+        locked_pnl_base     = 0.0
+        floating_pnl_base   = 0.0
 
         for exp_row in exposures:
             try:
@@ -2703,20 +2718,26 @@ async def get_dashboard_summary(
                 exp_for_pnl["amount_currency"] = amount_currency
                 pnl = calculate_pnl_split(exp_for_pnl, tranche_list, current_spot)
 
-                # total_amount and hedged_amount are in from_currency
-                total_exposure_eur += _pnl_to_eur(total_amount,           exp["from_currency"], rates_for_eur)
-                hedged_eur         += _pnl_to_eur(pnl["hedged_amount"],   exp["from_currency"], rates_for_eur)
-
-                # P&L = (rate - budget_rate) × amount_from  →  result is in to_currency
-                locked_pnl_eur   += _pnl_to_eur(pnl["locked_pnl"],   exp["to_currency"], rates_for_eur)
-                floating_pnl_eur += _pnl_to_eur(pnl["floating_pnl"], exp["to_currency"], rates_for_eur)
+                # Notionals are in from_currency; P&L is in to_currency — convert both to base
+                total_exposure_base += _to_base(total_amount,           exp["from_currency"])
+                hedged_base         += _to_base(pnl["hedged_amount"],   exp["from_currency"])
+                locked_pnl_base     += _to_base(pnl["locked_pnl"],     exp["to_currency"])
+                floating_pnl_base   += _to_base(pnl["floating_pnl"],   exp["to_currency"])
 
             except Exception as exp_err:
                 # One bad exposure must not kill the whole summary
                 print(f"[dashboard/summary] WARNING: skipping exposure {exp_row._mapping.get('id')} — {exp_err}")
 
-        open_eur          = max(total_exposure_eur - hedged_eur, 0.0)
-        portfolio_pnl_eur = locked_pnl_eur + floating_pnl_eur
+        open_base          = max(total_exposure_base - hedged_base, 0.0)
+        portfolio_pnl_base = locked_pnl_base + floating_pnl_base
+
+        # Keep *_eur field names for API backward-compat — values are now in base_currency
+        total_exposure_eur = total_exposure_base
+        hedged_eur         = hedged_base
+        open_eur           = open_base
+        locked_pnl_eur     = locked_pnl_base
+        floating_pnl_eur   = floating_pnl_base
+        portfolio_pnl_eur  = portfolio_pnl_base
 
         # ── 4. Next maturity ──────────────────────────────────────────────────
         # Earliest future value_date on an executed/confirmed forward tranche
@@ -2746,7 +2767,7 @@ async def get_dashboard_summary(
                 "tranche_id": int(nr["id"]),
             }
 
-        print(f"[dashboard/summary] company={safe_id} total={total_exposure_eur:.0f} hedged={hedged_eur:.0f} pnl={portfolio_pnl_eur:.0f}")
+        print(f"[dashboard/summary] company={safe_id} base={base_currency} total={total_exposure_eur:.0f} hedged={hedged_eur:.0f} pnl={portfolio_pnl_eur:.0f}")
 
         return {
             "total_exposure_eur": round(total_exposure_eur, 0),
@@ -2756,6 +2777,7 @@ async def get_dashboard_summary(
             "floating_pnl_eur":    round(floating_pnl_eur,    0),
             "portfolio_pnl_eur":   round(portfolio_pnl_eur,   0),
             "next_maturity":       next_maturity,
+            "base_currency":       base_currency,
         }
 
     except Exception as e:

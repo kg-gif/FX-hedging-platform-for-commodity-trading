@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
-import { flagCurrency as ccyLabel, flagPair } from '../utils/currency'
+import { flagPair, CURRENCY_FLAGS } from '../utils/currency'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
@@ -26,24 +26,28 @@ const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { ma
 
 // ── Portfolio Summary Strip ───────────────────────────────────────────────────
 
+// Currency symbol map for summary strip (frontend-only — no backend import needed)
+const CCY_SYMBOLS = { EUR: '€', GBP: '£', USD: '$', NOK: 'kr', SEK: 'kr', DKK: 'kr', CHF: 'CHF ', JPY: '¥', AUD: 'A$', CAD: 'C$', NZD: 'NZ$', SGD: 'S$' }
+
 function PortfolioSummaryStrip({ summary, loading, onNextMaturityClick }) {
+  const sym = CCY_SYMBOLS[summary?.base_currency] ?? '€'
   const fmtEur = (v) => {
     if (v == null) return '—'
     const n = Number(v)
     if (isNaN(n)) return '—'
     const sign = n >= 0 ? '+' : '-'
     const abs  = Math.abs(n)
-    if (abs >= 1_000_000) return `${sign}€${(abs / 1_000_000).toFixed(1)}M`
-    if (abs >= 1_000)     return `${sign}€${(abs / 1_000).toFixed(0)}K`
-    return `${sign}€${abs.toFixed(0)}`
+    if (abs >= 1_000_000) return `${sign}${sym}${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${sign}${sym}${(abs / 1_000).toFixed(0)}K`
+    return `${sign}${sym}${abs.toFixed(0)}`
   }
   const fmtEurPlain = (v) => {
     if (v == null) return '—'
     const abs = Math.abs(Number(v))
     if (isNaN(abs)) return '—'
-    if (abs >= 1_000_000) return `€${(abs / 1_000_000).toFixed(1)}M`
-    if (abs >= 1_000)     return `€${(abs / 1_000).toFixed(0)}K`
-    return `€${abs.toFixed(0)}`
+    if (abs >= 1_000_000) return `${sym}${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${sym}${(abs / 1_000).toFixed(0)}K`
+    return `${sym}${abs.toFixed(0)}`
   }
   const pnlColor = (v) => {
     if (v == null) return 'white'
@@ -347,7 +351,7 @@ function Dashboard() {
   const defensivePairs     = [...new Set(enrichedExposures.filter(e => e.current_zone === 'defensive').map(e => e.currency_pair))]
   const opportunisticPairs = [...new Set(enrichedExposures.filter(e => e.current_zone === 'opportunistic').map(e => e.currency_pair))]
 
-  // Currency mix pie
+  // Currency mix pie — group by from_currency, use EUR notional from enriched endpoint
   const currencyDist = activeEnriched.length > 0
     ? activeEnriched.reduce((acc, e) => {
         const v = e.total_amount_eur || 0
@@ -363,19 +367,39 @@ function Dashboard() {
         else acc.push({ currency: e.from_currency, value: v })
         return acc
       }, [])
+  const currencyDistTotal = currencyDist.reduce((s, d) => s + d.value, 0)
 
-  // Rate vs Budget bar chart
-  const rateChanges = [...new Map(
-    exposures
-      .filter(e => e.budget_rate && e.current_rate)
-      .map(e => [`${e.from_currency}/${e.to_currency}`, e])
-  ).values()]
-    .map(e => ({
-      pair:   `${e.from_currency}/${e.to_currency}`,
-      label:  flagPair(`${e.from_currency}/${e.to_currency}`),
-      change: ((e.current_rate - e.budget_rate) / e.budget_rate) * 100,
-    }))
-    .sort((a, b) => b.change - a.change)
+  // Rate vs Budget bar chart — one bar per unique pair, weighted avg % move
+  // Uses enriched exposures (has pct_move_vs_budget + total_amount_eur for weighting)
+  const rateChanges = (() => {
+    const src = activeEnriched.length > 0 ? activeEnriched : []
+    const pairMap = {}
+    src.forEach(e => {
+      const pair = e.currency_pair || `${e.from_currency}/${e.to_currency}`
+      if (!e.budget_rate || !e.current_spot) return
+      if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0 }
+      const notional = e.total_amount_eur || 1
+      const pct      = e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)
+      pairMap[pair].totalNotional += notional
+      pairMap[pair].weightedMove  += pct * notional
+    })
+    // Fallback to basic exposures if enriched isn't available yet
+    if (Object.keys(pairMap).length === 0) {
+      exposures.filter(e => e.budget_rate && e.current_rate).forEach(e => {
+        const pair = `${e.from_currency}/${e.to_currency}`
+        if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0 }
+        pairMap[pair].totalNotional += 1
+        pairMap[pair].weightedMove  += (e.current_rate - e.budget_rate) / e.budget_rate * 100
+      })
+    }
+    return Object.entries(pairMap)
+      .map(([pair, d]) => ({
+        pair,
+        label:  flagPair(pair),
+        change: d.totalNotional > 0 ? d.weightedMove / d.totalNotional : 0,
+      }))
+      .sort((a, b) => b.change - a.change)
+  })()
 
   // Hedge coverage by pair
   const coverageByPair = Object.entries(
@@ -685,7 +709,10 @@ function Dashboard() {
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
                 <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%" outerRadius={75}
-                  label={(e) => ccyLabel(e.currency)}>
+                  label={({ currency, value }) => {
+                    const pct = currencyDistTotal > 0 ? Math.round((value / currencyDistTotal) * 100) : 0
+                    return `${CURRENCY_FLAGS[currency] || ''} ${currency} (${pct}%)`
+                  }}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v) => fmt(v)} />
@@ -723,12 +750,13 @@ function Dashboard() {
             </div>
             <div className="divide-y divide-gray-50">
               {[...new Map(exposures
-                .filter(e => e.current_rate && e.budget_rate)
+                .filter(e => e.current_rate)
                 .map(e => [`${e.from_currency}/${e.to_currency}`, e])
               ).values()].map(e => {
-                const pair   = `${e.from_currency}/${e.to_currency}`
-                const change = ((e.current_rate - e.budget_rate) / e.budget_rate) * 100
-                const pos    = change >= 0
+                const pair     = `${e.from_currency}/${e.to_currency}`
+                const hasBudget = e.budget_rate && e.budget_rate > 0
+                const change    = hasBudget ? ((e.current_rate - e.budget_rate) / e.budget_rate) * 100 : null
+                const pos       = change !== null && change >= 0
                 return (
                   <div key={pair} className="flex items-center justify-between px-4 py-2.5">
                     <span className="flex items-center gap-2 text-sm font-bold" style={{ color: NAVY }}>
@@ -738,7 +766,9 @@ function Dashboard() {
                     <div className="flex items-center gap-5 text-right">
                       <div>
                         <p className="text-xs text-gray-400">Budget</p>
-                        <p className="text-xs font-mono" style={{ color: NAVY }}>{e.budget_rate.toFixed(4)}</p>
+                        <p className="text-xs font-mono" style={{ color: NAVY }}>
+                          {hasBudget ? e.budget_rate.toFixed(4) : '—'}
+                        </p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-400">Spot</p>
@@ -746,9 +776,12 @@ function Dashboard() {
                       </div>
                       <div className="w-16">
                         <p className="text-xs text-gray-400">vs Budget</p>
-                        <p className="text-xs font-bold" style={{ color: pos ? SUCCESS : DANGER }}>
-                          {pos ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
-                        </p>
+                        {change !== null
+                          ? <p className="text-xs font-bold" style={{ color: pos ? SUCCESS : DANGER }}>
+                              {pos ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
+                            </p>
+                          : <p className="text-xs text-gray-400">—</p>
+                        }
                       </div>
                     </div>
                   </div>
