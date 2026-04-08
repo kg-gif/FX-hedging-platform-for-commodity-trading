@@ -1347,6 +1347,22 @@ async def send_daily_alerts(
             AND budget_rate IS NOT NULL
         """), {"cid": company_id}).fetchall()
 
+        # Upcoming maturities — next 30 days of executed/confirmed forward tranches
+        upcoming_maturities = db.execute(text("""
+            SELECT ht.id, ht.amount, ht.rate, ht.value_date,
+                   e.from_currency, e.to_currency, e.description, e.reference
+            FROM hedge_tranches ht
+            JOIN exposures e ON e.id = ht.exposure_id
+            WHERE e.company_id = :cid
+              AND (e.is_active IS NULL OR e.is_active = true)
+              AND ht.status IN ('executed', 'confirmed')
+              AND LOWER(ht.instrument) = 'forward'
+              AND ht.value_date IS NOT NULL
+              AND ht.value_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+            ORDER BY ht.value_date ASC
+            LIMIT 10
+        """), {"cid": company_id}).fetchall()
+
         if not exposures:
             continue
 
@@ -1425,6 +1441,45 @@ async def send_daily_alerts(
         warning_rows = "".join(exposure_row(e, "#FFFBEB") for e in warnings)
         healthy_rows = "".join(exposure_row(e, "#F9FAFB") for e in healthy)
 
+        # Build maturity section HTML (pre-rendered to avoid nested f-string complexity)
+        today_date = datetime.now(timezone.utc).date()
+        if upcoming_maturities:
+            mat_rows = ""
+            for m in upcoming_maturities:
+                mp = m._mapping
+                days = (mp["value_date"] - today_date).days
+                row_bg = "#FEF2F2" if days <= 7 else "#F9FAFB"
+                days_color = "#E74C3C" if days <= 7 else "#F59E0B" if days <= 30 else "#27AE60"
+                rate_str = f"{float(mp['rate']):.4f}" if mp["rate"] else "—"
+                desc_str = (mp["description"] or mp["reference"] or "—")[:35]
+                mat_rows += (
+                    f'<tr style="background:{row_bg};">'
+                    f'<td style="padding:8px 12px;font-weight:600;color:#1A2744;">{mp["from_currency"]}/{mp["to_currency"]}</td>'
+                    f'<td style="padding:8px 12px;color:#555;">{desc_str}</td>'
+                    f'<td style="padding:8px 12px;text-align:right;font-family:monospace;">{mp["from_currency"]} {int(mp["amount"] or 0):,}</td>'
+                    f'<td style="padding:8px 12px;text-align:right;font-family:monospace;">{rate_str}</td>'
+                    f'<td style="padding:8px 12px;text-align:right;">{mp["value_date"].strftime("%d %b %Y")}</td>'
+                    f'<td style="padding:8px 12px;text-align:right;font-weight:700;color:{days_color};">{days}d</td>'
+                    f'</tr>'
+                )
+        else:
+            mat_rows = '<tr><td colspan="6" style="padding:12px;text-align:center;color:#aaa;">No maturities in the next 30 days</td></tr>'
+
+        maturity_section_html = (
+            '<h3 style="color:#1A2744;font-size:14px;margin:24px 0 8px;">&#128197; Maturities in the Next 30 Days</h3>'
+            '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px;">'
+            '<thead><tr style="background:#1A2744;">'
+            '<th style="padding:8px 12px;text-align:left;color:#C9A86C;font-weight:600;">Pair</th>'
+            '<th style="padding:8px 12px;text-align:left;color:#C9A86C;font-weight:600;">Description</th>'
+            '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Amount</th>'
+            '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Rate</th>'
+            '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Value Date</th>'
+            '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Days</th>'
+            '</tr></thead>'
+            f'<tbody>{mat_rows}</tbody>'
+            '</table>'
+        )
+
         # Summary status
         status_color = "#E74C3C" if breaches else "#F59E0B" if warnings else "#27AE60"
         status_text = f"{len(breaches)} breach{'es' if len(breaches) != 1 else ''} require action" if breaches \
@@ -1493,6 +1548,8 @@ async def send_daily_alerts(
               {healthy_rows}
             </tbody>
           </table>
+
+          {maturity_section_html}
 
           <div style="text-align:center;margin-bottom:24px;">
             <a href="{frontend_url}"
@@ -2786,3 +2843,168 @@ async def get_dashboard_summary(
         traceback.print_exc()
         # Return zeros rather than 500 — strip shows — instead of crashing
         return empty
+
+
+# ── Maturity Schedule ─────────────────────────────────────────────────────────
+
+@app.get("/api/reports/maturity/{company_id}")
+async def get_maturity_schedule(
+    company_id: int,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Returns all upcoming hedge tranche maturities for the company,
+    grouped by month, sorted ascending by value_date.
+
+    Each tranche row includes:
+      - tranche_id, exposure_id, currency_pair
+      - amount (native), value_date
+      - hedge_rate, status
+      - description / reference from parent exposure
+      - days_to_maturity
+
+    Also returns a summary: total maturing notional in base_currency
+    per 30/60/90-day bucket and overall.
+    """
+    from sqlalchemy import text
+    from routes.hedge_tranche_routes import normalize_to_base
+
+    safe_id = resolve_company_id(company_id, payload)
+
+    company_row = db.execute(
+        text("SELECT base_currency FROM companies WHERE id = :cid"), {"cid": safe_id}
+    ).fetchone()
+    base_currency = (company_row._mapping["base_currency"] if company_row else None) or "EUR"
+
+    rows = db.execute(text("""
+        SELECT
+            ht.id              AS tranche_id,
+            ht.exposure_id,
+            ht.amount,
+            ht.rate,
+            ht.value_date,
+            ht.status,
+            ht.instrument,
+            ht.notes,
+            e.from_currency,
+            e.to_currency,
+            e.description,
+            e.reference,
+            e.budget_rate,
+            e.amount_currency
+        FROM hedge_tranches ht
+        JOIN exposures e ON e.id = ht.exposure_id
+        WHERE e.company_id = :cid
+          AND (e.is_active IS NULL OR e.is_active = true)
+          AND (e.archived  IS NULL OR e.archived  = false)
+          AND ht.status IN ('executed', 'confirmed')
+          AND ht.value_date IS NOT NULL
+          AND ht.value_date >= CURRENT_DATE
+        ORDER BY ht.value_date ASC, ht.id ASC
+    """), {"cid": safe_id}).fetchall()
+
+    if not rows:
+        return {"tranches": [], "by_month": [], "summary": {
+            "base_currency": base_currency,
+            "total_count": 0, "next_30_days": 0, "next_60_days": 0, "next_90_days": 0, "total_base": 0
+        }}
+
+    # Fetch USD rates for base_currency conversion (same pivot approach as enriched endpoint)
+    all_ccys = list(dict.fromkeys(
+        [r._mapping["from_currency"] for r in rows] +
+        ([base_currency] if base_currency != "USD" else [])
+    ))
+    usd_results = await asyncio.gather(
+        *[get_rate_async(c, "USD") for c in all_ccys],
+        return_exceptions=True
+    )
+    usd_map: dict = {"USD": 1.0}
+    for ccy, r in zip(all_ccys, usd_results):
+        if not isinstance(r, Exception) and r is not None:
+            usd_map[ccy] = float(r)
+    base_usd = usd_map.get(base_currency, 1.0) if base_currency != "USD" else 1.0
+
+    def _to_base(amount: float, ccy: str) -> float:
+        if ccy == base_currency: return amount
+        if ccy == "USD": return (amount / base_usd) if base_usd else amount
+        from_usd = usd_map.get(ccy)
+        return amount * (from_usd / base_usd) if (from_usd and base_usd) else amount
+
+    today = datetime.now(timezone.utc).date()
+    tranches = []
+    month_map = {}
+    next_30 = next_60 = next_90 = total_base = 0.0
+
+    for r in rows:
+        m = r._mapping
+        from_ccy = m["from_currency"]
+        to_ccy   = m["to_currency"]
+        pair     = f"{from_ccy}/{to_ccy}"
+        vdate    = m["value_date"]
+        amount   = float(m["amount"] or 0)
+        budget_rate = float(m["budget_rate"] or 0)
+
+        # Normalize amount to from_currency for notional conversion
+        amount_ccy = m["amount_currency"] or from_ccy
+        normalized = normalize_to_base(amount, amount_ccy, from_ccy, budget_rate)
+        notional_base = round(_to_base(normalized, from_ccy), 2)
+
+        days = (vdate - today).days if vdate else None
+
+        tranche = {
+            "tranche_id":     int(m["tranche_id"]),
+            "exposure_id":    int(m["exposure_id"]),
+            "currency_pair":  pair,
+            "from_currency":  from_ccy,
+            "to_currency":    to_ccy,
+            "amount":         amount,
+            "amount_currency": amount_ccy,
+            "notional_base":  notional_base,
+            "base_currency":  base_currency,
+            "rate":           float(m["rate"]) if m["rate"] else None,
+            "value_date":     vdate.isoformat() if vdate else None,
+            "days_to_maturity": days,
+            "status":         m["status"],
+            "instrument":     m["instrument"] or "Forward",
+            "description":    m["description"] or "",
+            "reference":      m["reference"] or "",
+            "notes":          m["notes"] or "",
+        }
+        tranches.append(tranche)
+
+        # Month grouping key: YYYY-MM
+        mk = vdate.strftime("%Y-%m") if vdate else "no-date"
+        if mk not in month_map:
+            month_map[mk] = {
+                "month":         mk,
+                "label":         vdate.strftime("%B %Y") if vdate else "No date",
+                "count":         0,
+                "total_base":    0.0,
+                "tranches":      [],
+            }
+        month_map[mk]["count"]      += 1
+        month_map[mk]["total_base"] += notional_base
+        month_map[mk]["tranches"].append(tranche)
+
+        # Bucket totals
+        total_base += notional_base
+        if days is not None:
+            if days <= 30:  next_30 += notional_base
+            if days <= 60:  next_60 += notional_base
+            if days <= 90:  next_90 += notional_base
+
+    by_month = sorted(month_map.values(), key=lambda x: x["month"])
+
+    return {
+        "tranches":  tranches,
+        "by_month":  by_month,
+        "summary": {
+            "base_currency": base_currency,
+            "total_count":   len(tranches),
+            "next_30_days":  round(next_30,  2),
+            "next_60_days":  round(next_60,  2),
+            "next_90_days":  round(next_90,  2),
+            "total_base":    round(total_base, 2),
+        }
+    }

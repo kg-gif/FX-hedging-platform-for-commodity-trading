@@ -389,6 +389,11 @@ export default function Reports() {
   // Map of tranche_id → { status: 'AT_RISK', acknowledgement: null | {acknowledged_at, acknowledged_by} }
   const [mcRiskData, setMcRiskData]   = useState({})
 
+  // Maturity Schedule report
+  const [maturity,         setMaturity]         = useState(null)
+  const [maturityLoading,  setMaturityLoading]  = useState(true)
+  const [matExpanded,      setMatExpanded]       = useState({})   // { 'YYYY-MM': true }
+
   // Trading Facilities report
   const [facilityUtil,        setFacilityUtil]        = useState(null)
   const [facilityLoading,     setFacilityLoading]     = useState(true)
@@ -452,8 +457,18 @@ export default function Reports() {
       loadMcRisk()
       loadFacilities()
       loadMarketReport()
+      loadMaturity()
     }
   }, [companyId, filterPair, filterFromDate, filterToDate, showDeleted])
+
+  const loadMaturity = async () => {
+    setMaturityLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/reports/maturity/${companyId}`, { headers: authHeaders() })
+      if (res.ok) setMaturity(await res.json())
+    } catch (e) { console.error('[maturity] fetch error:', e) }
+    finally { setMaturityLoading(false) }
+  }
 
   const loadMarketReport = async () => {
     setMarketLoading(true)
@@ -1642,31 +1657,137 @@ export default function Reports() {
       </div>
       </div>{/* /trading-facilities ref wrapper */}
 
-      {/* Coming Soon — Maturity Schedule only */}
+      {/* Maturity Schedule */}
       <div ref={el => { sectionRefs.current['maturity-schedule'] = el }} className="scroll-mt-32">
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-3 flex items-center gap-3" style={{ background: NAVY }}>
-          <Clock size={15} color={GOLD} />
-          <h3 className="font-semibold text-white text-sm">Coming Soon</h3>
+          <Calendar size={15} color={GOLD} />
+          <h3 className="font-semibold text-white text-sm">Maturity Schedule</h3>
+          <span className="text-xs ml-auto" style={{ color: '#8DA4C4' }}>
+            Upcoming executed &amp; confirmed forwards — sorted by value date
+          </span>
         </div>
-        <div className="p-5">
-          <div className="flex items-center justify-between py-3 px-4 border border-dashed border-gray-200 rounded-xl">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-                style={{ background: 'rgba(26,39,68,0.06)' }}>
-                <Calendar size={14} color={NAVY} />
-              </div>
-              <div>
-                <p className="text-sm font-semibold" style={{ color: NAVY }}>Maturity Schedule</p>
-                <p className="text-xs text-gray-400 mt-0.5">All upcoming hedge maturities with renewal recommendations</p>
-              </div>
-            </div>
-            <span className="text-xs px-3 py-1 rounded-full font-semibold shrink-0"
-              style={{ background: 'rgba(201,168,108,0.12)', color: GOLD }}>
-              Coming soon
-            </span>
+
+        {maturityLoading ? (
+          <div className="p-8 flex justify-center">
+            <p className="text-sm text-gray-400">Loading maturity schedule…</p>
           </div>
-        </div>
+        ) : !maturity || maturity.summary.total_count === 0 ? (
+          <div className="p-8 text-center text-sm text-gray-400">
+            No upcoming hedge maturities found.
+          </div>
+        ) : (() => {
+          const s   = maturity.summary
+          const sym = { EUR: '€', GBP: '£', USD: '$', NOK: 'kr', SEK: 'kr', DKK: 'kr', CHF: 'CHF ', JPY: '¥', AUD: 'A$', CAD: 'C$' }[s.base_currency] ?? s.base_currency + ' '
+          const fmtBase = (v) => {
+            if (!v) return '—'
+            const abs = Math.abs(v)
+            if (abs >= 1_000_000) return `${sym}${(abs / 1_000_000).toFixed(1)}M`
+            if (abs >= 1_000)     return `${sym}${(abs / 1_000).toFixed(0)}K`
+            return `${sym}${abs.toFixed(0)}`
+          }
+          const daysColor = (d) => d <= 7 ? DANGER : d <= 30 ? WARNING : SUCCESS
+          const fmtVDate  = (s) => s ? new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+
+          return (
+            <>
+              {/* Summary strip */}
+              <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-gray-100 border-b border-gray-100">
+                {[
+                  { label: 'Total Tranches',  value: s.total_count,    isCount: true },
+                  { label: 'Next 30 Days',    value: s.next_30_days,   isCount: false },
+                  { label: 'Next 60 Days',    value: s.next_60_days,   isCount: false },
+                  { label: 'Next 90 Days',    value: s.next_90_days,   isCount: false },
+                ].map((card, i) => (
+                  <div key={i} className="p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">{card.label}</p>
+                    <p className="text-xl font-bold" style={{ color: NAVY }}>
+                      {card.isCount ? card.value : fmtBase(card.value)}
+                    </p>
+                    {!card.isCount && <p className="text-xs text-gray-400 mt-0.5">maturing</p>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Month groups */}
+              <div className="divide-y divide-gray-100">
+                {maturity.by_month.map(group => {
+                  const expanded = matExpanded[group.month] !== false // default open
+                  return (
+                    <div key={group.month}>
+                      {/* Group header — clickable */}
+                      <button
+                        className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors"
+                        onClick={() => setMatExpanded(prev => ({ ...prev, [group.month]: !expanded }))}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="font-semibold text-sm" style={{ color: NAVY }}>{group.label}</span>
+                          <span className="text-xs text-gray-400">
+                            {group.count} tranche{group.count !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs">
+                          <span className="font-semibold" style={{ color: NAVY }}>{fmtBase(group.total_base)}</span>
+                          <span className="text-gray-400">{expanded ? '▲' : '▼'}</span>
+                        </div>
+                      </button>
+
+                      {expanded && (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr style={{ background: 'rgba(26,39,68,0.04)' }}>
+                                {['Tranche', 'Pair', 'Description', 'Amount', `Notional (${s.base_currency})`, 'Rate', 'Value Date', 'Days', 'Status'].map(h => (
+                                  <th key={h} className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {group.tranches.map(t => (
+                                <tr key={t.tranche_id} className="border-t border-gray-50 hover:bg-gray-50">
+                                  <td className="px-4 py-2.5 font-mono text-gray-500">
+                                    TRN-{String(t.tranche_id).padStart(5, '0')}
+                                  </td>
+                                  <td className="px-4 py-2.5 font-semibold" style={{ color: NAVY }}>
+                                    {CURRENCY_FLAGS[t.from_currency] || ''}{CURRENCY_FLAGS[t.to_currency] || ''} {t.currency_pair}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">
+                                    {t.description || t.reference || '—'}
+                                  </td>
+                                  <td className="px-4 py-2.5 font-mono">
+                                    {t.amount_currency} {new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(t.amount)}
+                                  </td>
+                                  <td className="px-4 py-2.5 font-mono">
+                                    {fmtBase(t.notional_base)}
+                                  </td>
+                                  <td className="px-4 py-2.5 font-mono">
+                                    {t.rate ? t.rate.toFixed(4) : '—'}
+                                  </td>
+                                  <td className="px-4 py-2.5 whitespace-nowrap">
+                                    {fmtVDate(t.value_date)}
+                                  </td>
+                                  <td className="px-4 py-2.5 font-bold whitespace-nowrap"
+                                    style={{ color: t.days_to_maturity != null ? daysColor(t.days_to_maturity) : '#9CA3AF' }}>
+                                    {t.days_to_maturity != null ? `${t.days_to_maturity}d` : '—'}
+                                  </td>
+                                  <td className="px-4 py-2.5">
+                                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${t.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-green-100 text-green-700'}`}>
+                                      {t.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )
+        })()}
       </div>
       </div>{/* /maturity-schedule ref wrapper */}
 
