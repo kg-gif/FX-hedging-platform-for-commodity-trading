@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
-import { flagPair, CURRENCY_FLAGS } from '../utils/currency'
+import { flagPair } from '../utils/currency'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
@@ -711,8 +711,10 @@ function Dashboard() {
                 <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%" outerRadius={75}
                   label={({ currency, value }) => {
                     const pct = currencyDistTotal > 0 ? Math.round((value / currencyDistTotal) * 100) : 0
-                    return `${CURRENCY_FLAGS[currency] || ''} ${currency} (${pct}%)`
-                  }}>
+                    // Emoji in SVG text is unreliable across browsers — use plain text label
+                    return `${currency} (${pct}%)`
+                  }}
+                  labelLine={true}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v) => fmt(v)} />
@@ -724,9 +726,11 @@ function Dashboard() {
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={rateChanges}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="label" style={{ fontSize: '11px' }} />
+                <XAxis dataKey="pair" style={{ fontSize: '11px' }} />
                 <YAxis style={{ fontSize: '11px' }} />
-                <Tooltip formatter={(v) => `${v.toFixed(2)}%`} />
+                <Tooltip
+                  formatter={(v, _name, props) => [`${v.toFixed(2)}%`, props.payload?.label || props.payload?.pair]}
+                />
                 <Bar dataKey="change" radius={[4, 4, 0, 0]}>
                   {rateChanges.map((e, i) => <Cell key={i} fill={e.change >= 0 ? SUCCESS : DANGER} />)}
                 </Bar>

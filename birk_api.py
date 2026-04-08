@@ -1336,6 +1336,7 @@ async def send_daily_alerts(
         alert_email   = c["alert_email"]
         base_currency = c.get("base_currency") or "EUR"
         ccy_symbol    = CURRENCY_SYMBOLS.get(base_currency, base_currency + " ")
+        print(f"[daily-digest] processing company={company_name} email={alert_email}")
 
         # Get exposures with P&L data
         exposures = db.execute(text("""
@@ -1585,10 +1586,13 @@ async def send_daily_alerts(
                 )
             if resp.status_code == 200:
                 sent_count += 1
+                print(f"[daily-digest] ✓ sent to {alert_email} ({company_name})")
                 results.append({"company": company_name, "email": alert_email, "breaches": len(breaches), "status": "sent"})
             else:
+                print(f"[daily-digest] ✗ FAILED for {company_name} ({alert_email}) — HTTP {resp.status_code}: {resp.text[:200]}")
                 results.append({"company": company_name, "email": alert_email, "status": "failed", "error": resp.text})
         except Exception as e:
+            print(f"[daily-digest] ✗ ERROR for {company_name} ({alert_email}) — {e}")
             results.append({"company": company_name, "email": alert_email, "status": "error", "error": str(e)})
 
     logger.info(f"Daily digest: {sent_count} emails sent")
