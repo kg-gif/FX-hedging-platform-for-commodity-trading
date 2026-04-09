@@ -1087,7 +1087,10 @@ async def get_tabbed_exposures(
         # Classify into lifecycle tab
         is_breach         = (status == "BREACH")
         policy_target_pct = z_target_ratio * 100
-        tab = classify_exposure_tab(exp_dict, pnl["hedge_pct"], is_breach, policy_target_pct)
+        tab = classify_exposure_tab(
+            exp_dict, pnl["hedge_pct"], is_breach, policy_target_pct,
+            current_zone=current_zone,
+        )
         exp_dict["_tab"] = tab
         result.append(exp_dict)
 

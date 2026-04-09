@@ -124,17 +124,25 @@ def classify_exposure_tab(
     hedge_pct: float,
     is_breach: bool,
     policy_target_pct: float,   # 0–100 (e.g. 80.0 for 80% target)
+    current_zone: str = "base", # 'base' | 'defensive' | 'opportunistic'
 ) -> str:
     """
     Classify an enriched exposure into one of five lifecycle tabs.
 
     Priority order:
-      1. archived         → 'settled'
-      2. past end_date    → 'awaiting_settlement'
-      3. breach OR 0%     → 'requires_action'
-      4. >= policy target → 'hedged'
-      5. > 0%             → 'in_progress'
-      6. else             → 'requires_action'
+      1. archived                                → 'settled'
+      2. past end_date                           → 'awaiting_settlement'
+      3. breach OR 0% hedged                     → 'requires_action'
+      4. DEFENSIVE zone AND below zone target    → 'requires_action'
+      5. >= policy target                        → 'hedged'
+      6. > 0% hedged                             → 'in_progress'
+      7. else                                    → 'requires_action'
+
+    DEFENSIVE zone logic (rule 4):
+    When spot has moved adversely beyond the policy threshold, the exposure
+    is in the DEFENSIVE zone and needs more hedging — even if partially covered.
+    These show on the Dashboard as zone-breach banners and must surface in
+    Requires Action so the treasurer can act.
 
     Args:
         exposure:          Enriched exposure dict (must have 'archived', 'end_date',
@@ -142,6 +150,7 @@ def classify_exposure_tab(
         hedge_pct:         Hedge coverage % (0–100)
         is_breach:         True if exposure is in BREACH status
         policy_target_pct: Hedge % required to be considered fully hedged (0–100)
+        current_zone:      Zone classification from calculate_zone()
 
     Returns:
         Tab name string
@@ -167,6 +176,11 @@ def classify_exposure_tab(
 
     # No hedging at all (and has a budget rate) = action needed
     if hedge_pct == 0 and (exposure.get("budget_rate") or 0) > 0:
+        return "requires_action"
+
+    # DEFENSIVE zone: spot has moved adversely past policy threshold.
+    # If still below the zone's target coverage, treasurer needs to act.
+    if current_zone == "defensive" and hedge_pct < policy_target_pct:
         return "requires_action"
 
     # At or above policy target = fully hedged
