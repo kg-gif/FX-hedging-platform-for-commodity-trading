@@ -130,19 +130,18 @@ def classify_exposure_tab(
     Classify an enriched exposure into one of five lifecycle tabs.
 
     Priority order:
-      1. archived                                → 'settled'
-      2. past end_date                           → 'awaiting_settlement'
-      3. breach OR 0% hedged                     → 'requires_action'
-      4. DEFENSIVE zone AND below zone target    → 'requires_action'
-      5. >= policy target                        → 'hedged'
-      6. > 0% hedged                             → 'in_progress'
-      7. else                                    → 'requires_action'
+      1. archived                    → 'settled'
+      2. past end_date               → 'awaiting_settlement'
+      3. DEFENSIVE zone              → 'requires_action'  ← always, regardless of hedge %
+      4. breach OR 0% hedged         → 'requires_action'
+      5. >= policy target            → 'hedged'
+      6. > 0% hedged                 → 'in_progress'
+      7. else                        → 'requires_action'
 
-    DEFENSIVE zone logic (rule 4):
-    When spot has moved adversely beyond the policy threshold, the exposure
-    is in the DEFENSIVE zone and needs more hedging — even if partially covered.
-    These show on the Dashboard as zone-breach banners and must surface in
-    Requires Action so the treasurer can act.
+    DEFENSIVE zone (rule 3) is the highest-priority active check.
+    A defensive zone exposure must always surface in Requires Action so the
+    treasurer can act — even if hedge_pct is at or above the zone target.
+    The hedge % check (rule 5) must never override a zone alert.
 
     Args:
         exposure:          Enriched exposure dict (must have 'archived', 'end_date',
@@ -170,17 +169,16 @@ def classify_exposure_tab(
         if end_date and end_date < date.today():
             return "awaiting_settlement"
 
-    # Breach always requires immediate action
+    # DEFENSIVE zone: spot has moved adversely past the policy threshold.
+    # This is the highest-priority active check — overrides hedge coverage.
+    # Even a fully-hedged exposure must be reviewed when the zone shifts.
+    if current_zone == "defensive":
+        return "requires_action"
+
+    # Breach or unhedged = action needed
     if is_breach:
         return "requires_action"
-
-    # No hedging at all (and has a budget rate) = action needed
     if hedge_pct == 0 and (exposure.get("budget_rate") or 0) > 0:
-        return "requires_action"
-
-    # DEFENSIVE zone: spot has moved adversely past policy threshold.
-    # If still below the zone's target coverage, treasurer needs to act.
-    if current_zone == "defensive" and hedge_pct < policy_target_pct:
         return "requires_action"
 
     # At or above policy target = fully hedged
@@ -191,7 +189,7 @@ def classify_exposure_tab(
     if hedge_pct > 0:
         return "in_progress"
 
-    # No budget rate or no hedges and no budget → requires action
+    # No budget rate set, nothing hedged → requires action
     return "requires_action"
 
 
