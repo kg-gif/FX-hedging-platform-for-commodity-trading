@@ -709,7 +709,7 @@ async def get_enriched_exposures(
                             f"<li>Direction: {direction_txt}</li>"
                             f"</ul>"
                             f"<p><strong>Recommended action:</strong> {action_txt}</p>"
-                            f"<p><a href='{os.getenv('FRONTEND_URL', 'https://birk-dashboard.onrender.com')}'>Review in Sumnohow →</a></p>"
+                            f"<p><a href='{os.getenv('FRONTEND_URL', 'https://app.sumnohow.com')}'>Review in Sumnohow →</a></p>"
                         )
                         try:
                             async with _httpx.AsyncClient(timeout=10) as client:

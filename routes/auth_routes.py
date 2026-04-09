@@ -269,7 +269,7 @@ async def forgot_password(email: str, db: Session = Depends(get_db)):
         """), {"token": reset_token, "expires": expires_at, "id": user._mapping["id"]})
         db.commit()
 
-        frontend_url = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
+        frontend_url = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
         reset_link   = f"{frontend_url}/reset-password?token={reset_token}"
 
         resend_api_key = os.getenv("RESEND_API_KEY")

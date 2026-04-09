@@ -64,7 +64,6 @@ app.add_middleware(
         "https://app.sumnohow.com",           # production custom domain
         "http://localhost:3000",
         "http://localhost:5173",
-        "https://birk-dashboard.onrender.com", # legacy Render domain (keep for safety)
         "https://birk-fx-api.onrender.com",
     ],
     # Covers any Render.com preview/branch deploy URLs in addition to the
@@ -962,7 +961,7 @@ async def zone_manual_override(
             ).fetchone()
             alert_email = company._mapping.get("alert_email") if company else None
             resend_api_key = os.getenv("RESEND_API_KEY")
-            frontend_url   = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
+            frontend_url   = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
             if alert_email and resend_api_key:
                 import httpx as _httpx
                 from routes.margin_call_routes import should_send_alert_today as _weekday_check
@@ -1312,7 +1311,7 @@ async def send_daily_alerts(
         return {"status": "skipped", "reason": "weekend - markets closed"}
 
     resend_api_key = os.getenv("RESEND_API_KEY")
-    frontend_url = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
+    frontend_url = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
 
     from services.currency_utils import CURRENCY_SYMBOLS
 

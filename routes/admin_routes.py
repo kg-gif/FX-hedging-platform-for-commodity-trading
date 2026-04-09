@@ -483,7 +483,7 @@ async def create_user(request: CreateUserRequest, admin: dict = Depends(require_
     db.commit()
 
     # Send welcome email
-    frontend_url = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
+    frontend_url = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
     resend_api_key = os.getenv("RESEND_API_KEY")
     company_name = company._mapping["name"]
 

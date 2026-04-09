@@ -242,7 +242,7 @@ async def send_margin_call_alerts_for_company(company_id: int, db) -> dict:
 
     print(f"[mc-alert] send_margin_call_alerts_for_company called for company_id={company_id}")
     resend_api_key = os.getenv("RESEND_API_KEY")
-    frontend_url   = os.getenv("FRONTEND_URL", "https://birk-dashboard.onrender.com")
+    frontend_url   = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
     backend_url    = os.getenv("BACKEND_URL", "https://birk-fx-api.onrender.com")
 
     # Company settings
@@ -571,7 +571,7 @@ def _ack_response(title: str, message: str, error: bool = False, info: bool = Fa
     <div style="font-size:48px;margin-bottom:16px;color:{color};">{icon}</div>
     <h2 style="color:#1A2744;margin:0 0 12px;font-size:20px;">{title}</h2>
     <p style="color:#6B7280;font-size:14px;line-height:1.6;margin:0 0 24px;">{message}</p>
-    <a href="{os.getenv('FRONTEND_URL', 'https://birk-dashboard.onrender.com')}"
+    <a href="{os.getenv('FRONTEND_URL', 'https://app.sumnohow.com')}"
        style="background:#1A2744;color:white;padding:12px 28px;border-radius:8px;
               text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">
       Open Dashboard →
