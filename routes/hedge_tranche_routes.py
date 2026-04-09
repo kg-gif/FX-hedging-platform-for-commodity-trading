@@ -1091,6 +1091,12 @@ async def get_tabbed_exposures(
             exp_dict, pnl["hedge_pct"], is_breach, policy_target_pct,
             current_zone=current_zone,
         )
+        print(
+            f"[tabbed-classify] pair={pair} zone={current_zone!r} "
+            f"hedge_pct={pnl['hedge_pct']:.1f} policy_target_pct={policy_target_pct:.1f} "
+            f"is_breach={is_breach} budget_rate={budget_rate} end_date={exp.get('end_date')} "
+            f"archived={bool(exp.get('archived'))} → tab={tab!r}"
+        )
         exp_dict["_tab"] = tab
         result.append(exp_dict)
 
