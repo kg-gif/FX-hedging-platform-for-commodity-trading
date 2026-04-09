@@ -343,8 +343,15 @@ function Dashboard() {
     : exposures.reduce((s, e) => s + (e.current_pnl_eur || 0), 0)
   const hedgedValue   = exposures.reduce((s, e) => s + (e.hedged_amount || 0), 0)
   const unhedgedValue = exposures.reduce((s, e) => s + (e.unhedged_amount || 0), 0)
-  const breaches      = exposures.filter(e => e.pnl_status === 'BREACH')
-  const warnings      = exposures.filter(e => e.pnl_status === 'WARNING')
+  // Requires Attention counters — use enriched data so they match the Hedging tab exactly.
+  // Breaches: hard limit violated — status BREACH (max_loss exceeded) or 0% hedged with budget set.
+  // Warnings: defensive zone exposures (tab == requires_action but no hard breach).
+  const breaches = activeEnriched.filter(e =>
+    e.status === 'BREACH' || (e.hedge_pct === 0 && (e.budget_rate || 0) > 0)
+  )
+  const warnings = activeEnriched.filter(e =>
+    e.tab === 'requires_action' && e.current_zone === 'defensive'
+  )
   const hedgePct      = totalExposure > 0 ? (hedgedValue / totalExposure) * 100 : 0
 
   // Zone alert pairs — from enriched endpoint (has live spot + budget)
