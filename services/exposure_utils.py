@@ -132,20 +132,21 @@ def classify_exposure_tab(
     Priority order:
       1. archived                    → 'settled'
       2. past end_date               → 'awaiting_settlement'
-      3. DEFENSIVE zone              → 'requires_action'  ← always, regardless of hedge %
-      4. breach OR 0% hedged         → 'requires_action'
-      5. >= policy target            → 'hedged'
-      6. > 0% hedged                 → 'in_progress'
-      7. else                        → 'requires_action'
+      3. open_amount == 0            → 'hedged'  ← 100% done, nothing left to transact
+      4. DEFENSIVE zone              → 'requires_action'
+      5. breach OR 0% hedged         → 'requires_action'
+      6. >= policy target            → 'hedged'
+      7. > 0% hedged                 → 'in_progress'
+      8. else                        → 'requires_action'
 
-    DEFENSIVE zone (rule 3) is the highest-priority active check.
-    A defensive zone exposure must always surface in Requires Action so the
-    treasurer can act — even if hedge_pct is at or above the zone target.
-    The hedge % check (rule 5) must never override a zone alert.
+    Rule 3: if open_amount is zero the entire notional is covered by executed
+    tranches — there is nothing left to hedge regardless of zone movement.
+    This must precede the defensive zone check so a fully-transacted exposure
+    never stays pinned in Requires Action.
 
     Args:
         exposure:          Enriched exposure dict (must have 'archived', 'end_date',
-                           'budget_rate' fields)
+                           'budget_rate', 'open_amount' fields)
         hedge_pct:         Hedge coverage % (0–100)
         is_breach:         True if exposure is in BREACH status
         policy_target_pct: Hedge % required to be considered fully hedged (0–100)
@@ -169,9 +170,13 @@ def classify_exposure_tab(
         if end_date and end_date < date.today():
             return "awaiting_settlement"
 
+    # Fully transacted: nothing left to hedge — move to Hedged regardless of zone.
+    open_amount = exposure.get("open_amount") or 0
+    if open_amount == 0 and hedge_pct >= 100:
+        return "hedged"
+
     # DEFENSIVE zone: spot has moved adversely past the policy threshold.
-    # This is the highest-priority active check — overrides hedge coverage.
-    # Even a fully-hedged exposure must be reviewed when the zone shifts.
+    # Overrides hedge coverage for partially-open exposures.
     if current_zone == "defensive":
         return "requires_action"
 

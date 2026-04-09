@@ -110,6 +110,21 @@ Phase 2 enhancements (backlogged):
 
 ---
 
+## 💱 Open Remainder — Settlement Purchase Prompt
+**Priority:** Pre-pilot (critical for workflow completeness)
+**Description:** Once an exposure is hedged to policy target (e.g. 75%), the remaining open amount (e.g. 25%) still needs to be transacted before value date — either as a forward or at spot.
+
+System must:
+1. Flag the open remainder on approach to value date
+2. Prompt user to either: (a) hedge remainder as additional forward, (b) mark as "will transact at spot", or (c) leave open with reason
+3. Once all tranches + remainder are accounted for → mark exposure as fully concluded
+4. Maturity Schedule must show upcoming remainder actions
+
+This is standard FX workflow — hedge protects the rate, but the physical currency transaction still needs to complete.
+**Status:** Backlog — validate exact workflow with pilot customer
+
+---
+
 ## 🔄 Forward Roll Functionality
 **Priority:** Pre-scale
 **Description:** Roll a maturing forward to a new value date.

@@ -743,7 +743,8 @@ async def get_enriched_exposures(
         _policy_target    = z_target_ratio * 100
         _tab = classify_exposure_tab(
             {"currency_pair": pair, "budget_rate": budget_rate,
-             "archived": bool(exp.get("archived")), "end_date": exp.get("end_date")},
+             "archived": bool(exp.get("archived")), "end_date": exp.get("end_date"),
+             "open_amount": pnl["open_amount"]},
             pnl["hedge_pct"], _is_breach, _policy_target, current_zone=current_zone,
         )
 
