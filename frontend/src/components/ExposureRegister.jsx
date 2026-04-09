@@ -666,14 +666,34 @@ export default function ExposureRegister({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE}/api/exposures/tabbed/${companyId}`, { headers: authHeaders() })
+      // Fetch enriched exposures (include_archived=true so settled tab is populated)
+      const res = await fetch(
+        `${API_BASE}/api/exposures/enriched?company_id=${companyId}&include_archived=true`,
+        { headers: authHeaders() }
+      )
       if (!res.ok) throw new Error('Failed to load')
       const data = await res.json()
-      setTabData(data)
-      if (onTabDataLoaded) onTabDataLoaded(data)
+      const items = data.items || []
+
+      // Group by the backend-assigned 'tab' field — this is set by classify_exposure_tab
+      // and accounts for zone, hedge %, breach status, and maturity. It is the single
+      // source of truth for which tab an exposure belongs in.
+      const TAB_IDS = ['requires_action', 'in_progress', 'hedged', 'awaiting_settlement', 'settled']
+      const grouped = {}
+      TAB_IDS.forEach(t => { grouped[t] = { count: 0, exposures: [] } })
+      items.forEach(exp => {
+        const t = exp.tab || 'requires_action'
+        if (grouped[t]) {
+          grouped[t].exposures.push(exp)
+          grouped[t].count++
+        }
+      })
+
+      setTabData(grouped)
+      if (onTabDataLoaded) onTabDataLoaded(grouped)
       // Auto-select requires_action on first load if it has items and no saved preference
       if (!externalTab && !localStorage.getItem(storageKey)) {
-        const defaultTab = (data.requires_action?.count || 0) > 0 ? 'requires_action' : 'in_progress'
+        const defaultTab = (grouped.requires_action?.count || 0) > 0 ? 'requires_action' : 'in_progress'
         setInternalTab(defaultTab)
       }
     } catch (e) {

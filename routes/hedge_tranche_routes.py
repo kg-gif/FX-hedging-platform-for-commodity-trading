@@ -472,6 +472,7 @@ async def get_enriched_exposures(
     """
     print("[enriched] endpoint called")
     from birk_api import get_current_rates, fetch_fx_rate, calculate_zone, zone_target_ratio
+    from services.exposure_utils import classify_exposure_tab
     ensure_tables(db)
 
     safe_id = resolve_company_id(company_id, payload)
@@ -482,6 +483,7 @@ async def get_enriched_exposures(
     ).fetchone()
     base_currency = company_info._mapping["base_currency"] if company_info else "USD"
 
+    # include_archived=True is used by ExposureRegister so archived exposures appear in the Settled tab
     archived_filter = "" if include_archived else "AND (archived IS NULL OR archived = false)"
     exposures = db.execute(
         text(f"SELECT * FROM exposures WHERE company_id = :cid AND (is_active IS NULL OR is_active = true) {archived_filter}"),
@@ -735,6 +737,16 @@ async def get_enriched_exposures(
         zone_checked_pairs.add(pair)  # mark as checked — skip on next exposure with same pair
         # ── End zone-shift notification ────────────────────────────────────────
 
+        # Lifecycle tab — drives which tab this exposure appears in on the Hedging page.
+        # Separate from status: status tracks workflow state, tab drives UI placement.
+        _is_breach        = (status == "BREACH")
+        _policy_target    = z_target_ratio * 100
+        _tab = classify_exposure_tab(
+            {"currency_pair": pair, "budget_rate": budget_rate,
+             "archived": bool(exp.get("archived")), "end_date": exp.get("end_date")},
+            pnl["hedge_pct"], _is_breach, _policy_target, current_zone=current_zone,
+        )
+
         result.append({
             # Core exposure fields
             "id":               exposure_id,
@@ -776,8 +788,12 @@ async def get_enriched_exposures(
                 "reset_at":         corridor._mapping["reset_at"].isoformat()    if corridor else None,
             } if corridor else None,
 
-            # Status
+            # Status + lifecycle tab
+            # status  = workflow state (OPEN / IN_PROGRESS / WELL_HEDGED / BREACH / NO_BUDGET)
+            # tab     = which Hedging tab this exposure belongs in (requires_action / in_progress /
+            #           hedged / awaiting_settlement / settled) — set by classify_exposure_tab
             "status":           status,
+            "tab":              _tab,
             "max_loss_limit":   float(exp.get("max_loss_limit") or 0),
 
             # Dynamic zone
