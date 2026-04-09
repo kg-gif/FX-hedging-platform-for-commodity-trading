@@ -2,7 +2,8 @@
 // No exposure register — that lives in Hedging → Exposure Register.
 // A CFO should understand the full portfolio position in 30 seconds.
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import ReactDOM from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
@@ -23,6 +24,57 @@ const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899
 const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtM    = (n) => `${(Math.abs(n) / 1_000_000).toFixed(1)}M`
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
+
+// ── InfoTooltip ──────────────────────────────────────────────────────────────
+// Inline ⓘ icon that shows a portal tooltip on hover. Same pattern as
+// ExposureRegister's ColHeader tooltip — portal so it's never clipped.
+
+function InfoTooltip({ text }) {
+  const [visible, setVisible] = useState(false)
+  const [pos, setPos]         = useState({ top: 0, left: 0 })
+  const ref                   = useRef(null)
+  const timer                 = useRef(null)
+
+  function show() {
+    clearTimeout(timer.current)
+    if (!ref.current) return
+    const r = ref.current.getBoundingClientRect()
+    setPos({ top: r.bottom + 6, left: r.left + r.width / 2 })
+    setVisible(true)
+  }
+  function hide() { timer.current = setTimeout(() => setVisible(false), 150) }
+  function cancelHide() { clearTimeout(timer.current) }
+
+  return (
+    <>
+      <span
+        ref={ref}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        style={{ color: GOLD, cursor: 'default', fontSize: 11, userSelect: 'none', marginLeft: 4 }}
+      >ⓘ</span>
+      {visible && ReactDOM.createPortal(
+        <div
+          onMouseEnter={cancelHide}
+          onMouseLeave={hide}
+          style={{
+            position: 'fixed', top: pos.top, left: pos.left,
+            transform: 'translateX(-50%)',
+            background: NAVY, color: '#fff',
+            borderRadius: 8, padding: '8px 12px',
+            fontSize: 12, lineHeight: 1.6,
+            maxWidth: 260, whiteSpace: 'normal',
+            zIndex: 9999,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          }}
+        >
+          {text}
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
 
 // ── Portfolio Summary Strip ───────────────────────────────────────────────────
 
@@ -684,16 +736,23 @@ function Dashboard() {
 
             {/* Requires attention */}
             <div className="rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.06)' }}>
-              <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8DA4C4' }}>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-3 flex items-center" style={{ color: '#8DA4C4' }}>
                 Requires Attention
+                <InfoTooltip text="Exposures that need your action. Click Hedging to review." />
               </p>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>Breaches</span>
+                  <span className="text-sm flex items-center" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>
+                    Breaches
+                    <InfoTooltip text="Hard limit violated: hedge coverage is below your policy minimum, or a maximum loss limit has been exceeded." />
+                  </span>
                   <span className="text-2xl font-bold" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>{breaches.length}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: warnings.length > 0 ? WARNING : '#8DA4C4' }}>Warnings</span>
+                  <span className="text-sm flex items-center" style={{ color: warnings.length > 0 ? WARNING : '#8DA4C4' }}>
+                    Warnings
+                    <InfoTooltip text="Soft alert: one or more currency pairs have moved into the Defensive zone. Increased hedging is recommended." />
+                  </span>
                   <span className="text-2xl font-bold" style={{ color: warnings.length > 0 ? WARNING : '#8DA4C4' }}>{warnings.length}</span>
                 </div>
                 {breaches.length === 0 && warnings.length === 0 && (
