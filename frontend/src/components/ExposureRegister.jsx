@@ -879,17 +879,10 @@ export default function ExposureRegister({
         )
 
       case 'Status':
+        // Workflow status only — zone is shown in the dedicated Zone column.
         return (
           <td key="Status" className="px-3 py-3">
-            <div className="flex flex-col gap-0.5">
-              {/* When zone is defensive, show only the DEFENSIVE badge — the zone is the
-                  primary signal; showing a workflow status alongside it is redundant and
-                  confusing (e.g. "In Progress" + "DEFENSIVE" on the same row). */}
-              {exp.current_zone !== 'defensive' && (
-                <StatusBadge status={exp.status} archived={exp.archived} />
-              )}
-              {!exp.archived && exp.budget_rate > 0 && <ZoneBadge zone={exp.current_zone} />}
-            </div>
+            <StatusBadge status={exp.status} archived={exp.archived} />
           </td>
         )
 
