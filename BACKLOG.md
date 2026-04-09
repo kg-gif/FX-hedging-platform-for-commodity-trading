@@ -103,6 +103,13 @@ Phase 2 enhancements (backlogged):
 
 ---
 
+## 🔀 Partial Hedge — Remaining Open Exposure Workflow
+**Priority:** Pre-pilot
+**Description:** When an exposure is partially hedged (e.g. EUR/NOK 75% hedged, 25% open), the system should surface the open remainder clearly and prompt for a decision: hedge remainder, leave open, or mark as intentional. Currently falls into In Progress with no clear next action. Needs workflow guidance and recommendation logic for the open portion.
+**Status:** Backlog
+
+---
+
 ## 🔄 Forward Roll Functionality
 **Priority:** Pre-scale
 **Description:** Roll a maturing forward to a new value date.
