@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
-import { flagPair } from '../utils/currency'
+import { flagPair, flagCurrency } from '../utils/currency'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
@@ -775,10 +775,18 @@ function Dashboard() {
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
                 <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%" outerRadius={75}
-                  label={({ currency, value }) => {
+                  label={({ x, y, currency, value }) => {
+                    // Use <foreignObject> so emoji flag renders as HTML, not SVG text.
+                    // SVG <text> decomposes Regional Indicator emoji into letters on Windows.
                     const pct = currencyDistTotal > 0 ? Math.round((value / currencyDistTotal) * 100) : 0
-                    // Emoji in SVG text is unreliable across browsers — use plain text label
-                    return `${currency} (${pct}%)`
+                    return (
+                      <foreignObject key={currency} x={x - 38} y={y - 10} width={76} height={22}>
+                        <div xmlns="http://www.w3.org/1999/xhtml"
+                             style={{ fontSize: 11, textAlign: 'center', color: '#374151', whiteSpace: 'nowrap' }}>
+                          {flagCurrency(currency)} ({pct}%)
+                        </div>
+                      </foreignObject>
+                    )
                   }}
                   labelLine={true}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
@@ -792,7 +800,18 @@ function Dashboard() {
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={rateChanges}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="pair" style={{ fontSize: '11px' }} />
+                <XAxis dataKey="pair" style={{ fontSize: '11px' }}
+                  tick={({ x, y, payload }) => (
+                    // <foreignObject> renders HTML inside SVG — the only reliable way
+                    // to display flag emoji on Windows (SVG <text> garbles them).
+                    <foreignObject x={x - 36} y={y} width={72} height={22}>
+                      <div xmlns="http://www.w3.org/1999/xhtml"
+                           style={{ fontSize: 10, textAlign: 'center', color: '#6B7280' }}>
+                        {flagPair(payload.value)}
+                      </div>
+                    </foreignObject>
+                  )}
+                />
                 <YAxis style={{ fontSize: '11px' }} />
                 <Tooltip
                   formatter={(v, _name, props) => [`${v.toFixed(2)}%`, props.payload?.label || props.payload?.pair]}
