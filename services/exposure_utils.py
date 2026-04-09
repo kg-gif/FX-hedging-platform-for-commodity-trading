@@ -155,8 +155,11 @@ def classify_exposure_tab(
     Returns:
         Tab name string
     """
+    pair = exposure.get("currency_pair") or f"{exposure.get('from_currency','?')}/{exposure.get('to_currency','?')}"
+
     # Archived = lifecycle complete (settled)
     if exposure.get("archived"):
+        print(f"[tabbed-classify] {pair} → settled (archived)")
         return "settled"
 
     # Past maturity and not yet archived = awaiting settlement
@@ -168,30 +171,37 @@ def classify_exposure_tab(
             except ValueError:
                 end_date = None
         if end_date and end_date < date.today():
+            print(f"[tabbed-classify] {pair} → awaiting_settlement (end_date={end_date})")
             return "awaiting_settlement"
 
     # Breach always requires immediate action
     if is_breach:
+        print(f"[tabbed-classify] {pair} → requires_action (BREACH)")
         return "requires_action"
 
     # No hedging at all (and has a budget rate) = action needed
     if hedge_pct == 0 and (exposure.get("budget_rate") or 0) > 0:
+        print(f"[tabbed-classify] {pair} → requires_action (0% hedged, budget_rate set)")
         return "requires_action"
 
     # DEFENSIVE zone: spot has moved adversely past policy threshold.
     # If still below the zone's target coverage, treasurer needs to act.
     if current_zone == "defensive" and hedge_pct < policy_target_pct:
+        print(f"[tabbed-classify] {pair} → requires_action (defensive zone, hedge_pct={hedge_pct:.1f} < target={policy_target_pct:.1f})")
         return "requires_action"
 
     # At or above policy target = fully hedged
     if hedge_pct >= policy_target_pct:
+        print(f"[tabbed-classify] {pair} zone={current_zone!r} hedge_pct={hedge_pct:.1f} policy_target_pct={policy_target_pct:.1f} → hedged")
         return "hedged"
 
     # Partially hedged = in progress
     if hedge_pct > 0:
+        print(f"[tabbed-classify] {pair} zone={current_zone!r} hedge_pct={hedge_pct:.1f} policy_target_pct={policy_target_pct:.1f} → in_progress")
         return "in_progress"
 
     # No budget rate or no hedges and no budget → requires action
+    print(f"[tabbed-classify] {pair} zone={current_zone!r} hedge_pct={hedge_pct:.1f} budget_rate={exposure.get('budget_rate')} → requires_action (fallthrough)")
     return "requires_action"
 
 

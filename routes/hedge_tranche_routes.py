@@ -899,6 +899,7 @@ async def get_tabbed_exposures(
 
     ensure_tables(db)
     safe_id = resolve_company_id(company_id, payload)
+    print(f"[tabbed] endpoint reached — company_id={safe_id}")
 
     # Company settings
     company_info = db.execute(
