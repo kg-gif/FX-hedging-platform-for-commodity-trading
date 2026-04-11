@@ -66,27 +66,6 @@ function FlagPairXTick({ x, y, payload }) {
   )
 }
 
-// ── Pie chart label ──────────────────────────────────────────────────────────
-// Slices < 8% are suppressed here — they overflow and crowd each other on a
-// small pie. They are shown instead in the legend strip below the chart.
-function PieCurrencyLabel({ x, y, currency, percent }) {
-  if (!currency || (percent || 0) < 0.08) return null
-  const pct = Math.round(percent * 100)
-  const cc = CURRENCY_TO_COUNTRY[currency]
-  return (
-    <g>
-      <foreignObject x={x - 40} y={y - 12} width={80} height={28}>
-        <div
-          xmlns="http://www.w3.org/1999/xhtml"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
-                   gap: 3, fontSize: 11, color: '#374151', whiteSpace: 'nowrap' }}>
-          {cc && <CssFlagSpan code={cc} />}
-          <span>{currency} ({pct}%)</span>
-        </div>
-      </foreignObject>
-    </g>
-  )
-}
 
 // ── Rate vs Budget tooltip — renders as HTML so emoji always works ────────────
 function RateVsBudgetTooltip({ active, payload, baseCurrency }) {
@@ -879,36 +858,52 @@ function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
             <h3 className="text-sm font-semibold mb-4" style={{ color: NAVY }}>Currency Mix</h3>
-            <ResponsiveContainer width="100%" height={160}>
+            {/* No inline slice labels — with 4+ currencies they overlap and overflow.
+                All currencies shown in the legend below instead. */}
+            <ResponsiveContainer width="100%" height={140}>
               <PieChart>
-                <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%"
-                  outerRadius={75} label={PieCurrencyLabel} labelLine={true}>
+                <Pie data={currencyDist} dataKey="value" nameKey="currency"
+                  cx="50%" cy="50%" outerRadius={65} label={false} labelLine={false}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
-                <Tooltip formatter={(v) => fmt(v)} />
+                <Tooltip formatter={(v, name) => [fmt(v), name]} />
               </PieChart>
             </ResponsiveContainer>
-            {/* Small-slice legend — currencies < 8% are suppressed in pie labels to prevent
-                crowding; shown here instead with a colour swatch matching the slice. */}
+            {/* Legend: all currencies, 3–4 per row, centred */}
             {(() => {
               const total = currencyDist.reduce((s, d) => s + d.value, 0)
-              const small = currencyDist.filter(d => total > 0 && d.value / total < 0.08)
-              if (!small.length) return null
+              if (!total) return null
               return (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginTop: 6 }}>
-                  {small.map((d) => {
-                    const idx   = currencyDist.indexOf(d)
-                    const color = CHART_COLORS[idx % CHART_COLORS.length]
-                    const pct   = Math.round((d.value / total) * 100)
-                    const cc    = CURRENCY_TO_COUNTRY[d.currency]
+                <div style={{
+                  display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
+                  gap: '6px 14px', marginTop: 10,
+                }}>
+                  {currencyDist.map((d, i) => {
+                    const pct  = Math.round((d.value / total) * 100)
+                    const cc   = CURRENCY_TO_COUNTRY[d.currency]
+                    const isJP = d.currency === 'JPY'
                     return (
                       <span key={d.currency}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
-                                 fontSize: 10, color: '#6B7280' }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 2,
-                                       background: color, flexShrink: 0 }} />
-                        {cc && <CssFlagSpan code={cc} />}
-                        <span>{d.currency} ({pct}%)</span>
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5,
+                                 fontSize: 11, color: '#374151' }}>
+                        {/* Colour dot matching the slice */}
+                        <span style={{
+                          width: 8, height: 8, borderRadius: '50%',
+                          background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0,
+                        }} />
+                        {cc && (
+                          <span
+                            className={`fi fi-${cc}`}
+                            style={{
+                              display: 'inline-block', width: 14, height: 11,
+                              borderRadius: isJP ? '50%' : 1, flexShrink: 0,
+                              // Grey ring — essential for JPY (red on white), good for all
+                              boxShadow: '0 0 0 1px rgba(0,0,0,0.15)',
+                            }}
+                          />
+                        )}
+                        <span style={{ fontWeight: 500 }}>{d.currency}</span>
+                        <span style={{ color: '#9CA3AF' }}>({pct}%)</span>
                       </span>
                     )
                   })}
