@@ -21,6 +21,79 @@ const authHeaders = () => ({
 
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
 
+// Currency symbol map shared by tooltip components (no backend import needed here)
+const CCY_SYM = { EUR: '€', GBP: '£', USD: '$', NOK: 'kr', SEK: 'kr', DKK: 'kr', CHF: 'CHF ', JPY: '¥', AUD: 'A$', CAD: 'C$', NZD: 'NZ$', SGD: 'S$' }
+
+// ── Bar chart XAxis tick — named component so Recharts renders it properly ────
+// <foreignObject> inside <g> embeds HTML in SVG, which renders emoji correctly.
+function FlagPairXTick({ x, y, payload }) {
+  if (!payload?.value) return null
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <foreignObject x={-36} y={2} width={72} height={20}>
+        <div xmlns="http://www.w3.org/1999/xhtml"
+             style={{ fontSize: 10, textAlign: 'center', color: '#6B7280', lineHeight: 1.4 }}>
+          {flagPair(payload.value)}
+        </div>
+      </foreignObject>
+    </g>
+  )
+}
+
+// ── Pie chart label — named component for same reason ────────────────────────
+function PieCurrencyLabel({ x, y, currency, percent }) {
+  const pct = Math.round((percent || 0) * 100)
+  if (!currency) return null
+  return (
+    <g>
+      <foreignObject x={x - 38} y={y - 10} width={76} height={20}>
+        <div xmlns="http://www.w3.org/1999/xhtml"
+             style={{ fontSize: 11, textAlign: 'center', color: '#374151', whiteSpace: 'nowrap', lineHeight: 1.4 }}>
+          {flagCurrency(currency)} ({pct}%)
+        </div>
+      </foreignObject>
+    </g>
+  )
+}
+
+// ── Rate vs Budget tooltip — renders as HTML so emoji always works ────────────
+function RateVsBudgetTooltip({ active, payload, baseCurrency }) {
+  if (!active || !payload?.length) return null
+  const d   = payload[0].payload
+  const sym = CCY_SYM[baseCurrency] ?? '€'
+  const fmtExp = (n) => {
+    const abs = Math.abs(n)
+    if (abs >= 1_000_000) return `${baseCurrency} ${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${baseCurrency} ${(abs / 1_000).toFixed(0)}K`
+    return `${baseCurrency} ${abs.toFixed(0)}`
+  }
+  const fmtPnl = (n) => {
+    const sign = n >= 0 ? '+' : '-'
+    const abs  = Math.abs(n)
+    if (abs >= 1_000_000) return `${sign}${sym}${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${sign}${sym}${(abs / 1_000).toFixed(0)}K`
+    return `${sign}${sym}${abs.toFixed(0)}`
+  }
+  return (
+    <div style={{
+      background: 'white', border: '1px solid #E5E7EB',
+      borderRadius: 8, padding: '8px 12px', fontSize: 12,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.12)', lineHeight: 1.7,
+    }}>
+      <p style={{ fontWeight: 700, color: NAVY, marginBottom: 2 }}>{flagPair(d.pair)}</p>
+      <p style={{ color: d.change >= 0 ? SUCCESS : DANGER }}>
+        {d.change >= 0 ? '+' : ''}{d.change.toFixed(2)}% vs budget
+      </p>
+      {d.totalExposureEur > 0 && (
+        <p style={{ color: '#6B7280' }}>{fmtExp(d.totalExposureEur)} exposure</p>
+      )}
+      {d.combinedPnl != null && (
+        <p style={{ color: d.combinedPnl >= 0 ? SUCCESS : DANGER }}>{fmtPnl(d.combinedPnl)} P&L</p>
+      )}
+    </div>
+  )
+}
+
 const fmt     = (n) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 const fmtM    = (n) => `${(Math.abs(n) / 1_000_000).toFixed(1)}M`
 const fmtSign = (n) => (n >= 0 ? '+' : '') + new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
@@ -426,7 +499,6 @@ function Dashboard() {
         else acc.push({ currency: e.from_currency, value: v })
         return acc
       }, [])
-  const currencyDistTotal = currencyDist.reduce((s, d) => s + d.value, 0)
 
   // Rate vs Budget bar chart — one bar per unique pair, weighted avg % move
   // Uses enriched exposures (has pct_move_vs_budget + total_amount_eur for weighting)
@@ -436,17 +508,18 @@ function Dashboard() {
     src.forEach(e => {
       const pair = e.currency_pair || `${e.from_currency}/${e.to_currency}`
       if (!e.budget_rate || !e.current_spot) return
-      if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0 }
+      if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0, combinedPnl: 0 }
       const notional = e.total_amount_eur || 1
       const pct      = e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)
       pairMap[pair].totalNotional += notional
       pairMap[pair].weightedMove  += pct * notional
+      pairMap[pair].combinedPnl   += e.combined_pnl || 0
     })
     // Fallback to basic exposures if enriched isn't available yet
     if (Object.keys(pairMap).length === 0) {
       exposures.filter(e => e.budget_rate && e.current_rate).forEach(e => {
         const pair = `${e.from_currency}/${e.to_currency}`
-        if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0 }
+        if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0, combinedPnl: 0 }
         pairMap[pair].totalNotional += 1
         pairMap[pair].weightedMove  += (e.current_rate - e.budget_rate) / e.budget_rate * 100
       })
@@ -454,8 +527,10 @@ function Dashboard() {
     return Object.entries(pairMap)
       .map(([pair, d]) => ({
         pair,
-        label:  flagPair(pair),
-        change: d.totalNotional > 0 ? d.weightedMove / d.totalNotional : 0,
+        label:           flagPair(pair),
+        change:          d.totalNotional > 0 ? d.weightedMove / d.totalNotional : 0,
+        totalExposureEur: d.totalNotional,
+        combinedPnl:     d.combinedPnl,
       }))
       .sort((a, b) => b.change - a.change)
   })()
@@ -774,21 +849,11 @@ function Dashboard() {
             <h3 className="text-sm font-semibold mb-4" style={{ color: NAVY }}>Currency Mix</h3>
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
-                <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%" outerRadius={75}
-                  label={({ x, y, currency, value }) => {
-                    // Use <foreignObject> so emoji flag renders as HTML, not SVG text.
-                    // SVG <text> decomposes Regional Indicator emoji into letters on Windows.
-                    const pct = currencyDistTotal > 0 ? Math.round((value / currencyDistTotal) * 100) : 0
-                    return (
-                      <foreignObject key={currency} x={x - 38} y={y - 10} width={76} height={22}>
-                        <div xmlns="http://www.w3.org/1999/xhtml"
-                             style={{ fontSize: 11, textAlign: 'center', color: '#374151', whiteSpace: 'nowrap' }}>
-                          {flagCurrency(currency)} ({pct}%)
-                        </div>
-                      </foreignObject>
-                    )
-                  }}
-                  labelLine={true}>
+                {/* PieCurrencyLabel is a named module-level component — Recharts renders it
+                    as a proper React component, so <foreignObject> correctly embeds HTML
+                    and emoji flags display without garbling. */}
+                <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%"
+                  outerRadius={75} label={PieCurrencyLabel} labelLine={true}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v) => fmt(v)} />
@@ -800,23 +865,20 @@ function Dashboard() {
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={rateChanges}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="pair" style={{ fontSize: '11px' }}
-                  tick={({ x, y, payload }) => (
-                    // <foreignObject> renders HTML inside SVG — the only reliable way
-                    // to display flag emoji on Windows (SVG <text> garbles them).
-                    <foreignObject x={x - 36} y={y} width={72} height={22}>
-                      <div xmlns="http://www.w3.org/1999/xhtml"
-                           style={{ fontSize: 10, textAlign: 'center', color: '#6B7280' }}>
-                        {flagPair(payload.value)}
-                      </div>
-                    </foreignObject>
+                {/* FlagPairXTick is a named module-level component — same reasoning as above */}
+                <XAxis dataKey="pair" tick={FlagPairXTick} tickLine={false} height={28} />
+                <YAxis style={{ fontSize: '11px' }} />
+                {/* RateVsBudgetTooltip renders as HTML (not SVG), so emoji always works */}
+                <Tooltip
+                  content={(props) => (
+                    <RateVsBudgetTooltip
+                      {...props}
+                      baseCurrency={selectedCompany?.base_currency || 'EUR'}
+                    />
                   )}
                 />
-                <YAxis style={{ fontSize: '11px' }} />
-                <Tooltip
-                  formatter={(v, _name, props) => [`${v.toFixed(2)}%`, props.payload?.label || props.payload?.pair]}
-                />
-                <Bar dataKey="change" radius={[4, 4, 0, 0]}>
+                {/* filter:none removes any browser default drop shadow on SVG rect elements */}
+                <Bar dataKey="change" radius={[4, 4, 0, 0]} style={{ filter: 'none' }}>
                   {rateChanges.map((e, i) => <Cell key={i} fill={e.change >= 0 ? SUCCESS : DANGER} />)}
                 </Bar>
               </BarChart>
