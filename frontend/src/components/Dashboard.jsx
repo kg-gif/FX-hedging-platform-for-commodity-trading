@@ -34,7 +34,12 @@ function CssFlagSpan({ code }) {
     <span
       xmlns="http://www.w3.org/1999/xhtml"
       className={`fi fi-${code}`}
-      style={{ display: 'inline-block', width: 14, height: 11, borderRadius: 1, flexShrink: 0 }}
+      style={{
+        display: 'inline-block', width: 14, height: 11, borderRadius: 1, flexShrink: 0,
+        // Subtle outline so flags with white/light backgrounds (e.g. Japan) are
+        // visible on any chart background. Inset box-shadow avoids changing layout.
+        boxShadow: '0 0 0 1px rgba(0,0,0,0.12)',
+      }}
     />
   )
 }
@@ -62,9 +67,11 @@ function FlagPairXTick({ x, y, payload }) {
 }
 
 // ── Pie chart label ──────────────────────────────────────────────────────────
+// Slices < 8% are suppressed here — they overflow and crowd each other on a
+// small pie. They are shown instead in the legend strip below the chart.
 function PieCurrencyLabel({ x, y, currency, percent }) {
-  const pct = Math.round((percent || 0) * 100)
-  if (!currency) return null
+  if (!currency || (percent || 0) < 0.08) return null
+  const pct = Math.round(percent * 100)
   const cc = CURRENCY_TO_COUNTRY[currency]
   return (
     <g>
@@ -874,9 +881,6 @@ function Dashboard() {
             <h3 className="text-sm font-semibold mb-4" style={{ color: NAVY }}>Currency Mix</h3>
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
-                {/* PieCurrencyLabel is a named module-level component — Recharts renders it
-                    as a proper React component, so <foreignObject> correctly embeds HTML
-                    and emoji flags display without garbling. */}
                 <Pie data={currencyDist} dataKey="value" nameKey="currency" cx="50%" cy="50%"
                   outerRadius={75} label={PieCurrencyLabel} labelLine={true}>
                   {currencyDist.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
@@ -884,6 +888,33 @@ function Dashboard() {
                 <Tooltip formatter={(v) => fmt(v)} />
               </PieChart>
             </ResponsiveContainer>
+            {/* Small-slice legend — currencies < 8% are suppressed in pie labels to prevent
+                crowding; shown here instead with a colour swatch matching the slice. */}
+            {(() => {
+              const total = currencyDist.reduce((s, d) => s + d.value, 0)
+              const small = currencyDist.filter(d => total > 0 && d.value / total < 0.08)
+              if (!small.length) return null
+              return (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px', marginTop: 6 }}>
+                  {small.map((d) => {
+                    const idx   = currencyDist.indexOf(d)
+                    const color = CHART_COLORS[idx % CHART_COLORS.length]
+                    const pct   = Math.round((d.value / total) * 100)
+                    const cc    = CURRENCY_TO_COUNTRY[d.currency]
+                    return (
+                      <span key={d.currency}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4,
+                                 fontSize: 10, color: '#6B7280' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2,
+                                       background: color, flexShrink: 0 }} />
+                        {cc && <CssFlagSpan code={cc} />}
+                        <span>{d.currency} ({pct}%)</span>
+                      </span>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
           <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
             <h3 className="text-sm font-semibold mb-4" style={{ color: NAVY }}>Rate vs Budget (%)</h3>
