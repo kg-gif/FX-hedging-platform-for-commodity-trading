@@ -9,7 +9,7 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { flagPair, flagCurrency } from '../utils/currency'
-import { CurrencyPairFlags } from './CurrencyFlag'
+import { CurrencyPairFlags, CURRENCY_TO_COUNTRY } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
 
@@ -24,32 +24,57 @@ const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899
 // Currency symbol map shared by tooltip components (no backend import needed here)
 const CCY_SYM = { EUR: '€', GBP: '£', USD: '$', NOK: 'kr', SEK: 'kr', DKK: 'kr', CHF: 'CHF ', JPY: '¥', AUD: 'A$', CAD: 'C$', NZD: 'NZ$', SGD: 'S$' }
 
-// ── Bar chart XAxis tick — named component so Recharts renders it properly ────
-// <foreignObject> inside <g> embeds HTML in SVG, which renders emoji correctly.
+// ── CSS flag helper ──────────────────────────────────────────────────────────
+// Emoji Regional Indicator characters decompose to letters in SVG <text>.
+// flag-icons uses CSS background-image flags (fi fi-xx class), which render
+// correctly in HTML context — including inside SVG <foreignObject>.
+function CssFlagSpan({ code }) {
+  if (!code) return null
+  return (
+    <span
+      xmlns="http://www.w3.org/1999/xhtml"
+      className={`fi fi-${code}`}
+      style={{ display: 'inline-block', width: 14, height: 11, borderRadius: 1, flexShrink: 0 }}
+    />
+  )
+}
+
+// ── Bar chart XAxis tick ─────────────────────────────────────────────────────
 function FlagPairXTick({ x, y, payload }) {
   if (!payload?.value) return null
+  const [from, to] = payload.value.split('/')
+  const fc = CURRENCY_TO_COUNTRY[from]
+  const tc = CURRENCY_TO_COUNTRY[to]
   return (
     <g transform={`translate(${x},${y})`}>
-      <foreignObject x={-36} y={2} width={72} height={20}>
-        <div xmlns="http://www.w3.org/1999/xhtml"
-             style={{ fontSize: 10, textAlign: 'center', color: '#6B7280', lineHeight: 1.4 }}>
-          {flagPair(payload.value)}
+      <foreignObject x={-40} y={2} width={80} height={28}>
+        <div
+          xmlns="http://www.w3.org/1999/xhtml"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                   gap: 2, fontSize: 10, color: '#6B7280', whiteSpace: 'nowrap' }}>
+          {fc && <CssFlagSpan code={fc} />}
+          {tc && <CssFlagSpan code={tc} />}
+          <span style={{ marginLeft: 2 }}>{payload.value}</span>
         </div>
       </foreignObject>
     </g>
   )
 }
 
-// ── Pie chart label — named component for same reason ────────────────────────
+// ── Pie chart label ──────────────────────────────────────────────────────────
 function PieCurrencyLabel({ x, y, currency, percent }) {
   const pct = Math.round((percent || 0) * 100)
   if (!currency) return null
+  const cc = CURRENCY_TO_COUNTRY[currency]
   return (
     <g>
-      <foreignObject x={x - 38} y={y - 10} width={76} height={20}>
-        <div xmlns="http://www.w3.org/1999/xhtml"
-             style={{ fontSize: 11, textAlign: 'center', color: '#374151', whiteSpace: 'nowrap', lineHeight: 1.4 }}>
-          {flagCurrency(currency)} ({pct}%)
+      <foreignObject x={x - 40} y={y - 12} width={80} height={28}>
+        <div
+          xmlns="http://www.w3.org/1999/xhtml"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                   gap: 3, fontSize: 11, color: '#374151', whiteSpace: 'nowrap' }}>
+          {cc && <CssFlagSpan code={cc} />}
+          <span>{currency} ({pct}%)</span>
         </div>
       </foreignObject>
     </g>

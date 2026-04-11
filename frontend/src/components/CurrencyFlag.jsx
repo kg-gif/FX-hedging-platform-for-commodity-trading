@@ -3,7 +3,8 @@
 // Usage: <CurrencyFlag currency="GBP" /> or <CurrencyFlag currency="EUR" size="lg" />
 
 // Maps ISO 4217 currency codes → ISO 3166-1 alpha-2 country codes (lowercase)
-const CURRENCY_TO_COUNTRY = {
+// Exported so chart tick components can derive CSS flag classes without duplicating this map.
+export const CURRENCY_TO_COUNTRY = {
   USD: 'us', EUR: 'eu', GBP: 'gb', JPY: 'jp', CHF: 'ch',
   NOK: 'no', SEK: 'se', DKK: 'dk', AUD: 'au', CAD: 'ca',
   NZD: 'nz', SGD: 'sg', HKD: 'hk', CNY: 'cn', MXN: 'mx',
