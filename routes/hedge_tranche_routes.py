@@ -430,6 +430,44 @@ def reset_corridor(
     }
 
 
+@router.patch("/api/exposures/{exposure_id}/remainder-status")
+def update_remainder_status(
+    exposure_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Update the remainder_status for the unhedged portion of an exposure.
+    This is a workflow flag only — it does not affect coverage or P&L.
+
+    Valid values: untracked | spot_intended | forward_intended | spot_urgent
+    """
+    VALID = {"untracked", "spot_intended", "forward_intended", "spot_urgent"}
+    new_status = (body.get("remainder_status") or "").strip().lower()
+    if new_status not in VALID:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid remainder_status '{new_status}'. Must be one of: {', '.join(sorted(VALID))}"
+        )
+
+    exposure = db.execute(
+        text("SELECT company_id FROM exposures WHERE id = :id"), {"id": exposure_id}
+    ).fetchone()
+    if not exposure:
+        raise HTTPException(status_code=404, detail="Exposure not found")
+
+    resolve_company_id(exposure._mapping["company_id"], payload)
+
+    db.execute(
+        text("UPDATE exposures SET remainder_status = :s WHERE id = :id"),
+        {"s": new_status, "id": exposure_id}
+    )
+    db.commit()
+    logger.info(f"Remainder status: exposure {exposure_id} → {new_status} by {payload.get('email')}")
+    return {"exposure_id": exposure_id, "remainder_status": new_status}
+
+
 @router.get("/api/exposures/{exposure_id}/corridor")
 def get_current_corridor(
     exposure_id: int,
@@ -810,6 +848,16 @@ async def get_enriched_exposures(
             # Forecasting — Phase 1
             "confidence":         exp.get("confidence") or "COMMITTED",
             "data_source":        exp.get("data_source") or "manual",
+
+            # Remainder tracking — workflow status for the unhedged portion.
+            # If a breach is active and the remainder is still untracked, surface
+            # spot_urgent so the UI can flag it without writing back to the DB.
+            "remainder_status": (
+                "spot_urgent"
+                if (status == "BREACH" and pnl["open_amount"] > 0
+                    and (exp.get("remainder_status") or "untracked") == "untracked")
+                else (exp.get("remainder_status") or "untracked")
+            ),
         })
 
     # ── Portfolio totals — convert all active exposure amounts to base_currency ──

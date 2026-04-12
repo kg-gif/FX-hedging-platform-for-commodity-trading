@@ -607,6 +607,173 @@ function ArchiveModal({ exposure, onClose, onConfirm }) {
   )
 }
 
+// ── Remainder status badge — inline select ────────────────────────────────────
+const REMAINDER_STATUS_CONFIG = {
+  untracked:        { label: 'Untracked',          bg: '#F3F4F6', color: '#6B7280' },
+  spot_intended:    { label: 'Spot intended',       bg: '#EFF6FF', color: '#3B82F6' },
+  forward_intended: { label: 'Forward intended',   bg: '#F0FDF4', color: '#16A34A' },
+  spot_urgent:      { label: 'Spot urgent ⚠',      bg: '#FEE2E2', color: '#DC2626' },
+}
+
+function RemainderStatusBadge({ exposure, onUpdate }) {
+  const [saving, setSaving] = useState(false)
+  const status = exposure.remainder_status || 'untracked'
+  const cfg    = REMAINDER_STATUS_CONFIG[status] || REMAINDER_STATUS_CONFIG.untracked
+
+  async function handleChange(e) {
+    e.stopPropagation()
+    const newStatus = e.target.value
+    setSaving(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/exposures/${exposure.id}/remainder-status`, {
+        method: 'PATCH', headers: authHeaders(),
+        body: JSON.stringify({ remainder_status: newStatus }),
+      })
+      if (res.ok) onUpdate()
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <select
+      value={status}
+      onChange={handleChange}
+      onClick={e => e.stopPropagation()}
+      disabled={saving}
+      title="Remainder instrument intent"
+      className="mt-1 text-xs font-semibold rounded-full px-2 py-0.5 cursor-pointer"
+      style={{
+        background: cfg.bg, color: cfg.color,
+        border: 'none', outline: 'none',
+        opacity: saving ? 0.5 : 1,
+      }}
+    >
+      {Object.entries(REMAINDER_STATUS_CONFIG).map(([k, v]) => (
+        <option key={k} value={k}>{v.label}</option>
+      ))}
+    </select>
+  )
+}
+
+// ── Log Spot Transaction modal ────────────────────────────────────────────────
+// Records a spot FX transaction on the remainder of a partially-hedged exposure.
+// Uses the existing POST /api/exposures/{id}/tranches endpoint with instrument='Spot'.
+// The achieved rate is used for locked P&L calculation, exactly like a forward tranche.
+function LogSpotModal({ exposure, onClose, onLogged }) {
+  const [amount,    setAmount]    = useState(String(Math.round(exposure.open_amount)))
+  const [rate,      setRate]      = useState('')
+  const [valueDate, setValueDate] = useState(new Date().toISOString().split('T')[0])
+  const [notes,     setNotes]     = useState('')
+  const [saving,    setSaving]    = useState(false)
+  const [error,     setError]     = useState('')
+
+  const pnlPreview = rate && exposure.budget_rate
+    ? (parseFloat(rate) - exposure.budget_rate) * (parseFloat(amount) || 0)
+    : null
+
+  async function handleSubmit() {
+    const amt = parseFloat(amount)
+    const r   = parseFloat(rate)
+    if (!amt || amt <= 0) { setError('Amount must be greater than 0'); return }
+    if (!r   || r   <= 0) { setError('Achieved rate is required');     return }
+    setSaving(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/exposures/${exposure.id}/tranches`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({
+          amount:     amt,
+          rate:       r,
+          instrument: 'Spot',
+          value_date: valueDate || null,
+          notes:      notes || `Spot transaction — remainder of ${exposure.currency_pair}`,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.detail || 'Failed to log spot transaction'); return }
+      onLogged()
+      onClose()
+    } catch { setError('Network error — please try again') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.6)' }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        <div className="px-6 py-5" style={{ background: NAVY }}>
+          <h2 className="text-base font-bold text-white">Log Spot Transaction</h2>
+          <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>
+            {exposure.currency_pair} · Remainder: {fmtAmount(exposure.open_amount, exposure.from_currency)}
+          </p>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-gray-500">
+            Record the spot transaction that completes the physical exchange for this exposure.
+            The achieved rate feeds directly into the locked P&amp;L calculation.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">
+                Amount ({exposure.from_currency})
+              </label>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-300" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">
+                Achieved Rate <span style={{ color: DANGER }}>*</span>
+              </label>
+              <input type="number" step="0.0001" value={rate}
+                onChange={e => { setRate(e.target.value); setError('') }}
+                placeholder={exposure.current_spot?.toFixed(4)}
+                autoFocus
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Value Date</label>
+              <input type="date" value={valueDate} onChange={e => setValueDate(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Budget Rate</label>
+              <input readOnly
+                value={exposure.budget_rate ? exposure.budget_rate.toFixed(4) : '—'}
+                className="w-full border border-gray-100 rounded-lg px-3 py-2 text-sm font-mono bg-gray-50 text-gray-400" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Notes (optional)</label>
+            <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
+              placeholder="e.g. Spot at maturity — market rate"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" />
+          </div>
+          {/* Live P&L preview vs budget */}
+          {pnlPreview !== null && !isNaN(pnlPreview) && (
+            <div className="rounded-lg px-4 py-3 flex items-center justify-between text-sm"
+              style={{ background: '#F4F6FA' }}>
+              <span className="text-xs text-gray-500">P&amp;L vs budget rate:</span>
+              <span className="font-bold" style={{ color: pnlPreview >= 0 ? SUCCESS : DANGER }}>
+                {pnlPreview >= 0 ? '+' : ''}{Math.round(pnlPreview).toLocaleString()} {exposure.to_currency}
+              </span>
+            </div>
+          )}
+          {error && <p className="text-xs font-semibold" style={{ color: DANGER }}>{error}</p>}
+        </div>
+        <div className="px-6 py-4 flex justify-end gap-3 border-t border-gray-100">
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100">
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={saving || !rate}
+            className="px-5 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+            style={{ background: NAVY }}>
+            {saving ? 'Logging…' : 'Log Spot Transaction'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Tab definitions ───────────────────────────────────────────────────────────
 const TABS = [
   { id: 'requires_action',     label: 'Requires Action',     emoji: '⚠️', badgeColor: DANGER  },
@@ -652,6 +819,7 @@ export default function ExposureRegister({
   const [corridorModal, setCorridorModal] = useState(null)
   const [confirmModal, setConfirmModal]   = useState(null)  // { tranche, ccy }
   const [archiveModal, setArchiveModal]   = useState(null)
+  const [logSpotModal, setLogSpotModal]   = useState(null)  // enriched exposure object
 
   useEffect(() => {
     if (!companyId) return
@@ -804,9 +972,16 @@ export default function ExposureRegister({
 
       case 'Open':
         return (
-          <td key="Open" className="px-3 py-3 font-mono text-right whitespace-nowrap"
-            style={{ color: exp.open_amount > 0 ? WARNING : '#9CA3AF' }}>
-            {fmtAmount(exp.open_amount, exp.from_currency)}
+          <td key="Open" className="px-3 py-3 text-right">
+            <div className="font-mono whitespace-nowrap"
+              style={{ color: exp.open_amount > 0 ? WARNING : '#9CA3AF' }}>
+              {fmtAmount(exp.open_amount, exp.from_currency)}
+            </div>
+            {exp.open_amount > 0 && (
+              <div className="flex justify-end mt-0.5">
+                <RemainderStatusBadge exposure={exp} onUpdate={load} />
+              </div>
+            )}
           </td>
         )
 
@@ -942,6 +1117,16 @@ export default function ExposureRegister({
                       className="text-xs px-2 py-1 rounded text-white font-semibold"
                       style={{ background: exp.status === 'BREACH' ? DANGER : NAVY }}>
                       Hedge Now
+                    </button>
+                  )}
+                  {exp.open_amount > 0 && (
+                    <button
+                      onClick={() => setLogSpotModal(exp)}
+                      className="text-xs px-2 py-1 rounded font-semibold border"
+                      style={{ borderColor: '#D1D5DB', color: '#374151' }}
+                      title="Log a spot transaction for the remainder"
+                    >
+                      Log Spot
                     </button>
                   )}
                   {activeTab === 'awaiting_settlement' && (
@@ -1182,6 +1367,14 @@ export default function ExposureRegister({
           exposure={archiveModal}
           onClose={() => setArchiveModal(null)}
           onConfirm={() => load()}
+        />
+      )}
+
+      {logSpotModal && (
+        <LogSpotModal
+          exposure={logSpotModal}
+          onClose={() => setLogSpotModal(null)}
+          onLogged={() => { setLogSpotModal(null); load() }}
         />
       )}
     </div>

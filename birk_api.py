@@ -1932,6 +1932,14 @@ async def startup_event():
             # COMMITTED = confirmed PO/invoice, PROBABLE = expected, ESTIMATED = historical pattern
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'COMMITTED'",
             "UPDATE exposures SET confidence = 'COMMITTED' WHERE confidence IS NULL",
+
+            # ── Remainder Tracking ─────────────────────────────────────────────
+            # Tracks what the treasurer intends to do with the unhedged portion.
+            # Does NOT affect coverage or P&L — it is a workflow status only.
+            # Values: untracked | spot_intended | forward_intended | spot_urgent
+            # spot_urgent is set manually or inferred from a limit breach in the UI.
+            "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS remainder_status VARCHAR(30) DEFAULT 'untracked'",
+            "UPDATE exposures SET remainder_status = 'untracked' WHERE remainder_status IS NULL",
         ]
         for sql in migrations:
             try:
