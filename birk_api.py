@@ -874,8 +874,20 @@ def calculate_zone(spot_rate: float, budget_rate: float,
     """
     Determine hedging zone based on how far spot has moved vs budget rate.
 
-    For payable (BUY) exposures: adverse means spot went UP (costs more).
-    For receivable (SELL) exposures: adverse means spot went DOWN (receive less).
+    Direction determines which move is adverse:
+
+      PAYABLE (buying base currency — e.g. EUR/NOK importer):
+        Adverse   = spot RISES above budget  → costs more than planned  → DEFENSIVE
+        Favourable= spot FALLS below budget  → costs less than planned  → OPPORTUNISTIC
+        pct_move positive → defensive  |  pct_move negative → opportunistic
+
+      RECEIVABLE (selling base currency — e.g. EUR/NOK exporter):
+        Adverse   = spot FALLS below budget  → receive less than planned → DEFENSIVE
+        Favourable= spot RISES above budget  → receive more than planned → OPPORTUNISTIC
+        pct_move negative → defensive  |  pct_move positive → opportunistic
+
+    Test case: EUR/NOK payable, budget 11.52, spot 11.14
+      pct_move = -3.3%  →  OPPORTUNISTIC  (spot fell = cheaper to buy = favourable)
 
     Returns: 'defensive' | 'base' | 'opportunistic'
     Soft-fails to 'base' if inputs are invalid.
@@ -884,16 +896,24 @@ def calculate_zone(spot_rate: float, budget_rate: float,
         if not budget_rate or not spot_rate or budget_rate == 0:
             return 'base'
         pct_move = (spot_rate - budget_rate) / budget_rate * 100
-        # Negative pct_move (spot below budget) = defensive for all exposure types.
-        # The budget rate already encodes direction from the user's perspective —
-        # no sign flip based on exposure_type is needed.
-        # Payable:    signed = -pct_move  (spot below budget → positive signed → defensive)
-        # Receivable: signed =  pct_move  (spot below budget → negative signed → opportunistic)
-        signed = -pct_move if direction == 'payable' else pct_move
-        if signed > (adverse_trigger or 3.0):
-            return 'defensive'
-        if signed < -(favourable_trigger or 3.0):
-            return 'opportunistic'
+        adv = adverse_trigger    or 3.0
+        fav = favourable_trigger or 3.0
+
+        is_receivable = direction.lower() in ('receivable', 'sell', 'receive')
+
+        if is_receivable:
+            # Adverse for receivable = spot falls (you receive less than budgeted)
+            if pct_move <= -adv:
+                return 'defensive'
+            if pct_move >= fav:
+                return 'opportunistic'
+        else:
+            # Adverse for payable = spot rises (you pay more than budgeted)
+            if pct_move >= adv:
+                return 'defensive'
+            if pct_move <= -fav:
+                return 'opportunistic'
+
         return 'base'
     except Exception as e:
         logger.warning(f"calculate_zone failed: {e}")
