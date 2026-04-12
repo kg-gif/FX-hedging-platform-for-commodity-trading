@@ -884,9 +884,9 @@ def calculate_zone(spot_rate: float, budget_rate: float,
         if not budget_rate or not spot_rate or budget_rate == 0:
             return 'base'
         pct_move = (spot_rate - budget_rate) / budget_rate * 100
-        # Payable (BUY): flip sign so positive move = adverse
-        # Receivable (SELL): use raw pct_move — negative move = adverse
-        signed = -pct_move if direction == 'payable' else pct_move
+        # Payable (BUY):    adverse = rate rises  → pct_move positive → signed positive
+        # Receivable (SELL): adverse = rate falls → pct_move negative → signed positive (negated)
+        signed = pct_move if direction == 'payable' else -pct_move
         if signed > (adverse_trigger or 3.0):
             return 'defensive'
         if signed < -(favourable_trigger or 3.0):
