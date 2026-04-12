@@ -281,6 +281,17 @@ async def upload_file(
             base_currency = cell("base_currency").upper() or from_currency
             amount_currency = base_currency if base_currency in (from_currency, to_currency) else from_currency
 
+            # exposure_type — optional; must be 'payable' or 'receivable' if supplied
+            exp_type_raw = cell("exposure_type").lower()
+            if exp_type_raw and exp_type_raw not in ("payable", "receivable"):
+                errors.append(
+                    f"Row {row_idx}: invalid exposure_type '{cell('exposure_type')}' — "
+                    f"must be 'payable' or 'receivable'"
+                )
+                skipped += 1
+                continue
+            exposure_type = exp_type_raw or "payable"
+
             # ── FX rate lookup ────────────────────────────────────────────────
             try:
                 rate = get_live_fx_rate(from_currency, to_currency)
@@ -311,7 +322,7 @@ async def upload_file(
                           (:cid, :from_ccy, :to_ccy, :amount, :amount_ccy,
                            :start_date, :end_date, :rate, :rate, :usd_value,
                            :period, :desc, :budget_rate,
-                           :reference, 'payable', :instrument_type, true, NOW(), NOW())
+                           :reference, :exposure_type, :instrument_type, true, NOW(), NOW())
                     """), {
                         "cid":             company_id,
                         "from_ccy":        from_currency,
@@ -326,6 +337,7 @@ async def upload_file(
                         "desc":            description,
                         "budget_rate":     budget_rate,
                         "reference":       reference,
+                        "exposure_type":   exposure_type,
                         "instrument_type": instrument_type,
                     })
                 imported += 1
@@ -382,16 +394,17 @@ def download_template(format: str):
     headers = [
         "currency_pair", "description", "start_date", "maturity_date",
         "total_amount", "budget_rate", "instrument_type", "base_currency",
+        "exposure_type",
     ]
 
     # Sample rows with future-relative dates so they always pass validation
     sample_rows = [
-        ["GBP/USD", "Export receivables Q2",    today.isoformat(), (today + timedelta(45)).isoformat(),  3_000_000, 1.3200, "Forward", "GBP"],
-        ["EUR/USD", "EU customer invoices",      today.isoformat(), (today + timedelta(60)).isoformat(),  5_000_000, 1.1600, "Forward", "EUR"],
-        ["EUR/NOK", "Oslo office running costs", today.isoformat(), (today + timedelta(90)).isoformat(),  2_000_000, 11.200, "Forward", "EUR"],
-        ["GBP/NOK", "Aberdeen supply contract",  today.isoformat(), (today + timedelta(75)).isoformat(),  8_000_000, 12.800, "Forward", "GBP"],
-        ["CHF/USD", "Swiss supplier payments",   today.isoformat(), (today + timedelta(30)).isoformat(),  1_500_000, 1.2600, "Forward", "CHF"],
-        ["USD/NOK", "US import costs H1",        today.isoformat(), (today + timedelta(120)).isoformat(), 4_000_000, 10.500, "Forward", "USD"],
+        ["GBP/USD", "Export receivables Q2",    today.isoformat(), (today + timedelta(45)).isoformat(),  3_000_000, 1.3200, "Forward", "GBP", "receivable"],
+        ["EUR/USD", "EU customer invoices",      today.isoformat(), (today + timedelta(60)).isoformat(),  5_000_000, 1.1600, "Forward", "EUR", "receivable"],
+        ["EUR/NOK", "Oslo office running costs", today.isoformat(), (today + timedelta(90)).isoformat(),  2_000_000, 11.200, "Forward", "EUR", "payable"],
+        ["GBP/NOK", "Aberdeen supply contract",  today.isoformat(), (today + timedelta(75)).isoformat(),  8_000_000, 12.800, "Forward", "GBP", "payable"],
+        ["CHF/USD", "Swiss supplier payments",   today.isoformat(), (today + timedelta(30)).isoformat(),  1_500_000, 1.2600, "Forward", "CHF", "payable"],
+        ["USD/NOK", "US import costs H1",        today.isoformat(), (today + timedelta(120)).isoformat(), 4_000_000, 10.500, "Forward", "USD", "payable"],
     ]
 
     fmt = format.lower()
@@ -454,6 +467,7 @@ def download_template(format: str):
             ["budget_rate",   "Your internal planning rate e.g. 1.3200",                        "Yes"],
             ["instrument_type","Forward, Spot, or Option",                                      "Yes"],
             ["base_currency", "Your reporting currency e.g. EUR, GBP",                         "Yes"],
+            ["exposure_type", "'payable' (you are buying foreign currency — e.g. import costs, supplier invoices) or 'receivable' (you are selling foreign currency — e.g. export income, customer invoices). Affects zone and P&L direction. Defaults to 'payable' if left blank.", "No"],
         ]
         for row_data in instructions:
             ws2.append(row_data)
