@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Optional
@@ -66,6 +66,14 @@ class CreateExposureRequest(BaseModel):
     budget_rate: Optional[float] = None
     description: str = ""
     end_date: Optional[str] = None
+
+    @validator("exposure_type")
+    @classmethod
+    def validate_exposure_type(cls, v):
+        normalised = (v or "payable").strip().lower()
+        if normalised not in ("payable", "receivable"):
+            raise ValueError("exposure_type must be 'payable' or 'receivable'")
+        return normalised
 
 class BulkDeleteExposuresRequest(BaseModel):
     ids: list[int]

@@ -7,7 +7,7 @@ NOW WITH CRUD: Create, Read, Update, Delete
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -49,6 +49,16 @@ class ManualExposureRequest(BaseModel):
     hedge_ratio_policy: Optional[float] = Field(default=1.0, ge=0, le=1)
     instrument_type: Optional[str] = "Spot"
     amount_currency: Optional[str] = None  # Which currency the amount is in (defaults to from_currency)
+    # Direction of the exposure — critical for zone calculation, P&L direction, and scenario analysis
+    exposure_type: str = "payable"
+
+    @validator("exposure_type")
+    @classmethod
+    def validate_exposure_type(cls, v):
+        normalised = (v or "payable").strip().lower()
+        if normalised not in ("payable", "receivable"):
+            raise ValueError("exposure_type must be 'payable' or 'receivable'")
+        return normalised
 
 
 
@@ -567,7 +577,7 @@ async def create_manual_exposure(
             WHERE id = :id
         """), {
             "reference":       request.reference_number,
-            "exposure_type":   getattr(request, 'exposure_type', 'payable') or 'payable',
+            "exposure_type":   request.exposure_type,
             "amount_currency": effective_amount_currency,
             "id":              db_exposure.id,
         })
@@ -598,6 +608,8 @@ async def create_manual_exposure(
                 'risk_level': db_exposure.risk_level.value,
                 'description': db_exposure.description,
                 'budget_rate': db_exposure.budget_rate,
+                'exposure_type': request.exposure_type,
+                'instrument_type': request.instrument_type or 'Spot',
                 'created_at': db_exposure.created_at.isoformat()
             },
             'message': f'Exposure {request.reference_number} created successfully'
