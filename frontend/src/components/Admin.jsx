@@ -87,6 +87,11 @@ function CompaniesTab({ toast, authUser }) {
   // Delete confirmation modal
   const [deleteTarget, setDeleteTarget] = useState(null)   // { id, name }
 
+  // Bulk exposure selection & delete
+  const [selectedExposures, setSelectedExposures] = useState(new Set()) // Set of exposure IDs
+  const [bulkDeleteTarget, setBulkDeleteTarget] = useState(null)        // { companyId, count }
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+
   // Demo reset modal
   const [resetTarget,  setResetTarget]  = useState(null)   // { id, name }
   const [resetLoading, setResetLoading] = useState(false)
@@ -114,6 +119,48 @@ function CompaniesTab({ toast, authUser }) {
   const toggleExpand = (id) => {
     if (expandedId === id) { setExpandedId(null) }
     else { setExpandedId(id); loadExposures(id) }
+    setSelectedExposures(new Set()) // clear selections when changing company
+  }
+
+  const toggleSelectExposure = (id) => {
+    setSelectedExposures(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = (companyId) => {
+    const exps = exposuresByCompany[companyId] || []
+    const allSelected = exps.length > 0 && exps.every(e => selectedExposures.has(e.id))
+    setSelectedExposures(() => {
+      if (allSelected) return new Set()
+      return new Set(exps.map(e => e.id))
+    })
+  }
+
+  const confirmBulkDelete = async () => {
+    if (!bulkDeleteTarget) return
+    const ids = Array.from(selectedExposures)
+    setBulkDeleting(true)
+    try {
+      const r = await fetch(`${API_BASE}/api/admin/exposures/bulk-delete`, {
+        method: 'DELETE', headers: authHeaders(),
+        body: JSON.stringify({ ids }),
+      })
+      const d = await r.json()
+      if (r.ok) {
+        toast.show('success', `${d.deleted} exposure${d.deleted !== 1 ? 's' : ''} deleted`)
+        setSelectedExposures(new Set())
+        setBulkDeleteTarget(null)
+        loadExposures(bulkDeleteTarget.companyId)
+        loadCompanies()
+      } else {
+        toast.show('error', d.detail || 'Bulk delete failed')
+      }
+    } catch { toast.show('error', 'Network error') }
+    finally { setBulkDeleting(false) }
   }
 
   const createCompany = async () => {
@@ -393,6 +440,30 @@ function CompaniesTab({ toast, authUser }) {
         </div>
       )}
 
+      {/* Bulk delete confirmation modal */}
+      {bulkDeleteTarget && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="px-6 py-5" style={{ background: NAVY }}>
+              <h2 className="text-base font-bold text-white">Delete Exposures</h2>
+              <p className="text-xs mt-0.5" style={{ color: '#8DA4C4' }}>This cannot be undone</p>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-gray-700 mb-1">
+                Delete <span className="font-semibold" style={{ color: NAVY }}>{bulkDeleteTarget.count} exposure{bulkDeleteTarget.count !== 1 ? 's' : ''}</span>?
+              </p>
+              <p className="text-xs text-gray-400 mb-6">Records are soft-deleted and preserved for audit compliance.</p>
+              <div className="flex justify-end gap-3">
+                <button onClick={() => setBulkDeleteTarget(null)} disabled={bulkDeleting} className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-lg disabled:opacity-50">Cancel</button>
+                <button onClick={confirmBulkDelete} disabled={bulkDeleting} className="px-4 py-2 text-sm font-semibold text-white rounded-lg bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-50 flex items-center gap-2">
+                  {bulkDeleting ? <><span className="animate-spin inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full" />Deleting…</> : <><Trash2 size={13} />Delete {bulkDeleteTarget.count}</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
         {companies.map(company => (
           <div key={company.id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -457,26 +528,61 @@ function CompaniesTab({ toast, authUser }) {
               <div className="border-t border-gray-100 px-5 py-4" style={{ background: '#F8F9FC' }}>
                 {(exposuresByCompany[company.id] || []).length === 0
                   ? <p className="text-xs text-gray-400 mb-3">No exposures yet</p>
-                  : (
-                    <div className="mb-4 space-y-2">
-                      {(exposuresByCompany[company.id] || []).map(exp => (
-                        <div key={exp.id} className="flex items-center justify-between bg-white px-4 py-2.5 rounded-lg border border-gray-100">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ background: 'rgba(201,168,108,0.1)', color: GOLD }}>{exp.pair}</span>
-                            <span className="text-sm font-semibold" style={{ color: NAVY }}>{Number(exp.amount).toLocaleString()}</span>
-                            <span className="text-xs text-gray-400">{exp.instrument_type}</span>
-                            {exp.budget_rate && <span className="text-xs text-gray-400">Budget: {exp.budget_rate}</span>}
-                            {exp.end_date && <span className="text-xs text-gray-400">Matures: {new Date(exp.end_date).toLocaleDateString()}</span>}
-                            {exp.description && <span className="text-xs text-gray-400 italic">{exp.description}</span>}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => openEditExposure(exp, company.id)} className="p-1.5 rounded text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-all" title="Edit"><Edit2 size={13} /></button>
-                            <button onClick={() => deleteExposure(exp.id, company.id, exp.pair)} className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all" title="Delete"><Trash2 size={13} /></button>
-                          </div>
+                  : (() => {
+                    const exps = exposuresByCompany[company.id] || []
+                    const allSelected = exps.length > 0 && exps.every(e => selectedExposures.has(e.id))
+                    const someSelected = exps.some(e => selectedExposures.has(e.id))
+                    const selectedCount = exps.filter(e => selectedExposures.has(e.id)).length
+                    return (
+                      <div className="mb-4">
+                        {/* Selection header */}
+                        <div className="flex items-center justify-between mb-2 px-1">
+                          <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={allSelected}
+                              ref={el => { if (el) el.indeterminate = someSelected && !allSelected }}
+                              onChange={() => toggleSelectAll(company.id)}
+                              className="w-3.5 h-3.5 rounded cursor-pointer"
+                            />
+                            Select all
+                          </label>
+                          {selectedCount > 0 && (
+                            <button
+                              onClick={() => setBulkDeleteTarget({ companyId: company.id, count: selectedCount })}
+                              className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                            >
+                              <Trash2 size={11} /> Delete selected ({selectedCount})
+                            </button>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  )
+                        <div className="space-y-2">
+                          {exps.map(exp => (
+                            <div key={exp.id} className={`flex items-center justify-between bg-white px-4 py-2.5 rounded-lg border transition-colors ${selectedExposures.has(exp.id) ? 'border-blue-300 bg-blue-50' : 'border-gray-100'}`}>
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedExposures.has(exp.id)}
+                                  onChange={() => toggleSelectExposure(exp.id)}
+                                  className="w-3.5 h-3.5 rounded cursor-pointer flex-shrink-0"
+                                />
+                                <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ background: 'rgba(201,168,108,0.1)', color: GOLD }}>{exp.pair}</span>
+                                <span className="text-sm font-semibold" style={{ color: NAVY }}>{Number(exp.amount).toLocaleString()}</span>
+                                <span className="text-xs text-gray-400">{exp.instrument_type}</span>
+                                {exp.budget_rate && <span className="text-xs text-gray-400">Budget: {exp.budget_rate}</span>}
+                                {exp.end_date && <span className="text-xs text-gray-400">Matures: {new Date(exp.end_date).toLocaleDateString()}</span>}
+                                {exp.description && <span className="text-xs text-gray-400 italic">{exp.description}</span>}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => openEditExposure(exp, company.id)} className="p-1.5 rounded text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-all" title="Edit"><Edit2 size={13} /></button>
+                                <button onClick={() => deleteExposure(exp.id, company.id, exp.pair)} className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all" title="Delete"><Trash2 size={13} /></button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()
                 }
 
                 {showAddExposure === company.id ? (

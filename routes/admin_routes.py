@@ -67,6 +67,9 @@ class CreateExposureRequest(BaseModel):
     description: str = ""
     end_date: Optional[str] = None
 
+class BulkDeleteExposuresRequest(BaseModel):
+    ids: list[int]
+
 # ── Password removed — system generates it and emails customer ───
 class CreateUserRequest(BaseModel):
     email: str
@@ -416,11 +419,41 @@ def create_exposure(request: CreateExposureRequest, admin: dict = Depends(requir
     db.commit()
     return {"message": "Exposure added", "company": company._mapping["name"], "pair": f"{request.from_currency.upper()}/{request.to_currency.upper()}", "amount": request.amount}
 
+@router.delete("/exposures/bulk-delete")
+def bulk_delete_exposures(
+    request: BulkDeleteExposuresRequest,
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Soft-delete multiple exposures in one request.
+    Sets is_active = false — records are preserved for audit compliance.
+    Must be defined before /{exposure_id} to avoid route shadowing.
+    """
+    if not request.ids:
+        raise HTTPException(status_code=400, detail="No exposure IDs provided")
+    # Expand into named params so the query is fully parameterised (no string interpolation)
+    params = {f"id{i}": v for i, v in enumerate(request.ids)}
+    placeholders = ", ".join(f":id{i}" for i in range(len(request.ids)))
+    result = db.execute(
+        text(f"UPDATE exposures SET is_active = false WHERE id IN ({placeholders})"),
+        params,
+    )
+    deleted = result.rowcount
+    db.commit()
+    logger.info(
+        f"Bulk soft-delete: {deleted} exposures {request.ids} by {admin.get('email')}"
+    )
+    return {"deleted": deleted, "message": f"{deleted} exposure(s) deactivated"}
+
+
 @router.delete("/exposures/{exposure_id}")
 def delete_exposure(exposure_id: int, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
-    db.execute(text("DELETE FROM exposures WHERE id = :id"), {"id": exposure_id})
+    # Soft delete only — financial records must never be hard-deleted (compliance)
+    db.execute(text("UPDATE exposures SET is_active = false WHERE id = :id"), {"id": exposure_id})
     db.commit()
-    return {"message": f"Exposure {exposure_id} deleted"}
+    logger.info(f"Soft-delete exposure {exposure_id} by {admin.get('email')}")
+    return {"message": f"Exposure {exposure_id} deactivated"}
 
 @router.get("/users")
 def list_users(admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
