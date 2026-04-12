@@ -884,9 +884,12 @@ def calculate_zone(spot_rate: float, budget_rate: float,
         if not budget_rate or not spot_rate or budget_rate == 0:
             return 'base'
         pct_move = (spot_rate - budget_rate) / budget_rate * 100
-        # Payable (BUY):    adverse = rate rises  → pct_move positive → signed positive
-        # Receivable (SELL): adverse = rate falls → pct_move negative → signed positive (negated)
-        signed = pct_move if direction == 'payable' else -pct_move
+        # Negative pct_move (spot below budget) = defensive for all exposure types.
+        # The budget rate already encodes direction from the user's perspective —
+        # no sign flip based on exposure_type is needed.
+        # Payable:    signed = -pct_move  (spot below budget → positive signed → defensive)
+        # Receivable: signed =  pct_move  (spot below budget → negative signed → opportunistic)
+        signed = -pct_move if direction == 'payable' else pct_move
         if signed > (adverse_trigger or 3.0):
             return 'defensive'
         if signed < -(favourable_trigger or 3.0):
