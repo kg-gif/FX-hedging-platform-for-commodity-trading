@@ -513,24 +513,33 @@ function Dashboard() {
 
   // Rate vs Budget bar chart — one bar per unique pair, weighted avg % move
   // Uses enriched exposures (has pct_move_vs_budget + total_amount_eur for weighting)
+  // dominantType: the exposure direction (payable/receivable) that has the most notional for
+  // each pair. Used to colour bars correctly — a falling spot is GOOD for a payable (green)
+  // but BAD for a receivable (red), so colour cannot be based purely on sign of pct_move.
   const rateChanges = (() => {
     const src = activeEnriched.length > 0 ? activeEnriched : []
     const pairMap = {}
     src.forEach(e => {
       const pair = e.currency_pair || `${e.from_currency}/${e.to_currency}`
       if (!e.budget_rate || !e.current_spot) return
-      if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0, combinedPnl: 0 }
+      if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0, combinedPnl: 0, payableN: 0, receivableN: 0 }
       const notional = e.total_amount_eur || 1
       const pct      = e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)
       pairMap[pair].totalNotional += notional
       pairMap[pair].weightedMove  += pct * notional
       pairMap[pair].combinedPnl   += e.combined_pnl || 0
+      // Track dominant exposure direction by notional weight
+      if ((e.exposure_type || 'payable').toLowerCase() === 'receivable') {
+        pairMap[pair].receivableN += notional
+      } else {
+        pairMap[pair].payableN += notional
+      }
     })
     // Fallback to basic exposures if enriched isn't available yet
     if (Object.keys(pairMap).length === 0) {
       exposures.filter(e => e.budget_rate && e.current_rate).forEach(e => {
         const pair = `${e.from_currency}/${e.to_currency}`
-        if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0, combinedPnl: 0 }
+        if (!pairMap[pair]) pairMap[pair] = { totalNotional: 0, weightedMove: 0, combinedPnl: 0, payableN: 1, receivableN: 0 }
         pairMap[pair].totalNotional += 1
         pairMap[pair].weightedMove  += (e.current_rate - e.budget_rate) / e.budget_rate * 100
       })
@@ -542,9 +551,14 @@ function Dashboard() {
         change:          d.totalNotional > 0 ? d.weightedMove / d.totalNotional : 0,
         totalExposureEur: d.totalNotional,
         combinedPnl:     d.combinedPnl,
+        // 'payable' if payables dominate by notional, otherwise 'receivable'
+        dominantType:    d.payableN >= d.receivableN ? 'payable' : 'receivable',
       }))
       .sort((a, b) => b.change - a.change)
   })()
+
+  // Lookup map used by the Rates panel to apply direction-aware colouring per pair
+  const dominantTypeByPair = Object.fromEntries(rateChanges.map(e => [e.pair, e.dominantType || 'payable']))
 
   // Hedge coverage by pair
   const coverageByPair = Object.entries(
@@ -930,7 +944,13 @@ function Dashboard() {
                 />
                 {/* filter:none removes any browser default drop shadow on SVG rect elements */}
                 <Bar dataKey="change" radius={[4, 4, 0, 0]} style={{ filter: 'none' }}>
-                  {rateChanges.map((e, i) => <Cell key={i} fill={e.change >= 0 ? SUCCESS : DANGER} />)}
+                  {rateChanges.map((e, i) => {
+                  // Colour is direction-aware: a falling spot (negative %) is GOOD for
+                  // payables (they pay less) but BAD for receivables (they receive less).
+                  const isPayable    = (e.dominantType || 'payable') === 'payable'
+                  const isFavourable = isPayable ? e.change <= 0 : e.change >= 0
+                  return <Cell key={i} fill={isFavourable ? SUCCESS : DANGER} />
+                })}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -957,8 +977,10 @@ function Dashboard() {
               ).values()].map(e => {
                 const pair     = `${e.from_currency}/${e.to_currency}`
                 const hasBudget = e.budget_rate && e.budget_rate > 0
-                const change    = hasBudget ? ((e.current_rate - e.budget_rate) / e.budget_rate) * 100 : null
-                const pos       = change !== null && change >= 0
+                const change       = hasBudget ? ((e.current_rate - e.budget_rate) / e.budget_rate) * 100 : null
+                // Colour is direction-aware: falling spot is good for payables, bad for receivables
+                const dominantType = dominantTypeByPair[pair] || 'payable'
+                const isFavourable = change !== null && (dominantType === 'payable' ? change <= 0 : change >= 0)
                 return (
                   <div key={pair} className="flex items-center justify-between px-4 py-2.5">
                     <span className="flex items-center gap-2 text-sm font-bold" style={{ color: NAVY }}>
@@ -979,8 +1001,8 @@ function Dashboard() {
                       <div className="w-16">
                         <p className="text-xs text-gray-400">vs Budget</p>
                         {change !== null
-                          ? <p className="text-xs font-bold" style={{ color: pos ? SUCCESS : DANGER }}>
-                              {pos ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
+                          ? <p className="text-xs font-bold" style={{ color: isFavourable ? SUCCESS : DANGER }}>
+                              {change >= 0 ? '▲' : '▼'} {Math.abs(change).toFixed(2)}%
                             </p>
                           : <p className="text-xs text-gray-400">—</p>
                         }
