@@ -480,11 +480,13 @@ function Dashboard() {
   const hedgedValue   = exposures.reduce((s, e) => s + (e.hedged_amount || 0), 0)
   const unhedgedValue = exposures.reduce((s, e) => s + (e.unhedged_amount || 0), 0)
   // Requires Attention counters — use enriched data so they match the Hedging tab exactly.
-  // Breaches: hard limit violated — status BREACH (max_loss exceeded) or 0% hedged with budget set.
-  // Warnings: defensive zone exposures (tab == requires_action but no hard breach).
-  const breaches = activeEnriched.filter(e =>
-    e.status === 'BREACH' || (e.hedge_pct === 0 && (e.budget_rate || 0) > 0)
-  )
+  // Breaches: ONLY hard P&L limit violations (status BREACH = combined_pnl < max_loss_limit).
+  //   An OPEN (0% hedged) exposure is NOT a breach — it is an unhedged position. In an
+  //   OPPORTUNISTIC zone it is actually favourable. Mixing OPEN into breaches caused false
+  //   positives whenever a company had unhedged exposures with budget rates (e.g. all 11
+  //   Bohus exposures showed as breaches despite being OPPORTUNISTIC).
+  // Warnings: defensive zone exposures (requires_action tab, no hard limit breach).
+  const breaches = activeEnriched.filter(e => e.status === 'BREACH')
   const warnings = activeEnriched.filter(e =>
     e.tab === 'requires_action' && e.current_zone === 'defensive'
   )
@@ -844,7 +846,7 @@ function Dashboard() {
                 <div className="flex items-center justify-between">
                   <span className="text-sm flex items-center" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>
                     Breaches
-                    <InfoTooltip text="Hard limit violated: hedge coverage is below your policy minimum, or a maximum loss limit has been exceeded." />
+                    <InfoTooltip text="Hard P&L limit violated: combined P&L has fallen below the maximum loss limit set on the exposure." />
                   </span>
                   <span className="text-2xl font-bold" style={{ color: breaches.length > 0 ? DANGER : '#8DA4C4' }}>{breaches.length}</span>
                 </div>

@@ -208,12 +208,23 @@ def calculate_pnl(
     hedged_notional: float,
     to_currency: str,
     rates: dict,
+    direction: str = "payable",
 ) -> dict:
     """
     Calculate locked / floating / combined P&L and convert to EUR.
 
-    All raw P&L figures are in to_currency (since P&L = rate_diff × notional
-    and rate = to_ccy/from_ccy). They are then converted to EUR via pnl_to_eur.
+    P&L sign convention — positive = favourable for the company:
+
+      PAYABLE   (buying base currency):
+        Favourable = rate FALLS  → locked = (budget - inception) × hedged
+                                   floating = (budget - spot) × open
+
+      RECEIVABLE (selling base currency):
+        Favourable = rate RISES  → locked = (inception - budget) × hedged
+                                   floating = (spot - budget) × open
+
+    Implemented via direction_sign multiplied against the receivable formula:
+      direction_sign = +1 (receivable) | -1 (payable)
 
     Args:
         spot:             Current spot rate (to_ccy per from_ccy)
@@ -223,6 +234,7 @@ def calculate_pnl(
         hedged_notional:  Executed/confirmed tranche amount in from_currency
         to_currency:      Settlement currency (e.g. 'NOK', 'USD')
         rates:            Dict keyed as 'CCY/USD' for EUR conversion
+        direction:        'payable' (default) or 'receivable'
 
     Returns:
         {
@@ -234,15 +246,18 @@ def calculate_pnl(
     """
     open_notional = max(total_notional - hedged_notional, 0.0)
 
+    is_receivable = (direction or "payable").strip().lower() in ("receivable", "sell", "receive")
+    sign          = 1 if is_receivable else -1
+
     # Locked P&L: hedged portion vs budget (crystallised — not affected by scenario)
-    locked_raw   = (inception_rate - budget) * hedged_notional
+    locked_raw   = sign * (inception_rate - budget) * hedged_notional
 
     # Floating P&L: open portion vs today's spot
-    floating_raw = (spot - budget) * open_notional
+    floating_raw = sign * (spot - budget) * open_notional
 
     return {
-        "locked_pnl_eur":   pnl_to_eur(locked_raw,             to_currency, rates),
-        "floating_pnl_eur": pnl_to_eur(floating_raw,           to_currency, rates),
+        "locked_pnl_eur":   pnl_to_eur(locked_raw,                to_currency, rates),
+        "floating_pnl_eur": pnl_to_eur(floating_raw,              to_currency, rates),
         "combined_pnl_eur": pnl_to_eur(locked_raw + floating_raw, to_currency, rates),
         "open_notional":    open_notional,
     }

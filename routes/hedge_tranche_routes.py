@@ -129,13 +129,23 @@ def calculate_pnl_split(exposure: dict, tranches: list, current_spot: float) -> 
     """
     Returns locked P&L, floating P&L, and combined P&L.
 
-    Locked P&L:   sum of (tranche_rate - budget_rate) * tranche_amount
-                  for executed/confirmed tranches. Crystallised — won't change.
+    P&L sign convention — positive = favourable for the company:
 
-    Floating P&L: (current_spot - budget_rate) * open_amount
-                  Moves daily with the market.
+      PAYABLE   (buying base currency, e.g. EUR/NOK importer):
+        Favourable = rate FALLS (you pay less than budgeted)
+        locked_pnl   = (budget_rate - tranche_rate) × hedged_amount
+        floating_pnl = (budget_rate - spot)          × open_amount
 
-    Combined P&L: locked + floating — total picture for the CFO.
+      RECEIVABLE (selling base currency, e.g. EUR/NOK exporter):
+        Favourable = rate RISES (you receive more than budgeted)
+        locked_pnl   = (tranche_rate - budget_rate) × hedged_amount
+        floating_pnl = (spot - budget_rate)          × open_amount
+
+    Achieved by multiplying the receivable formula by direction_sign:
+      direction_sign = +1 for receivable, -1 for payable
+
+    Test case: EUR/NOK payable, budget 11.52, spot 11.13
+      floating_pnl = -1 × (11.13 - 11.52) × open = +0.39 × open  → positive ✓
     """
     budget_rate = float(exposure.get("budget_rate") or 0)
     raw_amount = float(exposure.get("amount") or 0)
@@ -153,16 +163,24 @@ def calculate_pnl_split(exposure: dict, tranches: list, current_spot: float) -> 
     )
     open_amount = max(total_amount - hedged_amount, 0)
 
-    # Locked P&L — weighted against each tranche's execution rate
+    # Direction sign: +1 for receivables (higher rate = better),
+    #                -1 for payables   (lower rate  = better)
+    exp_type      = (exposure.get("exposure_type") or "payable").strip().lower()
+    is_receivable = exp_type in ("receivable", "sell", "receive")
+    sign          = 1 if is_receivable else -1
+
+    # Locked P&L — positive when each hedge rate beats the budget in the
+    # exposure's favour (locked in below budget for payables, above for receivables)
     locked_pnl = sum(
-        (float(t["rate"] or budget_rate or 0) - (budget_rate or 0)) * float(t["amount"] or 0)
+        sign * (float(t["rate"] or budget_rate or 0) - (budget_rate or 0)) * float(t["amount"] or 0)
         for t in tranches
         if t["status"] in ("executed", "confirmed")
         and t["amount"] is not None
     )
 
-    # Floating P&L — open portion vs today's spot
-    floating_pnl = (current_spot - (budget_rate or 0)) * open_amount if current_spot and budget_rate else 0
+    # Floating P&L — positive when today's spot is favourable vs budget
+    floating_pnl = sign * (current_spot - (budget_rate or 0)) * open_amount \
+                   if current_spot and budget_rate else 0
 
     combined_pnl = locked_pnl + floating_pnl
     hedge_pct = (hedged_amount / total_amount * 100) if total_amount > 0 else 0
