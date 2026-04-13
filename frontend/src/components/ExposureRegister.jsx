@@ -776,11 +776,11 @@ function LogSpotModal({ exposure, onClose, onLogged }) {
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'requires_action',     label: 'Requires Action',     emoji: '⚠️', badgeColor: DANGER  },
-  { id: 'in_progress',         label: 'In Progress',         emoji: '🔄', badgeColor: WARNING },
-  { id: 'hedged',              label: 'Hedged',              emoji: '✅', badgeColor: SUCCESS },
-  { id: 'awaiting_settlement', label: 'Awaiting Settlement', emoji: '🕐', badgeColor: WARNING },
-  { id: 'settled',             label: 'Settled',             emoji: '📁', badgeColor: null    },
+  { id: 'requires_action',     label: 'Requires Action',     subtitle: 'Exposures needing your attention', emoji: '⚠️', badgeColor: DANGER  },
+  { id: 'in_progress',         label: 'In Progress',         subtitle: 'Partially hedged positions',        emoji: '🔄', badgeColor: WARNING },
+  { id: 'hedged',              label: 'Hedged',              subtitle: 'Fully covered positions',           emoji: '✅', badgeColor: SUCCESS },
+  { id: 'awaiting_settlement', label: 'Awaiting Settlement', subtitle: 'Hedges approaching value date',     emoji: '🕐', badgeColor: WARNING },
+  { id: 'settled',             label: 'Settled',             subtitle: 'Completed transactions',            emoji: '📁', badgeColor: null    },
 ]
 
 // Columns shown per lifecycle tab — each tab surfaces the most relevant data
@@ -1234,6 +1234,7 @@ export default function ExposureRegister({
               >
                 <span className="text-base mb-0.5">{tab.emoji}</span>
                 <span className="whitespace-nowrap">{tab.label}</span>
+                <span className="whitespace-nowrap font-normal mt-0.5" style={{ fontSize: 10, color: isActive ? '#64748B' : '#C0C8D6' }}>{tab.subtitle}</span>
                 {count > 0 && (
                   <span
                     className="absolute top-2 right-2 font-bold px-1.5 py-0.5 rounded-full"

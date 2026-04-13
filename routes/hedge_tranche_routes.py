@@ -644,6 +644,7 @@ async def get_enriched_exposures(
         is_cross_pair = (from_ccy != base_currency and to_ccy != base_currency)
 
         # Determine status
+        # OPEN = exactly 0% hedged; IN_PROGRESS = any partial hedge > 0%
         budget_rate = float(exp.get("budget_rate") or 0)
         if not budget_rate:
             status = "NO_BUDGET"
@@ -651,7 +652,7 @@ async def get_enriched_exposures(
             status = "BREACH"
         elif pnl["hedge_pct"] >= 80:
             status = "WELL_HEDGED"
-        elif pnl["hedge_pct"] >= 40:
+        elif pnl["hedge_pct"] > 0:
             status = "IN_PROGRESS"
         else:
             status = "OPEN"
@@ -1088,14 +1089,14 @@ async def get_tabbed_exposures(
         pnl_floating = round(pnl["floating_pnl"] * pnl_factor, 2)
         pnl_combined = round(pnl["combined_pnl"] * pnl_factor, 2)
 
-        # Status
+        # Status — OPEN = 0% hedged; IN_PROGRESS = any partial hedge > 0%
         if not budget_rate:
             status = "NO_BUDGET"
         elif pnl["combined_pnl"] < float(exp.get("max_loss_limit") or -999_999_999):
             status = "BREACH"
         elif pnl["hedge_pct"] >= 80:
             status = "WELL_HEDGED"
-        elif pnl["hedge_pct"] >= 40:
+        elif pnl["hedge_pct"] > 0:
             status = "IN_PROGRESS"
         else:
             status = "OPEN"
