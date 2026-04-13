@@ -14,6 +14,7 @@ import { useCompany } from '../contexts/CompanyContext'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { formatEUR } from '../utils/formatting'
 import { flagCurrency, CURRENCY_FLAGS } from '../utils/currency'
+import { CONFIDENCE_LABELS, CONFIDENCE_STYLE } from '../utils/constants'
 import HedgingRecommendations from './HedgingRecommendations'
 import ExposureRegister from './ExposureRegister'
 import ScrollToTop from './ScrollToTop'
@@ -47,19 +48,15 @@ const fmtPnl = (n) => {
 const pnlColor = (n) => n == null ? '#9CA3AF' : n >= 0 ? SUCCESS : DANGER
 
 // ── Confidence badge ──────────────────────────────────────────────────────────
-
-const CONFIDENCE_STYLE = {
-  COMMITTED: { bg: 'rgba(16,185,129,0.12)', color: '#10B981' },
-  PROBABLE:  { bg: 'rgba(245,158,11,0.12)', color: '#F59E0B' },
-  ESTIMATED: { bg: 'rgba(156,163,175,0.12)', color: '#9CA3AF' },
-}
+// CONFIDENCE_LABELS and CONFIDENCE_STYLE imported from constants.js.
+// DB value (e.g. COMMITTED) → display label (e.g. CONTRACTED).
 
 function ConfidenceBadge({ value }) {
   const s = CONFIDENCE_STYLE[value] || CONFIDENCE_STYLE.COMMITTED
   return (
     <span className="px-2 py-0.5 rounded-full text-xs font-semibold"
       style={{ background: s.bg, color: s.color }}>
-      {value}
+      {CONFIDENCE_LABELS[value] || value}
     </span>
   )
 }

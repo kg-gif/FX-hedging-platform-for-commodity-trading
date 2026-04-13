@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
+import { CONFIDENCE_LABELS } from '../utils/constants'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const NAVY = '#1A2744'
@@ -771,7 +772,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
                           rec.confidence === 'PROBABLE'  ? { background: 'rgba(245,158,11,0.12)',  color: '#F59E0B' } :
                                                            { background: 'rgba(156,163,175,0.12)', color: '#9CA3AF' }
                         }>
-                        {rec.confidence} · {Math.round((rec.confidence_weight || 1) * 100)}%
+                        {CONFIDENCE_LABELS[rec.confidence] || rec.confidence} · {Math.round((rec.confidence_weight || 1) * 100)}%
                       </span>
                     </div>
                   )}

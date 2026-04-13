@@ -40,6 +40,22 @@ export const getFacilityStatus = (pct) => {
 // ── Instrument types ─────────────────────────────────────────
 export const INSTRUMENTS = ['Forward', 'Spot', 'Option']
 
+// ── Confidence level display labels ──────────────────────────
+// DB values are COMMITTED / PROBABLE / ESTIMATED (never change these).
+// Display labels shown to users are CONTRACTED / FORECAST / BUDGET.
+export const CONFIDENCE_LABELS = {
+  COMMITTED: 'CONTRACTED',
+  PROBABLE:  'FORECAST',
+  ESTIMATED: 'BUDGET',
+}
+
+// Styling by DB value — colours unchanged, only display labels differ.
+export const CONFIDENCE_STYLE = {
+  COMMITTED: { bg: 'rgba(16,185,129,0.12)', color: '#10B981' },
+  PROBABLE:  { bg: 'rgba(245,158,11,0.12)',  color: '#F59E0B' },
+  ESTIMATED: { bg: 'rgba(156,163,175,0.12)', color: '#9CA3AF' },
+}
+
 // ── Glossary — plain-English definitions for CFOs ────────────
 // Single source of truth. Imported by Glossary.jsx and ColHeader tooltips.
 // Structure: { "Category": [ { term, plain, why, example } ] }
@@ -192,6 +208,27 @@ export const GLOSSARY = {
       plain: "The credit line your bank has approved for FX forward contracts.",
       why: "Every executed forward consumes facility headroom. If you run out, you cannot execute new forwards until existing ones settle.",
       example: "DNB facility: EUR 15M. Currently EUR 9.5M utilised. EUR 5.5M available.",
+    },
+  ],
+
+  "Confidence Levels": [
+    {
+      term: "Contracted",
+      plain: "The underlying commercial transaction is confirmed — a purchase order has been signed or an invoice has been received.",
+      why: "Contracted exposures are real, binding obligations. They carry the highest hedging priority because the cash flow will definitely happen.",
+      example: "Supplier invoice received for EUR 500,000 due in 60 days. Exposure is Contracted.",
+    },
+    {
+      term: "Forecast",
+      plain: "The exposure is expected based on business plans or pipeline but is not yet contractually confirmed.",
+      why: "Forecasted exposures are likely but not certain. They inform early-stage hedging decisions to avoid being caught unhedged when the contract is signed.",
+      example: "Procurement team expects EUR 2M of orders from a German supplier in Q3, based on current negotiations.",
+    },
+    {
+      term: "Budget",
+      plain: "A planning assumption derived from historical patterns, used to set the annual FX budget rate.",
+      why: "Budget exposures establish your baseline. They are the least certain but provide the planning framework against which P&L is measured.",
+      example: "Last year you paid EUR 5M to European suppliers. Budget assumes EUR 5M again this year at the same seasonal pattern.",
     },
   ],
 

@@ -8,7 +8,7 @@ import { Edit2, Trash2, ChevronDown, ChevronUp, RefreshCw, Archive, ArchiveResto
 import { CurrencyPairFlags } from './CurrencyFlag'
 import LoadingAnimation from './LoadingAnimation'
 import { useCompany } from '../contexts/CompanyContext'
-import { COLUMN_TOOLTIPS } from '../utils/constants'
+import { COLUMN_TOOLTIPS, CONFIDENCE_LABELS, CONFIDENCE_STYLE } from '../utils/constants'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const NAVY    = '#1A2744'
@@ -161,12 +161,9 @@ function CrossPairTooltip({ baseCurrency = 'EUR', settlementCurrency, isDirectPa
 }
 
 // ── Confidence badge — editable inline ───────────────────────────────────────
+// DB values cycle: COMMITTED → PROBABLE → ESTIMATED (stored values — never change)
+// Display labels:  CONTRACTED → FORECAST → BUDGET    (user-facing names)
 const CONFIDENCE_CYCLE = ['COMMITTED', 'PROBABLE', 'ESTIMATED']
-const CONFIDENCE_STYLE = {
-  COMMITTED: { bg: 'rgba(16,185,129,0.12)', color: '#10B981' },
-  PROBABLE:  { bg: 'rgba(245,158,11,0.12)',  color: '#F59E0B' },
-  ESTIMATED: { bg: 'rgba(156,163,175,0.12)', color: '#9CA3AF' },
-}
 
 function ConfidenceBadge({ exposureId, value, onChange }) {
   const [saving, setSaving] = useState(false)
@@ -195,7 +192,7 @@ function ConfidenceBadge({ exposureId, value, onChange }) {
       className="px-2 py-0.5 rounded-full text-xs font-semibold transition-opacity disabled:opacity-50"
       style={{ background: s.bg, color: s.color, cursor: 'pointer' }}
     >
-      {current}
+      {CONFIDENCE_LABELS[current] || current}
     </button>
   )
 }
