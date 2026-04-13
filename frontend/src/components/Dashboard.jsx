@@ -91,7 +91,10 @@ function RateVsBudgetTooltip({ active, payload, baseCurrency }) {
       borderRadius: 8, padding: '8px 12px', fontSize: 12,
       boxShadow: '0 2px 8px rgba(0,0,0,0.12)', lineHeight: 1.7,
     }}>
-      <p style={{ fontWeight: 700, color: NAVY, marginBottom: 2 }}>{flagPair(d.pair)}</p>
+      <p style={{ fontWeight: 700, color: NAVY, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 5 }}>
+        <CurrencyPairFlags pair={d.pair} />
+        <span>{d.pair}</span>
+      </p>
       <p style={{ color: d.change >= 0 ? SUCCESS : DANGER }}>
         {d.change >= 0 ? '+' : ''}{d.change.toFixed(2)}% vs budget
       </p>
