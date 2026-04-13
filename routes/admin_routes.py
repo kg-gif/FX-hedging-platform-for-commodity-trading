@@ -210,6 +210,42 @@ def rename_company(
     logger.info(f"Company renamed: id={company_id} '{existing._mapping['name']}' → '{new_name}' by {admin.get('email')}")
     return {"success": True, "name": new_name}
 
+@router.post("/companies/{company_id}/backfill-null-exposure-type")
+def backfill_null_exposure_type(
+    company_id: int,
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    One-time targeted fix: set exposure_type = 'payable' for all active exposures
+    under this company where exposure_type IS NULL.
+
+    Scoped strictly to the requested company_id — no other companies are touched.
+    Idempotent: rows that already have exposure_type set are left unchanged.
+    """
+    result = db.execute(
+        text("""
+            UPDATE exposures
+               SET exposure_type = 'payable'
+             WHERE company_id = :cid
+               AND is_active = true
+               AND (exposure_type IS NULL OR exposure_type = '')
+        """),
+        {"cid": company_id},
+    )
+    db.commit()
+    updated = result.rowcount
+    logger.info(
+        f"[backfill-exposure-type] company_id={company_id} updated={updated} rows by {admin.get('email')}"
+    )
+    return {
+        "success": True,
+        "company_id": company_id,
+        "rows_updated": updated,
+        "message": f"Set exposure_type='payable' for {updated} NULL exposures.",
+    }
+
+
 @router.post("/companies/{company_id}/demo-reset")
 def demo_reset(
     company_id: int,

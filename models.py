@@ -44,6 +44,9 @@ class Company(Base):
     is_active = Column(Boolean, default=True, nullable=True)
     # Demo flag — marks the company used for CFO demos; enables demo-reset endpoint
     is_demo = Column(Boolean, default=False, nullable=True)
+    # Default exposure direction — pre-fills direction on manual entry and imports.
+    # Convenience only: the individual exposure always wins. Values: 'payable' | 'receivable' | 'mixed'
+    default_exposure_direction = Column(String(10), default='payable', nullable=True)
 
 class Exposure(Base):
     __tablename__ = "exposures"

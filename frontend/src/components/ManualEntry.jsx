@@ -27,7 +27,7 @@ const EMPTY_FORM = {
 };
 
 const ManualEntry = ({ companyId, onSaveSuccess }) => {
-  const { selectedCompanyId } = useCompany();
+  const { selectedCompanyId, getSelectedCompany } = useCompany();
   const [mode, setMode]           = useState('single');
   const [formData, setFormData]   = useState(EMPTY_FORM);
   const [batchEntries, setBatchEntries] = useState([]);
@@ -40,6 +40,16 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
   useEffect(() => {
     console.log('Company ID in ManualEntry:', selectedCompanyId);
   }, [companyId]);
+
+  // When the selected company changes, reset form with its default exposure direction.
+  // 'mixed' means no strong preference — fall back to 'payable'.
+  // Individual entries always take precedence once the user changes the dropdown.
+  useEffect(() => {
+    const company = getSelectedCompany();
+    const dir = company?.default_exposure_direction;
+    const defaultDir = (dir && dir !== 'mixed') ? dir : 'payable';
+    setFormData(prev => ({ ...prev, exposure_type: defaultDir }));
+  }, [selectedCompanyId]);
 
   const validateForm = () => {
     const e = {};

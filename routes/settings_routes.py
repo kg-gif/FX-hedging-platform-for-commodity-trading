@@ -60,6 +60,7 @@ class CompanySettingsRequest(BaseModel):
     name: Optional[str] = None
     base_currency: Optional[str] = None
     trading_volume_monthly: Optional[float] = None
+    default_exposure_direction: Optional[str] = None  # 'payable' | 'receivable' | 'mixed'
 
 class BankSettingsRequest(BaseModel):
     bank_name: Optional[str] = None
@@ -150,7 +151,9 @@ def get_settings(company_id: int, db: Session = Depends(get_db), payload: dict =
     ).fetchone()
     mc = mc_row._mapping if mc_row else {}
     return {
-        "company": {"id": company.id, "name": company.name, "base_currency": company.base_currency, "trading_volume_monthly": company.trading_volume_monthly},
+        "company": {"id": company.id, "name": company.name, "base_currency": company.base_currency,
+                    "trading_volume_monthly": company.trading_volume_monthly,
+                    "default_exposure_direction": getattr(company, 'default_exposure_direction', None) or 'payable'},
         "bank": {"bank_name": company.bank_name, "bank_contact_name": company.bank_contact_name, "bank_email": company.bank_email},
         "notifications": {"alert_email": company.alert_email, "daily_digest": company.daily_digest},
         "active_policy": p if p else None,
@@ -179,6 +182,12 @@ def update_company_settings(company_id: int, request: CompanySettingsRequest, db
     if request.name: company.name = request.name
     if request.base_currency: company.base_currency = request.base_currency.upper()
     if request.trading_volume_monthly: company.trading_volume_monthly = request.trading_volume_monthly
+    if request.default_exposure_direction is not None:
+        allowed = ('payable', 'receivable', 'mixed')
+        val = request.default_exposure_direction.strip().lower()
+        if val not in allowed:
+            raise HTTPException(status_code=400, detail="default_exposure_direction must be 'payable', 'receivable', or 'mixed'")
+        company.default_exposure_direction = val
     company.updated_at = datetime.utcnow()
     db.commit()
     return {"success": True, "message": "Company settings updated"}

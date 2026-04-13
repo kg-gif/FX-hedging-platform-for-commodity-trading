@@ -145,7 +145,7 @@ export default function Settings({ authUser }) {
   const [pendingPolicyId, setPendingPolicyId]     = useState(null)
 
   // Form state
-  const [company, setCompany] = useState({ name: '', base_currency: '', trading_volume_monthly: '' })
+  const [company, setCompany] = useState({ name: '', base_currency: '', trading_volume_monthly: '', default_exposure_direction: 'payable' })
   const [bank, setBank]       = useState({ bank_name: '', bank_contact_name: '', bank_email: '' })
   const [notifs, setNotifs]   = useState({ alert_email: '', daily_digest: true })
   const [zones, setZones]     = useState({
@@ -181,9 +181,10 @@ export default function Settings({ authUser }) {
       ])
       setSettings(sRes)
       setCompany({
-        name:                   sRes.company?.name || '',
-        base_currency:          sRes.company?.base_currency || 'USD',
-        trading_volume_monthly: sRes.company?.trading_volume_monthly || ''
+        name:                       sRes.company?.name || '',
+        base_currency:              sRes.company?.base_currency || 'USD',
+        trading_volume_monthly:     sRes.company?.trading_volume_monthly || '',
+        default_exposure_direction: sRes.company?.default_exposure_direction || 'payable',
       })
       setBank({
         bank_name:         sRes.bank?.bank_name         || '',
@@ -360,6 +361,18 @@ export default function Settings({ authUser }) {
           <input type="number" className={inputClass}
             value={company.trading_volume_monthly}
             onChange={e => setCompany({ ...company, trading_volume_monthly: e.target.value })} />
+        </Field>
+        <Field
+          label="Default Exposure Direction"
+          hint="Pre-fills direction on manual entry and imports. You can always override per exposure."
+        >
+          <select className={inputClass}
+            value={company.default_exposure_direction || 'payable'}
+            onChange={e => setCompany({ ...company, default_exposure_direction: e.target.value })}>
+            <option value="payable">Payable — we buy foreign currency (importer)</option>
+            <option value="receivable">Receivable — we sell foreign currency (exporter)</option>
+            <option value="mixed">Mixed — both directions</option>
+          </select>
         </Field>
       </div>
       <div className="flex justify-end mt-6">

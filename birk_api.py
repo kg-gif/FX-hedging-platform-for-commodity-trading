@@ -198,6 +198,7 @@ class CompanyResponse(BaseModel):
     base_currency: str
     company_type: str
     trading_volume_monthly: float
+    default_exposure_direction: Optional[str] = 'payable'
     class Config:
         from_attributes = True
 
@@ -899,7 +900,9 @@ def calculate_zone(spot_rate: float, budget_rate: float,
         adv = adverse_trigger    or 3.0
         fav = favourable_trigger or 3.0
 
-        is_receivable = direction.lower() in ('receivable', 'sell', 'receive')
+        # Normalise direction — NULL/empty/missing all default to 'payable'
+        direction = (direction or 'payable').strip().lower()
+        is_receivable = direction in ('receivable', 'sell', 'receive')
 
         if is_receivable:
             # Adverse for receivable = spot falls (you receive less than budgeted)
@@ -1963,6 +1966,12 @@ async def startup_event():
             # spot_urgent is set manually or inferred from a limit breach in the UI.
             "ALTER TABLE exposures ADD COLUMN IF NOT EXISTS remainder_status VARCHAR(30) DEFAULT 'untracked'",
             "UPDATE exposures SET remainder_status = 'untracked' WHERE remainder_status IS NULL",
+
+            # ── Default Exposure Direction ──────────────────────────────────────
+            # Company-level default for exposure_type (payable / receivable / mixed).
+            # Pre-fills direction on manual entry and imports; individual exposures always win.
+            # Most companies are predominantly one or the other — this avoids repetitive selection.
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_exposure_direction VARCHAR(10) DEFAULT 'payable'",
         ]
         for sql in migrations:
             try:
