@@ -1234,7 +1234,7 @@ export default function ExposureRegister({
               >
                 <span className="text-base mb-0.5">{tab.emoji}</span>
                 <span className="whitespace-nowrap">{tab.label}</span>
-                <span className="whitespace-nowrap font-normal mt-0.5" style={{ fontSize: 10, color: isActive ? '#64748B' : '#C0C8D6' }}>{tab.subtitle}</span>
+                <span className="font-normal mt-0.5 text-center leading-tight w-full" style={{ fontSize: 10, color: isActive ? '#64748B' : '#C0C8D6' }}>{tab.subtitle}</span>
                 {count > 0 && (
                   <span
                     className="absolute top-2 right-2 font-bold px-1.5 py-0.5 rounded-full"

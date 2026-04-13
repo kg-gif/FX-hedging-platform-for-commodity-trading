@@ -195,6 +195,45 @@ export const GLOSSARY = {
     },
   ],
 
+  "Exposure Lifecycle": [
+    {
+      term: "Requires Action",
+      plain: "Exposures where immediate attention is needed. Either the currency has moved into the Defensive zone (adverse vs budget) or hedge coverage is below your policy minimum.",
+      why: "These exposures are currently unprotected in a deteriorating market, or their hedge ratio has fallen below the level your policy requires.",
+      example: "EUR/NOK has moved 4% against your budget and you have 0% hedge coverage. The exposure sits in Requires Action until a forward is executed.",
+    },
+    {
+      term: "In Progress",
+      plain: "Exposures that are partially hedged. Some tranches have been executed but the full policy target has not yet been reached.",
+      why: "Tracking partial coverage lets you see which exposures still need top-up hedges to reach your policy target.",
+      example: "GBP/USD exposure of £3M with £1.5M hedged = 50% coverage. Shows In Progress until the target ratio is met.",
+    },
+    {
+      term: "Hedged",
+      plain: "Exposures where hedge coverage has reached 100% of the exposure amount. No further action needed until value date approaches.",
+      why: "Fully covered exposures are protected against market movements. Monitor them as value date approaches for settlement.",
+      example: "JPY/USD exposure of ¥500M fully covered by two forward tranches. Sits in Hedged until maturity.",
+    },
+    {
+      term: "Awaiting Settlement",
+      plain: "Hedges that have reached or are approaching their value date. The physical currency transaction needs to be completed with your bank.",
+      why: "Value date is the day currencies are actually exchanged. Missing it without rolling the contract can create delivery failure.",
+      example: "GBP/NOK forward matures 30 Jun. It moves to Awaiting Settlement as the value date approaches.",
+    },
+    {
+      term: "Settled",
+      plain: "Completed exposures where the currency transaction has been executed and the position is closed.",
+      why: "Settled exposures are archived for audit purposes. The locked P&L is fully realised and the facility headroom is released.",
+      example: "Forward settled 30 Jun. Currencies exchanged at the agreed rate. Position archived with final P&L recorded.",
+    },
+    {
+      term: "Forecast",
+      plain: "Forward-looking view of expected future FX exposures based on current data and trends.",
+      why: "Forecasting ahead lets treasury teams plan hedging programs before exposures crystallise, locking in rates at the right time.",
+      example: "Q3 EUR/USD payables estimated at EUR 3M based on last year's purchasing pattern. Added as a forecast exposure.",
+    },
+  ],
+
   "Reporting": [
     {
       term: "CFaR (Cash Flow at Risk)",
