@@ -1,10 +1,10 @@
-# Sumnohow — Product Backlog
+# SUMNOHOW — PRODUCT BACKLOG
 
-## 🔴 Next Up (Pilot Critical)
+## 🔴 NEXT UP (PILOT CRITICAL)
 - [ ] Pilot readiness end-to-end test — full customer journey walkthrough as a CFO would see it
 - [ ] **File Upload — Exposure Import** *(In progress)* — CSV/Excel upload now parses rows and inserts exposures. Remaining: end-to-end test with real file from pilot customer; review field mapping with Kevin; add error-row download (rows that failed validation). See `routes/data_import_routes_fastapi.py`.
 
-## 🟡 Needs Scoping / Ideation
+## 🟡 NEEDS SCOPING / IDEATION
 - [ ] Exposure register logic — review what fields are shown, how P&L is calculated, what "correct" looks like for pilot customers. Needs design session.
 - [ ] Dynamic hedging policy zones — Policy should define three zones: Defensive (minimum hedge %), Base (target %), Opportunistic (maximum % when market moves favourably). Triggers set as % move vs budget rate. Flows through to Recommendations (zone per exposure), Dashboard (zone colour coding), Simulator (model impact of hedging up/down). Requires Policy data model change and design session before building.
 - [ ] Tying tabs together — Dashboard, Hedging, Reports and Simulator should share state (e.g. clicking a breach on Dashboard takes you to the relevant hedge recommendation). Needs UX design session.
@@ -17,7 +17,7 @@
 - [ ] MC-derived corridor defaults — Run Monte Carlo simulation per exposure to derive default TP/SL corridor widths based on historical volatility and exposure tenor, rather than flat percentages. Output: 95th-percentile expected move as suggested corridor width, per currency pair and time horizon.
 - [ ] Weekend market hours flag — rate API returns interpolated/cached rates on Saturday and Sunday (markets closed Fri 5pm NY → Sun 5pm NY). Add market status check: if weekend or public holiday, show "Market Closed" indicator on dashboard and digest email, and suppress rate refresh to avoid misleading P&L movements.
 
-## 🟡 Feature Flags / Tiered Module Access
+## 🟡 FEATURE FLAGS / TIERED MODULE ACCESS
 
 **Priority:** Post-pilot
 **Description:** Gate Risk Engine modules (Sensitivity Analysis, Cash Flow-at-Risk, VaR, Revenue Impact, Hedge Optimisation) and future Reports modules behind a per-company feature flag. Allows phased rollout: pilot customers see full suite; free/lower tiers see Coming Soon.
@@ -32,7 +32,7 @@
 
 ---
 
-## 🟡 Risk Engine Roadmap
+## 🟡 RISK ENGINE ROADMAP
 
 The Risk Engine tab currently has Scenario Analysis live and five modules as Coming Soon. Planned build order:
 
@@ -48,34 +48,34 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
-## 🤖 AI-Generated Zone Triggers
+## 🤖 AI-GENERATED ZONE TRIGGERS
 **Priority:** Pre-scale (Phase 2 — post pilot)
 **Description:** Instead of manually setting Defensive/Opportunistic trigger percentages, the system suggests optimal triggers based on customer inputs and market data.
 
-### Customer inputs
+### CUSTOMER INPUTS
 - Gross margin % (what rate move they can absorb before meaningful P&L impact)
 - Planning horizon (3 / 6 / 12 / 24 months)
 - Risk appetite (Conservative / Balanced / Aggressive)
 - Currency pairs and volumes
 
-### Market data
+### MARKET DATA
 - Historical realised volatility per currency pair (e.g. EUR/NOK 1-year)
 - Current implied volatility (options market — indicates near-term market expectation)
 - Seasonal patterns derived from customer's own historical exposure data
 
-### Output
+### OUTPUT
 - **Suggested Defensive trigger:** "Based on your 8% gross margin and EUR/NOK volatility, a 2.5% adverse move represents meaningful margin erosion"
 - **Suggested Opportunistic trigger:** "A 3% favourable move historically reverts within 6 weeks for EUR/NOK"
 - Out-of-the-box defaults by industry vertical
 
-### Standard defaults (out of the box, before AI personalisation)
+### STANDARD DEFAULTS (OUT OF THE BOX, BEFORE AI PERSONALISATION)
 | Profile | Defensive trigger | Opportunistic trigger |
 |---------|------------------|-----------------------|
 | Conservative | 2% | 3% |
 | Balanced | 3% | 4% |
 | Aggressive | 5% | 7% |
 
-### Dependencies
+### DEPENDENCIES
 - Volatility data feed (realised: can derive from existing rate history; implied: requires options API)
 - AI recommendation engine (ANTHROPIC_API_KEY already in env)
 - Policy zones feature must be fully live first
@@ -84,7 +84,7 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
-## 🟡 Strategic Features (Needs Design Session)
+## 🟡 STRATEGIC FEATURES (NEEDS DESIGN SESSION)
 
 - [ ] **AI Market Analysis** — AI-generated commentary on rate direction, volatility regime and optimal hedge timing per currency pair. Pulls live rates, compares to budget, flags elevated risk conditions. Output: plain-English insight card per pair on dashboard and hedging tab. Core differentiator. Requires design session.
 - [ ] **Onside / Offside (MTM Position)** — Mark-to-market valuation of all open forward contracts vs current spot. Shows whether each hedge is in-the-money (onside) or out-of-the-money (offside). Critical for margin call awareness. Required for any client hedging with forwards. Table-stakes for $20M+ ICP. Needs design session.
@@ -99,7 +99,7 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 - [ ] **Hedge Accounting (IAS 39 / IFRS 9)** — Formal hedge designation, effectiveness testing (80-125% rule), and documentation pack. Allows listed/regulated clients to apply hedge accounting treatment and reduce P&L volatility. High complexity, high value for larger corporates. Series A feature — scope now, build later.
 - [ ] **FX Netting (Multi-Entity)** — For parent/daughter clients: identify offsetting exposures across entities before hedging. Net GBP payable in one entity against GBP receivable in another. Reduces transaction costs and facility usage. Linked to multi-company feature.
 
-## 💰 Revenue Forecasting
+## 💰 REVENUE FORECASTING
 **Priority:** Post-pilot
 **Description:** Forward-looking FX impact on revenues and costs.
 **Inputs:** budget rates, exposure schedule, rate forecasts (manual + API)
@@ -109,7 +109,7 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
-## 🏢 Parent/Daughter Company Relationships
+## 🏢 PARENT/DAUGHTER COMPANY RELATIONSHIPS
 **Priority:** Pre-scale
 **Description:** UI to link subsidiary companies to a parent. Parent company admin sees consolidated view across all children. Daughter entities see only their own data.
 **DB column:** `parent_company_id` already added to `companies` table (migration runs on startup).
@@ -117,7 +117,7 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
-## 📧 Margin Call — Phase 2 Enhancements
+## 📧 MARGIN CALL — PHASE 2 ENHANCEMENTS
 **Priority:** Pre-pilot
 **Status:** Core fix deployed (BCC, grouped email, weekend suppression, acknowledgement link). Enhancements backlogged.
 
@@ -139,14 +139,14 @@ Phase 2 enhancements (backlogged):
 
 ---
 
-## 🔀 Partial Hedge — Remaining Open Exposure Workflow
+## 🔀 PARTIAL HEDGE — REMAINING OPEN EXPOSURE WORKFLOW
 **Priority:** Pre-pilot
 **Description:** When an exposure is partially hedged (e.g. EUR/NOK 75% hedged, 25% open), the system should surface the open remainder clearly and prompt for a decision: hedge remainder, leave open, or mark as intentional. Currently falls into In Progress with no clear next action. Needs workflow guidance and recommendation logic for the open portion.
 **Status:** Backlog
 
 ---
 
-## 💱 Open Remainder — Settlement Purchase Prompt
+## 💱 OPEN REMAINDER — SETTLEMENT PURCHASE PROMPT
 **Priority:** Pre-pilot (critical for workflow completeness)
 **Description:** Once an exposure is hedged to policy target (e.g. 75%), the remaining open amount (e.g. 25%) still needs to be transacted before value date — either as a forward or at spot.
 
@@ -161,7 +161,7 @@ This is standard FX workflow — hedge protects the rate, but the physical curre
 
 ---
 
-## 🔄 Forward Roll Functionality
+## 🔄 FORWARD ROLL FUNCTIONALITY
 **Priority:** Pre-scale
 **Description:** Roll a maturing forward to a new value date.
 
@@ -181,36 +181,36 @@ This is standard FX workflow — hedge protects the rate, but the physical curre
 
 ---
 
-## ✅ Trade Confirmation — Audit Trail
+## ✅ TRADE CONFIRMATION — AUDIT TRAIL
 **Priority:** Pre-pilot
 
-### Phase 1 (build next): Trade Reference Number
+### PHASE 1 (BUILD NEXT): TRADE REFERENCE NUMBER
 - Add `bank_reference` field to `hedge_tranches`
 - Editable field on executed tranches in register
 - Required to move status from `executed` → `confirmed`
 - Audit log: reference number, added by, timestamp
 - Display in MTM report and Hedge Audit Trail
 
-### Phase 2 (pre-scale): Contract Note Upload
+### PHASE 2 (PRE-SCALE): CONTRACT NOTE UPLOAD
 - Upload PDF/image of bank confirmation per tranche
 - Store securely, link to tranche record
 - Paperclip icon on confirmed tranches
 - Downloadable in audit trail export
 - Compliance requirement for $20M+ ICP
 
-### Phase 3 (post-pilot): Full Confirmation Workflow
+### PHASE 3 (POST-PILOT): FULL CONFIRMATION WORKFLOW
 - Structured confirmation: date, counterparty, agreed rate vs executed rate, value date match
 - Rate tolerance check: flag if confirmed rate differs from executed rate by more than 2 pips
 - Four-eyes principle option: execute and confirm must be different users
 
-### Current issue to fix alongside Phase 1
+### CURRENT ISSUE TO FIX ALONGSIDE PHASE 1
 Tranches showing `confirmed` without a recorded confirmation event. Find where `confirmed` status is set in codebase — ensure it requires explicit user action and audit log entry.
 
 **Status:** Phase 1 ready to build when fix queue cleared
 
 ---
 
-## 📐 Forward Points / Interest Rate Differentials
+## 📐 FORWARD POINTS / INTEREST RATE DIFFERENTIALS
 **Priority:** Pre-scale
 **Description:** Calculate and display forward points on each tranche.
 
@@ -230,21 +230,21 @@ Tranches showing `confirmed` without a recorded confirmation event. Find where `
 
 ---
 
-## ℹ️ Help System — Three Layers
+## ℹ️ HELP SYSTEM — THREE LAYERS
 
-### Layer 1: Inline Tooltips ✅ Live
+### LAYER 1: INLINE TOOLTIPS ✅ LIVE
 - ⓘ icon on every column header in Exposure Register (Locked P&L, Floating P&L, Combined P&L, Hedge %, Corridor, Status, Bank Ref, MTM vs Inception, MTM vs Budget)
 - Plain English explanation on hover with "Learn more →" link to /glossary
 - COLUMN_TOOLTIPS and GLOSSARY in `frontend/src/utils/constants.js`
 
-### Layer 2: Glossary Page ✅ Live
+### LAYER 2: GLOSSARY PAGE ✅ LIVE
 - Route: `/glossary` — accessible from Settings → Help & Glossary
 - 27 terms grouped by category: Rates & Pricing, P&L, Hedging, Risk & Policy, Reporting
 - Each term: Name → Plain English → Why it matters → Example
 - Real-time search across all terms and definitions
 - Print/PDF export via browser print dialog (branded header)
 
-### Layer 3: Help Bot (Post-pilot)
+### LAYER 3: HELP BOT (POST-PILOT)
 - Embedded AI assistant using Claude API
 - Context-aware: knows user's actual portfolio data
 - Triggered by floating help button bottom-right
@@ -256,7 +256,7 @@ Tranches showing `confirmed` without a recorded confirmation event. Find where `
 
 ---
 
-## ♿ Accessibility — WCAG 2.1 AA Compliance
+## ♿ ACCESSIBILITY — WCAG 2.1 AA COMPLIANCE
 **Priority:** Pre-pilot
 **Description:** Ensure the platform meets WCAG 2.1 AA accessibility standards before external demos. Enterprise procurement teams often require accessibility certification — important for ICP.
 
@@ -274,7 +274,7 @@ Tranches showing `confirmed` without a recorded confirmation event. Find where `
 
 ---
 
-## 🎭 Demo Mode / Demo Reset
+## 🎭 DEMO MODE / DEMO RESET
 **Priority:** Pre-pilot
 **Description:** One-click "Reset Demo" for sales demos and onboarding. Restores a company's data to a known clean state without affecting other companies.
 
@@ -294,13 +294,13 @@ Tranches showing `confirmed` without a recorded confirmation event. Find where `
 
 ---
 
-## 📅 FX Exposure Forecasting Module
+## 📅 FX EXPOSURE FORECASTING MODULE
 **Priority:** Pre-pilot (Phase 1 immediate, Phases 2–4 staged)
 
-### Strategic context
+### STRATEGIC CONTEXT
 Most mid-market CFOs hedge off incomplete exposure data — they hedge what they know about, not what they owe. This module aggregates multiple data sources into a single auditable exposure position, feeding the existing policy engine with better inputs.
 
-### Architecture: Eight data layers (additive — customers onboard layers they can, starting simple)
+### ARCHITECTURE: EIGHT DATA LAYERS (ADDITIVE — CUSTOMERS ONBOARD LAYERS THEY CAN, STARTING SIMPLE)
 
 | Layer | Name | Status |
 |-------|------|--------|
@@ -313,7 +313,7 @@ Most mid-market CFOs hedge off incomplete exposure data — they hedge what they
 | 7 | Hedge Book Import — existing derivatives import | Phase 2 |
 | 8 | AI Forecast Enhancement — ML + macro signals | Phase 4 |
 
-### DB changes (Phase 1 — low cost, enables everything)
+### DB CHANGES (PHASE 1 — LOW COST, ENABLES EVERYTHING)
 ```sql
 ALTER TABLE exposures ADD COLUMN IF NOT EXISTS data_source VARCHAR(50) DEFAULT 'manual';
 -- Values: manual | csv_import | erp | bank_feed | crm | ai
@@ -322,34 +322,34 @@ ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'C
 -- Values: COMMITTED | PROBABLE | ESTIMATED
 ```
 
-### Phase 1 ✅ (built)
+### PHASE 1 ✅ (BUILT)
 - Exposure timeline view: maturity date chart grouped by currency (stacked bar — hedged/open split per month)
 - Confidence badges on every exposure row (COMMITTED/PROBABLE/ESTIMATED) — click to cycle, saved via PATCH
 - `data_source` field displayed in register and audit trail
 - Forecasting section in Risk Engine tab with summary strip (30/90/12-month) + expandable month detail
 - Confidence-weighted exposure in hedging recommendations engine (COMMITTED 1.0 / PROBABLE 0.8 / ESTIMATED 0.5)
 
-### Phase 2 (post-pilot 1)
+### PHASE 2 (POST-PILOT 1)
 - Layer 1: Historical baseline from CSV bank statement upload — statistical rolling 12-month forecast per currency pair, seasonal index detection
 - Layer 5: Payroll & CapEx manual input schedule
 - Layer 7: Hedge book import (existing forwards from other banks)
 
-### Phase 3 (post-pilot 2)
+### PHASE 3 (POST-PILOT 2)
 - Layer 3: ERP structured CSV with AP/AR committed exposures — template: entity, currency pair, amount, settlement date, counterparty, probability %, document reference
 - Layer 6: CRM pipeline integration (Salesforce/HubSpot) — probability-weighted exposure from open deals
 
-### Phase 4 (Series A)
+### PHASE 4 (SERIES A)
 - Layer 4: Open banking live feed
 - Layer 8: AI forecast with confidence intervals — minimum 18–24 months customer data before showing to clients; explainability via Claude API; anomaly detection flags deviations from historical patterns
 
-### Key architectural decisions
+### KEY ARCHITECTURAL DECISIONS
 - CSV first, always — no ERP API integrations until post-pilot
 - Keep forecasting (data inputs) separate from policy engine (actions)
 - Every forecast record gets `data_source` + `confidence` + audit trail
 - Multi-entity consolidation via existing `parent_company_id` foundation
 - Confidence score surfaced to user on every exposure record
 
-### Open questions (resolve with pilot customers)
+### OPEN QUESTIONS (RESOLVE WITH PILOT CUSTOMERS)
 - Do clients prefer weekly CSV refresh or want real-time feeds?
 - Which ERP systems are most common in our ICP? (SAP / Business Central)
 - What training data volume before AI forecasts shown? (estimate: 18 months)
@@ -359,7 +359,7 @@ ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'C
 
 ---
 
-## 💰 MTM-Based Billing Model
+## 💰 MTM-BASED BILLING MODEL
 **Priority:** Post-pilot
 **Description:** Invoice clients 30% of favourable MTM vs budget rate (monthly or quarterly). Core monetisation idea: align Sumnohow's revenue with value delivered to the CFO.
 
@@ -374,7 +374,7 @@ ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'C
 
 ---
 
-## 🔒 Feature Flags / Tiered Module Access
+## 🔒 FEATURE FLAGS / TIERED MODULE ACCESS
 **Priority:** Pre-scale
 **Description:** Per-company feature flags for module access control.
 **Tiers:** Starter / Growth / Enterprise
@@ -383,7 +383,7 @@ ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'C
 
 ---
 
-## 🟡 Post-Pilot / Growth
+## 🟡 POST-PILOT / GROWTH
 - [ ] Flag emojis in currency mix chart — Windows suppresses flag emojis, showing country code text (CH, GB, JP, EU) instead. Replace with a CSS flag library (e.g. flag-icons) across all components that display currency flags.
 - [ ] Policy override audit log — when a user deviates from policy hedge ratio, mandatory reason required before execution. Logs: who, what policy said, what was done, why, timestamp, exposure. Table: policy_override_audit_log. Required for regulatory compliance and board governance.
 - [ ] User permission tiers — currently Admin/Viewer only. Add: (1) Trader — can execute but not change policy, (2) Approver — must approve orders above threshold, (3) Read-only — dashboard and reports only. Policy overrides require Approver or Admin.
@@ -399,7 +399,7 @@ ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'C
 - [ ] Multi-provider support — Settings to support multiple banks/providers per company, each with name, contact, email, portal URL, and instrument types handled. Execution modal shows provider dropdown filtered by instrument type.
 - [ ] Bank portal redirect — direct link to customer's bank online portal alongside email execution option.
 
-## 🟢 Nice to Have
+## 🟢 NICE TO HAVE
 - [ ] Quote currency entry toggle — amount field toggle between base and quote currency entry. Logic: amount ÷ rate = base currency hedge amount. Add when pilot requests it.
 - [ ] Live rate ticker in header — scrolling FX rates across top of dashboard
 - [ ] News feed — macro FX news relevant to customer's currency pairs
@@ -409,7 +409,7 @@ ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'C
 - [ ] Email template improvements — branding refinements
 - [ ] Mobile optimisation — test and improve on smaller screens
 
-## ✅ Completed
+## ✅ COMPLETED
 - [x] JWT authentication and login
 - [x] Multi-tenancy data isolation — viewers restricted to own company
 - [x] Admin page — company, exposure, user management
@@ -434,7 +434,7 @@ ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'C
 - [x] Compact recommendation cards — collapsed by default, click to expand
 - [x] ManualEntry amount field — base currency label inline, counter-value shown below
 
-## Notification Management
+## NOTIFICATION MANAGEMENT
 
 - [ ] **Cron zone monitoring** — Add zone status check to the existing 7am UTC cron job. Every morning, check all companies for zone changes since last check. Send zone alert email if zone has changed. This ensures alerts fire even if no one logs in. Add zone summary to daily digest email.
 
@@ -445,7 +445,7 @@ ALTER TABLE exposures ADD COLUMN IF NOT EXISTS confidence VARCHAR(20) DEFAULT 'C
   - Channels (future): Email (live), SMS, WhatsApp, Slack, MS Teams
   - Per-alert-type toggles: Zone shifts, Breaches, Policy triggers, Daily digest
   Goal: CFO gets exactly the alerts they want, nothing they don't. Critical for adoption.
-## Netting / Natural Hedges
+## NETTING / NATURAL HEDGES
 Priority: Pre-scale
 Description:
 Natural hedge = offsetting exposures in same currency pair
@@ -472,7 +472,7 @@ Validate with pilot customer before building.
 
 Status: Backlog — tooltip live, full netting feature pending
 
-## Market Report — Tier 2: Bank Forecast Aggregation
+## MARKET REPORT — TIER 2: BANK FORECAST AGGREGATION
 Priority: Post-pilot
 Description:
 Aggregate FX rate forecasts from major investment banks (Goldman Sachs, JP Morgan, Morgan Stanley, Barclays, etc.) and overlay them on the AI-generated weekly market report.
@@ -495,7 +495,7 @@ Status: Backlog — requires data source decision before scoping
 
 ---
 
-## Market Report — Tier 3: Proprietary FX View
+## MARKET REPORT — TIER 3: PROPRIETARY FX VIEW
 Priority: Series A / Scale
 Description:
 Sumnohow develops and publishes its own weekly FX view — a house view on rate direction for the 8–10 currency pairs most common among its client base.
@@ -513,7 +513,7 @@ Status: Backlog — do not build until 10+ pilot companies active (need track re
 
 ---
 
-## Budget Rate Time Horizon
+## BUDGET RATE TIME HORIZON
 Priority: Pre-scale
 Description:
 - Allow budget rate to be set per period (Q1/Q2/Q3/Q4 or annual)
@@ -527,7 +527,7 @@ Status: Backlog
 
 ---
 
-## Rate Ticker
+## RATE TICKER
 Priority: Pre-pilot
 Description:
 - Slim live rate bar between nav and summary strip
