@@ -48,6 +48,42 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
+## 🤖 AI-Generated Zone Triggers
+**Priority:** Pre-scale (Phase 2 — post pilot)
+**Description:** Instead of manually setting Defensive/Opportunistic trigger percentages, the system suggests optimal triggers based on customer inputs and market data.
+
+### Customer inputs
+- Gross margin % (what rate move they can absorb before meaningful P&L impact)
+- Planning horizon (3 / 6 / 12 / 24 months)
+- Risk appetite (Conservative / Balanced / Aggressive)
+- Currency pairs and volumes
+
+### Market data
+- Historical realised volatility per currency pair (e.g. EUR/NOK 1-year)
+- Current implied volatility (options market — indicates near-term market expectation)
+- Seasonal patterns derived from customer's own historical exposure data
+
+### Output
+- **Suggested Defensive trigger:** "Based on your 8% gross margin and EUR/NOK volatility, a 2.5% adverse move represents meaningful margin erosion"
+- **Suggested Opportunistic trigger:** "A 3% favourable move historically reverts within 6 weeks for EUR/NOK"
+- Out-of-the-box defaults by industry vertical
+
+### Standard defaults (out of the box, before AI personalisation)
+| Profile | Defensive trigger | Opportunistic trigger |
+|---------|------------------|-----------------------|
+| Conservative | 2% | 3% |
+| Balanced | 3% | 4% |
+| Aggressive | 5% | 7% |
+
+### Dependencies
+- Volatility data feed (realised: can derive from existing rate history; implied: requires options API)
+- AI recommendation engine (ANTHROPIC_API_KEY already in env)
+- Policy zones feature must be fully live first
+
+**Status:** Backlog — requires volatility data feed and AI recommendation engine. Validate trigger logic with 2+ pilot customers before building.
+
+---
+
 ## 🟡 Strategic Features (Needs Design Session)
 
 - [ ] **AI Market Analysis** — AI-generated commentary on rate direction, volatility regime and optimal hedge timing per currency pair. Pulls live rates, compares to budget, flags elevated risk conditions. Output: plain-English insight card per pair on dashboard and hedging tab. Core differentiator. Requires design session.

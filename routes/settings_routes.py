@@ -10,6 +10,7 @@ from sqlalchemy import text
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+import asyncio
 import os
 
 from models import Company, Exposure, PolicyAuditLog
@@ -235,8 +236,217 @@ def update_alert_prefs(company_id: int, request: AlertPrefsRequest, db: Session 
     db.commit()
     return {"success": True, "message": "Alert preferences updated"}
 
+async def _background_zone_scan(company_id: int):
+    """
+    Background task: re-evaluate zone status for all exposures after a threshold change.
+
+    Creates its own DB session so it can safely run after the HTTP response has been
+    returned.  Any zone transitions found are logged to zone_change_log and (if
+    zone_notify_email is enabled) sent via email — same logic as the enriched endpoint.
+
+    Only triggered when adverse_trigger_pct or favourable_trigger_pct is saved,
+    because those are the fields that change which zone an exposure falls into.
+    """
+    # Late imports to avoid circular dependencies at module load time
+    from birk_api import get_current_rates, calculate_zone
+    from routes.margin_call_routes import should_send_alert_today as _weekday_check
+    import httpx as _httpx
+
+    db = SessionLocal()
+    print(f"[zone-policy-scan] starting background scan for company_id={company_id}")
+    try:
+        policy_row = db.execute(
+            text("SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true"),
+            {"cid": company_id}
+        ).fetchone()
+        if not policy_row:
+            print(f"[zone-policy-scan] no active policy for company_id={company_id} — skipping")
+            return
+
+        policy = dict(policy_row._mapping)
+        if not policy.get("zone_notify_email"):
+            print(f"[zone-policy-scan] zone_notify_email=false for company_id={company_id} — skipping")
+            return
+
+        adv_trig = float(policy.get("adverse_trigger_pct")    or 3.0)
+        fav_trig = float(policy.get("favourable_trigger_pct") or 3.0)
+        print(f"[zone-policy-scan] thresholds: adverse={adv_trig}%, favourable={fav_trig}%")
+
+        company_row = db.execute(
+            text("SELECT alert_email FROM companies WHERE id = :cid"), {"cid": company_id}
+        ).fetchone()
+        alert_email = company_row._mapping["alert_email"] if company_row else None
+
+        exposures = db.execute(text("""
+            SELECT id, from_currency, to_currency, budget_rate,
+                   exposure_type, direction
+            FROM exposures
+            WHERE company_id = :cid
+              AND (is_active IS NULL OR is_active = true)
+              AND budget_rate IS NOT NULL
+        """), {"cid": company_id}).fetchall()
+
+        if not exposures:
+            print(f"[zone-policy-scan] no exposures for company_id={company_id} — skipping")
+            return
+
+        pairs = list(dict.fromkeys([
+            f"{e._mapping['from_currency']}/{e._mapping['to_currency']}"
+            for e in exposures
+        ]))
+        live_rates = await get_current_rates(pairs)
+
+        resend_key   = os.getenv("RESEND_API_KEY")
+        frontend_url = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
+
+        # Pre-aggregate total notional per pair so the alert email shows the full picture
+        pair_aggregates: dict = {}
+        for _exp in exposures:
+            _e = _exp._mapping
+            _pair = f"{_e['from_currency']}/{_e['to_currency']}"
+            if _pair not in pair_aggregates:
+                pair_aggregates[_pair] = {"total_amount": 0.0, "count": 0, "from_currency": _e["from_currency"]}
+            pair_aggregates[_pair]["total_amount"] += float(_e.get("amount") or 0)
+            pair_aggregates[_pair]["count"] += 1
+
+        checked_pairs: set = set()
+
+        for exp_row in exposures:
+            exp  = exp_row._mapping
+            pair = f"{exp['from_currency']}/{exp['to_currency']}"
+            if pair in checked_pairs:
+                continue
+
+            rate_info    = live_rates.get(pair)
+            current_spot = float(rate_info["rate"]) if rate_info and rate_info.get("rate") else None
+            budget_rate  = float(exp["budget_rate"])
+            if not current_spot:
+                checked_pairs.add(pair)
+                continue
+
+            direction    = (exp.get("exposure_type") or exp.get("direction") or "payable").strip().lower()
+            pct_move     = (current_spot - budget_rate) / budget_rate * 100
+            current_zone = calculate_zone(current_spot, budget_rate, adv_trig, fav_trig, direction)
+
+            last_log = db.execute(text("""
+                SELECT new_zone FROM zone_change_log
+                WHERE company_id = :cid AND currency_pair = :pair
+                ORDER BY created_at DESC LIMIT 1
+            """), {"cid": company_id, "pair": pair}).fetchone()
+
+            if last_log is None:
+                # Write baseline — the correct current zone, not just 'base'
+                db.execute(text("""
+                    INSERT INTO zone_change_log
+                        (company_id, currency_pair, previous_zone, new_zone,
+                         trigger_type, spot_rate, budget_rate, pct_move, created_at)
+                    VALUES (:cid, :pair, 'base', :new, 'policy_save', :spot, :budget, :pct, NOW())
+                """), {
+                    "cid": company_id, "pair": pair, "new": current_zone,
+                    "spot": round(current_spot, 6), "budget": budget_rate, "pct": round(pct_move, 2)
+                })
+                db.commit()
+                print(f"[zone-policy-scan] {pair}: baseline written ({current_zone})")
+                checked_pairs.add(pair)
+                continue
+
+            last_zone = last_log._mapping["new_zone"]
+            if current_zone == last_zone:
+                print(f"[zone-policy-scan] {pair}: unchanged ({current_zone})")
+                checked_pairs.add(pair)
+                continue
+
+            # 24h cooldown check — query BEFORE inserting (same as enriched endpoint)
+            cooldown_row = db.execute(text("""
+                SELECT id FROM zone_change_log
+                WHERE company_id = :cid AND currency_pair = :pair
+                  AND trigger_type IN ('auto', 'policy_save', 'manual_scan')
+                  AND created_at > NOW() - INTERVAL '24 hours'
+                ORDER BY created_at DESC LIMIT 1
+            """), {"cid": company_id, "pair": pair}).fetchone()
+            in_cooldown = bool(cooldown_row)
+
+            # Always log the zone change for the audit trail
+            db.execute(text("""
+                INSERT INTO zone_change_log
+                    (company_id, currency_pair, previous_zone, new_zone,
+                     trigger_type, spot_rate, budget_rate, pct_move, created_at)
+                VALUES (:cid, :pair, :prev, :new, 'policy_save', :spot, :budget, :pct, NOW())
+            """), {
+                "cid": company_id, "pair": pair, "prev": last_zone, "new": current_zone,
+                "spot": round(current_spot, 6), "budget": budget_rate, "pct": round(pct_move, 2)
+            })
+            db.commit()
+            print(f"[zone-policy-scan] {pair}: zone changed {last_zone} → {current_zone}")
+
+            if in_cooldown:
+                print(f"[zone-policy-scan] {pair}: in 24h cooldown — logged, email suppressed")
+                checked_pairs.add(pair)
+                continue
+
+            # Send email — weekday check applies (threshold saves happen in business hours)
+            if not resend_key or not alert_email:
+                print(f"[zone-policy-scan] {pair}: no resend key or alert email — skipping email")
+                checked_pairs.add(pair)
+                continue
+
+            if not _weekday_check():
+                print(f"[zone-policy-scan] {pair}: weekend — suppressing email")
+                checked_pairs.add(pair)
+                continue
+
+            zone_label  = current_zone.upper()
+            action_text = (
+                "Increase hedge coverage to the Defensive target."
+                if current_zone == "defensive"
+                else "Consider reducing hedge coverage to the Opportunistic target."
+                if current_zone == "opportunistic"
+                else "Zone has returned to Base — review current hedge levels."
+            )
+            agg = pair_aggregates.get(pair, {})
+            exposure_line = (
+                f"{agg.get('count', 1)} exposure{'s' if agg.get('count', 1) != 1 else ''} "
+                f"totalling {agg.get('from_currency', '')} {int(agg.get('total_amount', 0)):,}"
+            )
+            try:
+                async with _httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(
+                        "https://api.resend.com/emails",
+                        headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                        json={
+                            "from":    "Sumnohow <alerts@updates.sumnohow.com>",
+                            "to":      ["alerts@updates.sumnohow.com"],
+                            "bcc":     [alert_email],
+                            "subject": f"{pair} Zone Alert — {zone_label}",
+                            "html": (
+                                f"<p><strong>{pair}</strong> has moved into the <strong>{zone_label}</strong> "
+                                f"zone following a policy threshold change.</p>"
+                                f"<ul>"
+                                f"<li>Affected: {exposure_line}</li>"
+                                f"<li>Current spot: {round(current_spot, 4)}</li>"
+                                f"<li>Budget rate: {round(budget_rate, 4)}</li>"
+                                f"<li>Move vs budget: {round(pct_move, 2)}%</li>"
+                                f"<li>New thresholds: Defensive {adv_trig}% / Opportunistic {fav_trig}%</li>"
+                                f"</ul>"
+                                f"<p><strong>Recommended action:</strong> {action_text}</p>"
+                                f"<p><a href='{frontend_url}'>Review in Sumnohow →</a></p>"
+                            ),
+                        },
+                    )
+                print(f"[zone-policy-scan] email sent to {alert_email} for {pair} → {current_zone} | HTTP {resp.status_code}")
+            except Exception as _e:
+                print(f"[zone-policy-scan] email FAILED for {pair}: {_e}")
+
+            checked_pairs.add(pair)
+
+    except Exception as e:
+        print(f"[zone-policy-scan] ERROR for company_id={company_id}: {e}")
+    finally:
+        db.close()
+
+
 @router.put("/{company_id}/zones")
-def update_zone_config(
+async def update_zone_config(
     company_id: int,
     request: ZoneConfigRequest,
     db: Session = Depends(get_db),
@@ -245,6 +455,8 @@ def update_zone_config(
     """
     Update zone configuration fields on the active hedging policy.
     Only fields explicitly provided in the request are updated.
+    When threshold fields change, triggers a background zone re-evaluation
+    so alerts fire immediately without waiting for the next page load.
     """
     safe_id = resolve_company_id(company_id, payload)
     policy = db.execute(
@@ -281,6 +493,14 @@ def update_zone_config(
     updates["id"] = policy_id
     db.execute(text(f"UPDATE hedging_policies SET {set_clause} WHERE id = :id"), updates)
     db.commit()
+
+    # If thresholds changed, immediately re-evaluate zones for all exposures.
+    # Fire as a background task so the HTTP response returns instantly.
+    threshold_fields = {"adverse_trigger_pct", "favourable_trigger_pct"}
+    if threshold_fields & set(updates.keys()):
+        asyncio.create_task(_background_zone_scan(safe_id))
+        print(f"[zone-policy-scan] background scan queued for company_id={safe_id}")
+
     return {"success": True, "message": "Zone configuration updated", "policy_id": policy_id}
 
 

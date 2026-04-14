@@ -1366,7 +1366,7 @@ async def send_daily_alerts(
         # Get exposures with P&L data
         exposures = db.execute(text("""
             SELECT from_currency, to_currency, amount, budget_rate,
-                   hedge_ratio_policy, description
+                   hedge_ratio_policy, description, exposure_type
             FROM exposures
             WHERE company_id = :cid
             AND (is_active IS NULL OR is_active = true)
@@ -1400,7 +1400,8 @@ async def send_daily_alerts(
         live_rates = await get_current_rates(pairs)
 
         # Calculate P&L for each exposure, converted to base_currency
-        breaches, warnings, healthy = [], [], []
+        # Classified by zone: defensive = breach, opportunistic = opportunity, base = healthy
+        defensive_rows, opportunistic_rows, base_rows = [], [], []
         total_pnl = 0
 
         for row in exposures:
@@ -1410,8 +1411,14 @@ async def send_daily_alerts(
             pair = f"{from_ccy}/{to_ccy}"
             rate_info    = live_rates.get(pair)
             current_rate = rate_info["rate"] if rate_info and rate_info.get("rate") else 0.0
-            # P&L in native settlement currency (to_ccy)
-            pnl_native = (current_rate - float(r["budget_rate"])) * float(r["amount"])
+            budget_rate  = float(r["budget_rate"])
+
+            # Direction-aware P&L — payables: falling spot = favourable; receivables: rising spot = favourable
+            exp_type = (r.get("exposure_type") or "payable").strip().lower()
+            is_receivable = exp_type in ("receivable", "sell", "receive")
+            sign = 1 if is_receivable else -1
+            pnl_native = sign * (current_rate - budget_rate) * float(r["amount"])
+
             # Convert to base_currency
             if to_ccy == base_currency:
                 pnl_base = pnl_native
@@ -1419,21 +1426,26 @@ async def send_daily_alerts(
                 conv = await get_rate_async(to_ccy, base_currency)
                 pnl_base = pnl_native * conv
             total_pnl += pnl_base
+
+            # Classify by zone using 3% default thresholds (same logic as app)
+            zone = calculate_zone(current_rate, budget_rate, 3.0, 3.0, exp_type)
+
             entry = {
                 "pair": pair,
                 "pnl": pnl_base,
                 "amount": float(r["amount"]),
                 "from_currency": from_ccy,
                 "current_rate": current_rate,
-                "budget_rate": float(r["budget_rate"]),
-                "description": r["description"] or ""
+                "budget_rate": budget_rate,
+                "description": r["description"] or "",
+                "zone": zone
             }
-            if pnl_base < -50000:
-                breaches.append(entry)
-            elif pnl_base < -10000:
-                warnings.append(entry)
+            if zone == "defensive":
+                defensive_rows.append(entry)
+            elif zone == "opportunistic":
+                opportunistic_rows.append(entry)
             else:
-                healthy.append(entry)
+                base_rows.append(entry)
 
         # Format P&L with base currency symbol
         def fmt_pnl(n):
@@ -1462,10 +1474,33 @@ async def send_daily_alerts(
               </td>
             </tr>"""
 
-        # Build exposure table rows
-        breach_rows = "".join(exposure_row(e, "#FEF2F2") for e in breaches)
-        warning_rows = "".join(exposure_row(e, "#FFFBEB") for e in warnings)
-        healthy_rows = "".join(exposure_row(e, "#F9FAFB") for e in healthy)
+        # Build exposure table rows by zone
+        def exposure_section(title, icon, header_color, rows, row_bg):
+            """Render a titled section with its own table (omit entire section if no rows)."""
+            if not rows:
+                return ""
+            row_html = "".join(exposure_row(e, row_bg) for e in rows)
+            return f"""
+            <p style="font-size:13px;font-weight:700;color:{header_color};margin:20px 0 8px;">{icon} {title}</p>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
+              <thead>
+                <tr style="background:#1A2744;">
+                  <th style="padding:10px 12px;text-align:left;color:#C9A86C;font-weight:600;">Pair</th>
+                  <th style="padding:10px 12px;text-align:left;color:#C9A86C;font-weight:600;">Description</th>
+                  <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Amount</th>
+                  <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Budget</th>
+                  <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Current</th>
+                  <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">P&amp;L<br>
+                    <span style="font-size:10px;color:#8DA4C4;font-style:italic;font-weight:400;">({base_currency})</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>{row_html}</tbody>
+            </table>"""
+
+        breach_section     = exposure_section("Breaches",     "⚠️",  "#E74C3C", defensive_rows,    "#FEF2F2")
+        opportunity_section= exposure_section("Opportunities", "✅",  "#27AE60", opportunistic_rows, "#F0FDF4")
+        healthy_section    = exposure_section("Healthy",       "📊",  "#555555", base_rows,          "#F9FAFB")
 
         # Build maturity section HTML (pre-rendered to avoid nested f-string complexity)
         today_date = datetime.now(timezone.utc).date()
@@ -1506,13 +1541,18 @@ async def send_daily_alerts(
             '</table>'
         )
 
-        # Summary status
-        status_color = "#E74C3C" if breaches else "#F59E0B" if warnings else "#27AE60"
-        status_text = f"{len(breaches)} breach{'es' if len(breaches) != 1 else ''} require action" if breaches \
-            else f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''} to monitor" if warnings \
-            else "All exposures within policy"
+        # Summary status — based on zone classification
+        status_color = "#E74C3C" if defensive_rows else "#F59E0B" if opportunistic_rows else "#27AE60"
+        n_breach = len(defensive_rows)
+        n_opp    = len(opportunistic_rows)
+        if n_breach:
+            status_text = f"{n_breach} pair{'s' if n_breach != 1 else ''} in defensive zone — review urgently"
+        elif n_opp:
+            status_text = f"{n_opp} pair{'s' if n_opp != 1 else ''} in opportunistic zone"
+        else:
+            status_text = "All exposures within policy"
 
-        subject = f"{'⚠️ Action Required' if breaches else '📊 Daily FX Digest'} — {company_name}"
+        subject = f"{'⚠️ Action Required' if defensive_rows else '📊 Daily FX Digest'} — {company_name}"
 
         html = f"""
         <div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px;">
@@ -1520,7 +1560,7 @@ async def send_daily_alerts(
           <div style="background:#1A2744;padding:24px;border-radius:12px;text-align:center;margin-bottom:24px;">
             <h1 style="color:#C9A86C;margin:0;font-size:20px;letter-spacing:4px;font-weight:800;">SUMNOHOW</h1>
             <p style="color:#8DA4C4;font-size:11px;margin:4px 0 0;font-style:italic;">
-              Know your FX position. Before it costs you.
+              Protecting margins.
             </p>
           </div>
 
@@ -1551,29 +1591,9 @@ async def send_daily_alerts(
             </tr>
           </table>
 
-          {'<p style="font-size:13px;font-weight:700;color:#E74C3C;margin-bottom:8px;">⚠️ Breaches</p>' if breaches else ''}
-          <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
-            <thead>
-              <tr style="background:#1A2744;">
-                <th style="padding:10px 12px;text-align:left;color:#C9A86C;font-weight:600;">Pair</th>
-                <th style="padding:10px 12px;text-align:left;color:#C9A86C;font-weight:600;">Description</th>
-                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Amount</th>
-                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Budget</th>
-                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">Current</th>
-                <th style="padding:10px 12px;text-align:right;color:#C9A86C;font-weight:600;">
-                  P&amp;L<br>
-                  <span style="font-size:10px;color:#8DA4C4;font-style:italic;font-weight:400;">
-                    ({base_currency}, base currency)
-                  </span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {breach_rows}
-              {warning_rows}
-              {healthy_rows}
-            </tbody>
-          </table>
+          {breach_section}
+          {opportunity_section}
+          {healthy_section}
 
           {maturity_section_html}
 
@@ -1670,6 +1690,261 @@ async def send_daily_alerts(
         logger.warning(f"Scheduled inception rate fill error: {e}")
 
     return {"message": f"Daily digest sent to {sent_count} companies", "sent": sent_count, "results": results}
+
+
+@app.get("/api/alerts/send-zone")
+async def send_zone_alerts_manual(
+    secret: str = "",
+    force: bool = False,
+    db: Session = Depends(get_db)
+):
+    """
+    Manual zone alert scan — mirrors what the enriched endpoint does for zone detection,
+    but runs across ALL companies and ALL exposures without needing a page load.
+
+    Protected by CRON_SECRET (same as send-daily).
+    Call: GET /api/alerts/send-zone?secret=CRON_SECRET
+    Add &force=true to bypass the 24h email cooldown (useful for testing).
+
+    Useful for:
+    - Testing zone alert emails directly after changing a threshold
+    - Running a forced scan after weekend / holiday gap
+    - Diagnosing whether zone_change_log entries are being written
+
+    Returns a per-company, per-pair breakdown of what was found, logged, and emailed.
+    Does NOT apply weekday suppression — runs any day for manual testing.
+    """
+    from sqlalchemy import text as _t
+    from routes.margin_call_routes import should_send_alert_today as _weekday_check
+
+    # Verify cron secret
+    expected_secret = os.getenv("CRON_SECRET", "")
+    if not expected_secret or secret != expected_secret:
+        raise HTTPException(status_code=401, detail="Invalid cron secret")
+
+    resend_key = os.getenv("RESEND_API_KEY")
+    frontend_url = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
+    is_weekday = _weekday_check()
+
+    companies = db.execute(_t("""
+        SELECT c.id, c.name, c.alert_email, c.base_currency
+        FROM companies c
+        WHERE c.alert_email IS NOT NULL AND c.alert_email != ''
+    """)).fetchall()
+
+    results = []
+
+    for comp_row in companies:
+        c = comp_row._mapping
+        cid          = c["id"]
+        cname        = c["name"]
+        alert_email  = c["alert_email"]
+
+        # Get active policy for this company
+        policy_row = db.execute(_t("""
+            SELECT * FROM hedging_policies WHERE company_id = :cid AND is_active = true
+        """), {"cid": cid}).fetchone()
+        if not policy_row:
+            results.append({"company": cname, "skipped": "no active policy"})
+            continue
+
+        policy = dict(policy_row._mapping)
+        if not policy.get("zone_notify_email"):
+            results.append({"company": cname, "skipped": "zone_notify_email is false"})
+            continue
+
+        adv_trig = float(policy.get("adverse_trigger_pct")    or 3.0)
+        fav_trig = float(policy.get("favourable_trigger_pct") or 3.0)
+
+        # Fetch all active exposures with budget rates
+        exposures = db.execute(_t("""
+            SELECT id, from_currency, to_currency, budget_rate, exposure_type
+            FROM exposures
+            WHERE company_id = :cid
+              AND (is_active IS NULL OR is_active = true)
+              AND budget_rate IS NOT NULL
+        """), {"cid": cid}).fetchall()
+
+        if not exposures:
+            results.append({"company": cname, "skipped": "no exposures with budget rate"})
+            continue
+
+        # Fetch live rates for all pairs at once
+        pairs = list(dict.fromkeys([
+            f"{e._mapping['from_currency']}/{e._mapping['to_currency']}"
+            for e in exposures
+        ]))
+        live_rates = await get_current_rates(pairs)
+
+        # Pre-aggregate total notional per pair for grouped email body
+        pair_aggregates: dict = {}
+        for _exp in exposures:
+            _e = _exp._mapping
+            _pair = f"{_e['from_currency']}/{_e['to_currency']}"
+            if _pair not in pair_aggregates:
+                pair_aggregates[_pair] = {"total_amount": 0.0, "count": 0, "from_currency": _e["from_currency"]}
+            pair_aggregates[_pair]["total_amount"] += float(_e.get("amount") or 0)
+            pair_aggregates[_pair]["count"] += 1
+
+        company_results = []
+        checked_pairs: set = set()
+
+        for exp_row in exposures:
+            exp = exp_row._mapping
+            pair = f"{exp['from_currency']}/{exp['to_currency']}"
+            if pair in checked_pairs:
+                continue  # one check per pair per request
+
+            rate_info    = live_rates.get(pair)
+            current_spot = float(rate_info["rate"]) if rate_info and rate_info.get("rate") else None
+            budget_rate  = float(exp["budget_rate"])
+
+            if not current_spot:
+                company_results.append({"pair": pair, "skipped": "no live rate"})
+                checked_pairs.add(pair)
+                continue
+
+            direction    = (exp.get("exposure_type") or "payable").strip().lower()
+            pct_move     = (current_spot - budget_rate) / budget_rate * 100 if budget_rate else 0.0
+            current_zone = calculate_zone(current_spot, budget_rate, adv_trig, fav_trig, direction)
+
+            # Read last logged zone
+            last_log = db.execute(_t("""
+                SELECT new_zone, created_at FROM zone_change_log
+                WHERE company_id = :cid AND currency_pair = :pair
+                ORDER BY created_at DESC LIMIT 1
+            """), {"cid": cid, "pair": pair}).fetchone()
+
+            last_zone = last_log._mapping["new_zone"] if last_log else None
+            entry = {
+                "pair":         pair,
+                "current_zone": current_zone,
+                "last_zone":    last_zone,
+                "spot":         round(current_spot, 4),
+                "budget":       round(budget_rate, 4),
+                "pct_move":     round(pct_move, 2),
+            }
+
+            if last_zone is None:
+                # No prior log — write baseline (correct current zone, not just 'base')
+                db.execute(_t("""
+                    INSERT INTO zone_change_log
+                        (company_id, currency_pair, previous_zone, new_zone,
+                         trigger_type, spot_rate, budget_rate, pct_move, created_at)
+                    VALUES (:cid, :pair, 'base', :new, 'baseline', :spot, :budget, :pct, NOW())
+                """), {
+                    "cid": cid, "pair": pair, "new": current_zone,
+                    "spot": round(current_spot, 6), "budget": budget_rate, "pct": round(pct_move, 2)
+                })
+                db.commit()
+                entry["action"] = f"baseline_written ({current_zone}) — no email"
+                company_results.append(entry)
+                checked_pairs.add(pair)
+                continue
+
+            if current_zone == last_zone:
+                entry["action"] = f"unchanged ({current_zone})"
+                company_results.append(entry)
+                checked_pairs.add(pair)
+                continue
+
+            # 24h cooldown check — query BEFORE inserting; bypass with force=true
+            in_cooldown = False
+            if not force:
+                cooldown_row = db.execute(_t("""
+                    SELECT id FROM zone_change_log
+                    WHERE company_id = :cid AND currency_pair = :pair
+                      AND trigger_type IN ('auto', 'policy_save', 'manual_scan')
+                      AND created_at > NOW() - INTERVAL '24 hours'
+                    ORDER BY created_at DESC LIMIT 1
+                """), {"cid": cid, "pair": pair}).fetchone()
+                in_cooldown = bool(cooldown_row)
+
+            # Always log the zone change for the audit trail
+            db.execute(_t("""
+                INSERT INTO zone_change_log
+                    (company_id, currency_pair, previous_zone, new_zone,
+                     trigger_type, spot_rate, budget_rate, pct_move, created_at)
+                VALUES (:cid, :pair, :prev, :new, 'manual_scan', :spot, :budget, :pct, NOW())
+            """), {
+                "cid": cid, "pair": pair, "prev": last_zone, "new": current_zone,
+                "spot": round(current_spot, 6), "budget": budget_rate, "pct": round(pct_move, 2)
+            })
+            db.commit()
+            entry["action"] = f"zone_changed {last_zone} → {current_zone}"
+
+            if in_cooldown:
+                entry["email"] = "suppressed — 24h cooldown (use &force=true to override)"
+                company_results.append(entry)
+                checked_pairs.add(pair)
+                continue
+
+            # Send email — manual scan bypasses weekday suppression intentionally
+            if not resend_key or not alert_email:
+                entry["email"] = "skipped — no resend key or alert email"
+                company_results.append(entry)
+                checked_pairs.add(pair)
+                continue
+
+            zone_label  = current_zone.upper()
+            action_text = (
+                "Increase hedge coverage to the Defensive target."
+                if current_zone == "defensive"
+                else "Consider reducing hedge coverage to the Opportunistic target."
+                if current_zone == "opportunistic"
+                else "Zone has returned to Base — review current hedge levels."
+            )
+            agg = pair_aggregates.get(pair, {})
+            exposure_line = (
+                f"{agg.get('count', 1)} exposure{'s' if agg.get('count', 1) != 1 else ''} "
+                f"totalling {agg.get('from_currency', '')} {int(agg.get('total_amount', 0)):,}"
+            )
+            body_html = (
+                f"<p><strong>{pair}</strong> has moved into the "
+                f"<strong>{zone_label}</strong> zone.</p>"
+                f"<ul>"
+                f"<li>Affected: {exposure_line}</li>"
+                f"<li>Current spot: {round(current_spot, 4)}</li>"
+                f"<li>Budget rate: {round(budget_rate, 4)}</li>"
+                f"<li>Move vs budget: {round(pct_move, 2)}%</li>"
+                f"<li>Direction: {direction}</li>"
+                f"</ul>"
+                f"<p><strong>Recommended action:</strong> {action_text}</p>"
+                f"<p><em>Triggered by: manual scan ({'forced' if force else 'weekday' if is_weekday else 'non-weekday'})</em></p>"
+                f"<p><a href='{frontend_url}'>Review in Sumnohow →</a></p>"
+            )
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(
+                        "https://api.resend.com/emails",
+                        headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                        json={
+                            "from":    "Sumnohow <alerts@updates.sumnohow.com>",
+                            "to":      ["alerts@updates.sumnohow.com"],
+                            "bcc":     [alert_email],
+                            "subject": f"[Manual Scan] {pair} Zone Alert — {zone_label}",
+                            "html":    body_html,
+                        },
+                    )
+                entry["email"] = f"sent — HTTP {resp.status_code}"
+                print(f"[zone-scan] email sent to {alert_email} for {pair} → {current_zone} | {resp.status_code}")
+            except Exception as _e:
+                entry["email"] = f"failed: {_e}"
+                print(f"[zone-scan] email FAILED for {pair}: {_e}")
+
+            company_results.append(entry)
+            checked_pairs.add(pair)
+
+        results.append({"company": cname, "email": alert_email, "pairs": company_results})
+
+    return {
+        "message": "Zone alert scan complete",
+        "is_weekday": is_weekday,
+        "force_mode": force,
+        "companies_scanned": len(results),
+        "results": results
+    }
 
 
 @app.get("/setup/create-policies")

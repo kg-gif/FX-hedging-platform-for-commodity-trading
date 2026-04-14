@@ -576,6 +576,22 @@ async def get_enriched_exposures(
 
     result = []
     zone_checked_pairs: set = set()  # deduplicate zone alerts within a single request
+
+    # Pre-aggregate total notional per currency pair so zone alert emails show the full
+    # picture ("6 exposures totalling EUR 12,500,000") rather than one exposure's amount.
+    pair_aggregates: dict = {}
+    for _exp in exposures:
+        _e = _exp._mapping
+        _pair = f"{_e['from_currency']}/{_e['to_currency']}"
+        if _pair not in pair_aggregates:
+            pair_aggregates[_pair] = {
+                "total_amount":  0.0,
+                "count":         0,
+                "from_currency": _e["from_currency"],
+            }
+        pair_aggregates[_pair]["total_amount"] += float(_e.get("amount") or 0)
+        pair_aggregates[_pair]["count"] += 1
+
     for exp_row in exposures:
         exp = exp_row._mapping
         exposure_id = exp["id"]
@@ -685,13 +701,24 @@ async def get_enriched_exposures(
         z_target_ratio = zone_target_ratio(current_zone, active_policy, base_ratio)
 
         # ── Zone-shift detection and notification ─────────────────────────────
-        # Deduplicate: only check zone once per unique pair per request.
-        # If two exposures share the same currency pair (e.g. two EUR/USD positions),
-        # skip zone alert on the second one to prevent duplicate log entries and emails.
+        #
+        # Runs for ALL zones (including BASE) so that every exposure always has a
+        # "last known zone" in zone_change_log.  Without this, lowering the Defensive
+        # threshold would move a BASE exposure straight into DEFENSIVE with no prior
+        # log entry — the old code treated that as a "first observation" and silently
+        # suppressed the alert (baseline branch, no email).
+        #
+        # Secondary bug fix: no `continue` inside the baseline branch.  The old
+        # `continue` bypassed result.append() at the bottom of this loop, silently
+        # dropping the exposure from the enriched response on its first observation.
+        # zone_checked_pairs.add(pair) is now the single line at the bottom — it
+        # runs for every code path without exception.
+        #
+        # Deduplication: only check zone once per unique currency pair per request.
         print(f"[zone-shift] {pair}: current_zone={current_zone}, budget_rate={budget_rate}, current_spot={current_spot}, notify_email={active_policy.get('zone_notify_email')}, alert_email={company_alert_email}")
         if pair in zone_checked_pairs:
             print(f"[zone-shift] {pair}: skipping — already checked this pair in this request")
-        elif current_zone != "base" and active_policy.get("zone_notify_email") and budget_rate:
+        elif active_policy.get("zone_notify_email") and budget_rate and current_spot:
             try:
                 last_log = db.execute(text("""
                     SELECT new_zone FROM zone_change_log
@@ -700,9 +727,10 @@ async def get_enriched_exposures(
                 """), {"cid": safe_id, "pair": pair}).fetchone()
 
                 if last_log is None:
-                    # No prior zone record — establish baseline silently.
-                    # Never send an alert on the first observation; we don't know
-                    # whether the rate has actually moved, so there is nothing to notify about.
+                    # No prior record — write the actual current zone as the baseline.
+                    # This means the NEXT evaluation (e.g. after a threshold change) has
+                    # a real "last zone" to compare against and will fire correctly.
+                    # No email on first observation — we don't know if the rate just moved.
                     db.execute(text("""
                         INSERT INTO zone_change_log
                             (company_id, currency_pair, previous_zone, new_zone,
@@ -718,80 +746,109 @@ async def get_enriched_exposures(
                     })
                     db.commit()
                     print(f"[zone-shift] {pair}: baseline logged ({current_zone}) — no email sent")
-                    zone_checked_pairs.add(pair)
-                    continue
+                    # No continue — fall through so result.append() runs below
 
-                last_zone = last_log._mapping["new_zone"]
-                print(f"[zone-shift] {pair}: last_zone={last_zone}")
-
-                if current_zone != last_zone:
-                    # Log the zone change
-                    db.execute(text("""
-                        INSERT INTO zone_change_log
-                            (company_id, currency_pair, previous_zone, new_zone,
-                             trigger_type, spot_rate, budget_rate, pct_move, created_at)
-                        VALUES (:cid, :pair, :prev, :new, 'auto', :spot, :budget, :pct, NOW())
-                    """), {
-                        "cid":    safe_id,
-                        "pair":   pair,
-                        "prev":   last_zone,
-                        "new":    current_zone,
-                        "spot":   round(current_spot, 6),
-                        "budget": budget_rate,
-                        "pct":    round(pct_move, 2),
-                    })
-                    db.commit()
-                    print(f"[zone-shift] {pair}: logged zone change {last_zone} → {current_zone}")
-
-                    # Send email notification — weekday only, FX markets closed on weekends
-                    from routes.margin_call_routes import should_send_alert_today as _weekday_check
-                    resend_key = os.getenv("RESEND_API_KEY")
-                    print(f"[zone-shift] {pair}: resend_key present={bool(resend_key)}, company_alert_email={company_alert_email}")
-                    if not _weekday_check():
-                        print(f"[zone-shift] {pair}: weekend — suppressing email")
-                    elif resend_key and company_alert_email:
-                        import httpx as _httpx
-                        zone_label = current_zone.upper()
-                        direction_txt = exp.get("exposure_type") or exp.get("direction") or "payable"
-                        action_txt = (
-                            "Increase hedge coverage to the Defensive target."
-                            if current_zone == "defensive"
-                            else "Consider reducing hedge coverage to the Opportunistic target."
-                        )
-                        body_html = (
-                            f"<p><strong>{pair}</strong> has moved into the "
-                            f"<strong>{zone_label}</strong> zone.</p>"
-                            f"<ul>"
-                            f"<li>Current spot: {round(current_spot, 4)}</li>"
-                            f"<li>Budget rate: {round(budget_rate, 4)}</li>"
-                            f"<li>Move vs budget: {round(pct_move, 2)}%</li>"
-                            f"<li>Direction: {direction_txt}</li>"
-                            f"</ul>"
-                            f"<p><strong>Recommended action:</strong> {action_txt}</p>"
-                            f"<p><a href='{os.getenv('FRONTEND_URL', 'https://app.sumnohow.com')}'>Review in Sumnohow →</a></p>"
-                        )
-                        try:
-                            async with _httpx.AsyncClient(timeout=10) as client:
-                                resp = await client.post(
-                                    "https://api.resend.com/emails",
-                                    headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
-                                    json={
-                                        "from":    "Sumnohow <alerts@updates.sumnohow.com>",
-                                        "to":      ["alerts@updates.sumnohow.com"],
-                                        "bcc":     [company_alert_email],
-                                        "subject": f"{pair} Zone Alert — {zone_label}",
-                                        "html":    body_html,
-                                    },
-                                )
-                            print(f"[zone-email] sent to {company_alert_email} for {pair} - {current_zone} | status={resp.status_code} body={resp.text}")
-                        except Exception as _e:
-                            print(f"[zone-email] FAILED for {pair}: {_e}")
                 else:
-                    print(f"[zone-shift] {pair}: skipped — zone unchanged ({current_zone})")
+                    last_zone = last_log._mapping["new_zone"]
+                    print(f"[zone-shift] {pair}: last_zone={last_zone}")
+
+                    if current_zone != last_zone:
+                        # 24h cooldown check — query BEFORE inserting so the row we're
+                        # about to write doesn't match. One email per pair per 24h prevents
+                        # alert fatigue when zones oscillate or many exposures share a pair.
+                        cooldown_row = db.execute(text("""
+                            SELECT id FROM zone_change_log
+                            WHERE company_id = :cid AND currency_pair = :pair
+                              AND trigger_type IN ('auto', 'policy_save', 'manual_scan')
+                              AND created_at > NOW() - INTERVAL '24 hours'
+                            ORDER BY created_at DESC LIMIT 1
+                        """), {"cid": safe_id, "pair": pair}).fetchone()
+                        in_cooldown = bool(cooldown_row)
+
+                        # Always log the zone change for the audit trail
+                        db.execute(text("""
+                            INSERT INTO zone_change_log
+                                (company_id, currency_pair, previous_zone, new_zone,
+                                 trigger_type, spot_rate, budget_rate, pct_move, created_at)
+                            VALUES (:cid, :pair, :prev, :new, 'auto', :spot, :budget, :pct, NOW())
+                        """), {
+                            "cid":    safe_id,
+                            "pair":   pair,
+                            "prev":   last_zone,
+                            "new":    current_zone,
+                            "spot":   round(current_spot, 6),
+                            "budget": budget_rate,
+                            "pct":    round(pct_move, 2),
+                        })
+                        db.commit()
+                        print(f"[zone-shift] {pair}: logged zone change {last_zone} → {current_zone}")
+
+                        if in_cooldown:
+                            print(f"[zone-shift] {pair}: zone changed but in 24h cooldown — logged, email suppressed")
+                        else:
+                            # Send email notification — weekday only, FX markets closed on weekends
+                            from routes.margin_call_routes import should_send_alert_today as _weekday_check
+                            resend_key = os.getenv("RESEND_API_KEY")
+                            print(f"[zone-shift] {pair}: resend_key present={bool(resend_key)}, company_alert_email={company_alert_email}")
+                            if not _weekday_check():
+                                print(f"[zone-shift] {pair}: weekend — suppressing email")
+                            elif resend_key and company_alert_email:
+                                import httpx as _httpx
+                                zone_label    = current_zone.upper()
+                                direction_txt = exp.get("exposure_type") or exp.get("direction") or "payable"
+                                action_txt = (
+                                    "Increase hedge coverage to the Defensive target."
+                                    if current_zone == "defensive"
+                                    else "Consider reducing hedge coverage to the Opportunistic target."
+                                    if current_zone == "opportunistic"
+                                    else "Zone has returned to Base — review current hedge levels."
+                                )
+                                # Aggregate totals across all exposures for this pair
+                                agg = pair_aggregates.get(pair, {})
+                                total_amount  = agg.get("total_amount", 0)
+                                exp_count     = agg.get("count", 1)
+                                from_ccy      = agg.get("from_currency", exp["from_currency"])
+                                exposure_line = (
+                                    f"{exp_count} exposure{'s' if exp_count != 1 else ''} "
+                                    f"totalling {from_ccy} {int(total_amount):,}"
+                                )
+                                body_html = (
+                                    f"<p><strong>{pair}</strong> has moved into the "
+                                    f"<strong>{zone_label}</strong> zone.</p>"
+                                    f"<ul>"
+                                    f"<li>Affected: {exposure_line}</li>"
+                                    f"<li>Current spot: {round(current_spot, 4)}</li>"
+                                    f"<li>Budget rate: {round(budget_rate, 4)}</li>"
+                                    f"<li>Move vs budget: {round(pct_move, 2)}%</li>"
+                                    f"<li>Direction: {direction_txt}</li>"
+                                    f"</ul>"
+                                    f"<p><strong>Recommended action:</strong> {action_txt}</p>"
+                                    f"<p><a href='{os.getenv('FRONTEND_URL', 'https://app.sumnohow.com')}'>Review in Sumnohow →</a></p>"
+                                )
+                                try:
+                                    async with _httpx.AsyncClient(timeout=10) as client:
+                                        resp = await client.post(
+                                            "https://api.resend.com/emails",
+                                            headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                                            json={
+                                                "from":    "Sumnohow <alerts@updates.sumnohow.com>",
+                                                "to":      ["alerts@updates.sumnohow.com"],
+                                                "bcc":     [company_alert_email],
+                                                "subject": f"{pair} Zone Alert — {zone_label}",
+                                                "html":    body_html,
+                                            },
+                                        )
+                                    print(f"[zone-email] sent to {company_alert_email} for {pair} - {current_zone} | status={resp.status_code} body={resp.text}")
+                                except Exception as _e:
+                                    print(f"[zone-email] FAILED for {pair}: {_e}")
+                    else:
+                        print(f"[zone-shift] {pair}: skipped — zone unchanged ({current_zone})")
+
             except Exception as _e:
                 logger.warning(f"Zone shift detection failed for {pair}: {_e}")
                 print(f"[zone-shift] {pair}: outer exception: {_e}")
-        zone_checked_pairs.add(pair)  # mark as checked — skip on next exposure with same pair
+
+        zone_checked_pairs.add(pair)  # always runs — no continue anywhere in this block
         # ── End zone-shift notification ────────────────────────────────────────
 
         # Lifecycle tab — drives which tab this exposure appears in on the Hedging page.

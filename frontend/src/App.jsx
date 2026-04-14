@@ -81,7 +81,7 @@ function AppShell({ authUser, onLogout, children }) {
                 <span className="text-2xl font-bold tracking-widest uppercase block"
                   style={{ color: GOLD, letterSpacing: '0.15em' }}>sumnohow</span>
                 <p className="text-xs mt-0.5 italic" style={{ color: '#8DA4C4' }}>
-                  Know your FX position. Before it costs you.
+                  Protecting margins.
                 </p>
               </div>
             </div>
@@ -201,9 +201,12 @@ function AuthenticatedApp({ authUser, onLogout }) {
 
 // ── Root App ─────────────────────────────────────────────────────────────────
 
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 60 minutes
+
 function App() {
   const [authData, setAuthData] = useState(null)
   const [checking, setChecking] = useState(true)
+  const [inactivityMessage, setInactivityMessage] = useState('')
 
   useEffect(() => {
     const stored = getStoredAuth()
@@ -219,14 +222,40 @@ function App() {
     }
   }, [])
 
+  // ── Inactivity timeout — auto-logout after 60 minutes of no interaction ──
+  useEffect(() => {
+    if (!authData) return // only active when logged in
+
+    let timer
+
+    const resetTimer = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        clearAuth()
+        setAuthData(null)
+        setInactivityMessage("You've been logged out due to inactivity.")
+      }, INACTIVITY_TIMEOUT_MS)
+    }
+
+    const events = ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll']
+    events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }))
+    resetTimer() // start the clock
+
+    return () => {
+      clearTimeout(timer)
+      events.forEach(e => window.removeEventListener(e, resetTimer))
+    }
+  }, [authData])
+
   const handleLoginSuccess = (data) => {
+    setInactivityMessage('')
     setAuthData({
       token: data.access_token,
       user: { user_id: data.user_id, email: data.email, company_id: data.company_id, role: data.role }
     })
   }
 
-  const handleLogout = () => { clearAuth(); setAuthData(null) }
+  const handleLogout = () => { clearAuth(); setAuthData(null); setInactivityMessage('') }
 
   if (checking) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: NAVY }}>
@@ -244,7 +273,9 @@ function App() {
 
         {/* All other routes — gated by auth */}
         {!authData ? (
-          <Route path="*" element={<Login onLoginSuccess={handleLoginSuccess} />} />
+          <Route path="*" element={
+            <Login onLoginSuccess={handleLoginSuccess} notice={inactivityMessage} />
+          } />
         ) : (
           <Route path="*" element={
             <CompanyProvider>

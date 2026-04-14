@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # Secret key — must be set as environment variable in production
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 7
+ACCESS_TOKEN_EXPIRE_HOURS = 8
 
 security = HTTPBearer()
 
@@ -63,7 +63,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -83,7 +83,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 @router.post("/login", response_model=TokenResponse)
 def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """CFO login — returns JWT token valid for 7 days."""
+    """CFO login — returns JWT token valid for 8 hours."""
     # Look up user by email
     result = db.execute(
         text("SELECT * FROM users WHERE email = :email"),
@@ -277,7 +277,7 @@ async def forgot_password(email: str, db: Session = Depends(get_db)):
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
           <div style="background:#1A2744;padding:24px;border-radius:12px;text-align:center;margin-bottom:24px;">
             <h1 style="color:#C9A86C;margin:0;font-size:20px;letter-spacing:3px;">SUMNOHOW</h1>
-            <p style="color:#8DA4C4;font-size:12px;margin:4px 0 0;">Know your FX position. Before it costs you.</p>
+            <p style="color:#8DA4C4;font-size:12px;margin:4px 0 0;">Protecting margins.</p>
           </div>
           <h2 style="color:#1A2744;">Reset your password</h2>
           <p style="color:#555;font-size:14px;line-height:1.6;">
