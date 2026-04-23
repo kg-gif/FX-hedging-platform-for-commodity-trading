@@ -22,7 +22,9 @@ const fmtDate = (s) => {
 }
 const fmtDateOnly = (s) => {
   if (!s) return '—'
-  return String(s).split('T')[0]
+  const parts = String(s).split('T')[0].split('-')
+  if (parts.length !== 3) return s
+  return `${parts[2]}/${parts[1]}/${parts[0]}`
 }
 
 const EVENT_LABELS = {
@@ -30,6 +32,8 @@ const EVENT_LABELS = {
   order:             { label: 'Order Sent',         bg: 'bg-purple-100', text: 'text-purple-700' },
   value_date_change: { label: 'Value Date Changed', bg: 'bg-amber-100',  text: 'text-amber-700'  },
 }
+const AUDIT_TRADING_TYPES = ['tranche', 'value_date_change']
+const AUDIT_SYSTEM_TYPES  = ['order']
 const TRANCHE_STATUS_STYLE = {
   executed:  'bg-green-100 text-green-700',
   confirmed: 'bg-emerald-100 text-emerald-700',
@@ -445,7 +449,7 @@ export default function Reports() {
 
   // Filters
   const [filterPair,        setFilterPair]        = useState('')
-  const [filterEventType,   setFilterEventType]   = useState('')
+  const [filterEventType,   setFilterEventType]   = useState('trading')
   const [filterFromDate,    setFilterFromDate]     = useState('')
   const [filterToDate,      setFilterToDate]       = useState('')
   const [showDeleted,       setShowDeleted]        = useState(true)
@@ -688,7 +692,7 @@ export default function Reports() {
         (e.budget_rate ?? 0).toFixed(4),
         (e.current_spot ?? 0).toFixed(4),
         (e.locked_pnl ?? 0).toFixed(2),
-        (e.floating_pnl ?? 0).toFixed(2),
+        (Math.abs(e.floating_pnl ?? 0) < 0.005 ? 0 : (e.floating_pnl ?? 0)).toFixed(2),
         (e.combined_pnl ?? 0).toFixed(2),
       ])
       downloadCsv(`pnl-summary-${new Date().toISOString().split('T')[0]}.csv`, hdrs, rows)
@@ -711,18 +715,37 @@ export default function Reports() {
   }
 
   const clearFilters = () => {
-    setFilterPair(''); setFilterEventType(''); setFilterFromDate(''); setFilterToDate('')
+    setFilterPair(''); setFilterEventType('trading'); setFilterFromDate(''); setFilterToDate('')
     setShowDeleted(true); setAuditPage(1)
   }
 
-  const displayed = filterEventType
-    ? events.filter(e => e.event_type === filterEventType)
-    : events
+  const displayed = filterEventType === 'trading'
+    ? events.filter(e => AUDIT_TRADING_TYPES.includes(e.event_type))
+    : filterEventType === 'system'
+      ? events.filter(e => AUDIT_SYSTEM_TYPES.includes(e.event_type))
+      : events
 
   const auditPages   = Math.max(1, Math.ceil(displayed.length / auditPageSize))
   const auditPaged   = displayed.slice((auditPage - 1) * auditPageSize, auditPage * auditPageSize)
 
-  const hasFilters = filterPair || filterEventType || filterFromDate || filterToDate || !showDeleted
+  const hasFilters = filterPair || filterEventType !== 'trading' || filterFromDate || filterToDate || !showDeleted
+
+  const auditSummary = (() => {
+    const tradingEvts = displayed.filter(e => e.event_type === 'tranche')
+    const totalExecuted = tradingEvts.length
+    const totalNotional = tradingEvts.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+    const withRate   = tradingEvts.filter(e => e.execution_rate)
+    const avgRate    = withRate.length > 0
+      ? withRate.reduce((s, e) => s + Number(e.execution_rate), 0) / withRate.length
+      : null
+    const withBudget = tradingEvts.filter(e => e.budget_rate)
+    const avgBudget  = withBudget.length > 0
+      ? withBudget.reduce((s, e) => s + Number(e.budget_rate), 0) / withBudget.length
+      : null
+    const ccys     = [...new Set(tradingEvts.filter(e => e.amount_currency).map(e => e.amount_currency))]
+    const currency = ccys.length === 1 ? ccys[0] : ccys.length > 1 ? 'mixed' : ''
+    return { totalExecuted, totalNotional, avgRate, avgBudget, currency }
+  })()
 
   // ── P&L derived data ────────────────────────────────────────────────────
   const activeItems = useMemo(() => enrichedItems.filter(e => !e.archived), [enrichedItems])
@@ -1075,10 +1098,9 @@ export default function Reports() {
 
           <select value={filterEventType} onChange={e => { setFilterEventType(e.target.value); setAuditPage(1) }}
             className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
-            <option value="">All Action Types</option>
-            <option value="tranche">Hedge Executed</option>
-            <option value="order">Order Sent</option>
-            <option value="value_date_change">Value Date Changed</option>
+            <option value="trading">Trading Events</option>
+            <option value="system">System Events</option>
+            <option value="">All Events</option>
           </select>
 
           <div className="flex items-center gap-1.5">
@@ -1097,7 +1119,7 @@ export default function Reports() {
           <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
             <input type="checkbox" checked={showDeleted} onChange={e => setShowDeleted(e.target.checked)}
               className="rounded" />
-            Include deleted
+            Include archived tranches
           </label>
 
           {hasFilters && (
@@ -1110,6 +1132,41 @@ export default function Reports() {
           <span className="ml-auto text-xs text-gray-400">{displayed.length} events</span>
         </div>
 
+        {/* Summary strip */}
+        {!loading && auditSummary.totalExecuted > 0 && (
+          <div className="grid grid-cols-3 gap-0 border-b border-gray-100">
+            <div className="px-5 py-3 border-r border-gray-100">
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Tranches Executed</p>
+              <p className="text-base font-bold" style={{ color: NAVY }}>{auditSummary.totalExecuted}</p>
+              <p className="text-xs text-gray-400">This period</p>
+            </div>
+            <div className="px-5 py-3 border-r border-gray-100">
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Total Notional Hedged</p>
+              <p className="text-base font-bold" style={{ color: NAVY }}>
+                {auditSummary.totalNotional > 0
+                  ? auditSummary.totalNotional.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                  : '—'}
+                {auditSummary.currency && auditSummary.currency !== 'mixed' && (
+                  <span className="text-sm font-normal text-gray-400 ml-1">{auditSummary.currency}</span>
+                )}
+              </p>
+              <p className="text-xs text-gray-400">Sum of hedge amounts</p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Avg Rate vs Budget</p>
+              <p className="text-base font-bold" style={{ color: NAVY }}>
+                {auditSummary.avgRate != null ? auditSummary.avgRate.toFixed(4) : '—'}
+                {auditSummary.avgBudget != null && (
+                  <span className="text-sm font-normal text-gray-400 ml-2">
+                    vs {auditSummary.avgBudget.toFixed(4)}
+                  </span>
+                )}
+              </p>
+              <p className="text-xs text-gray-400">Execution vs budget rate</p>
+            </div>
+          </div>
+        )}
+
         {/* Table */}
         {loading ? (
           <div className="flex items-center justify-center h-40">
@@ -1118,7 +1175,7 @@ export default function Reports() {
         ) : displayed.length === 0 ? (
           <div className="text-center py-12 text-sm text-gray-400">No results match your filters.</div>
         ) : (
-          <>
+<>
             <div className="overflow-x-auto">
               <table className="min-w-full text-xs divide-y divide-gray-100">
                 <thead style={{ background: '#F4F6FA' }}>
@@ -1159,7 +1216,7 @@ export default function Reports() {
                       <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={ev.tranche_status} /></td>
                       <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{ev.created_by || '—'}</td>
                       <td className="px-3 py-2 text-gray-400 max-w-xs">
-                        <div className="truncate" title={ev.notes || ev.reason || ''}>
+                        <div className="truncate cursor-help" title={ev.reason || ev.notes || undefined}>
                           {ev.reason || ev.notes || '—'}
                         </div>
                         {ev.limit_rate && <div>TP: {Number(ev.limit_rate).toFixed(4)} / SL: {Number(ev.stop_rate).toFixed(4)}</div>}
@@ -1321,8 +1378,10 @@ export default function Reports() {
                               {(e.locked_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.locked_pnl)}
                             </td>
                             <td className="px-3 py-2 font-mono text-right whitespace-nowrap"
-                              style={{ color: (e.floating_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
-                              {(e.floating_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.floating_pnl)}
+                              style={{ color: Math.abs(e.floating_pnl ?? 0) < 0.005 ? '#9CA3AF' : (e.floating_pnl ?? 0) > 0 ? SUCCESS : DANGER }}>
+                              {Math.abs(e.floating_pnl ?? 0) < 0.005
+                                ? '—'
+                                : `${(e.floating_pnl ?? 0) > 0 ? '+' : ''}${fmt(e.floating_pnl)}`}
                             </td>
                             <td className="px-3 py-2 font-mono text-right font-bold whitespace-nowrap"
                               style={{ color: combined >= 0 ? SUCCESS : DANGER }}>
