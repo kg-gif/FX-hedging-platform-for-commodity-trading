@@ -4,6 +4,7 @@ import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, Trendi
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { CURRENCY_FLAGS } from '../utils/currency'
+import { CurrencyPairFlags } from './CurrencyFlag'
 import LoadingAnimation from './LoadingAnimation'
 import JumpNav from './JumpNav'
 import ScrollToTop from './ScrollToTop'
@@ -1747,6 +1748,13 @@ export default function Reports() {
           }
           const daysColor = (d) => d <= 7 ? DANGER : d <= 30 ? WARNING : SUCCESS
           const fmtVDate  = (s) => s ? new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+          const urgencyBadge = (d) => {
+            if (d == null) return null
+            if (d <= 30) return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">ACTION REQUIRED</span>
+            if (d <= 60) return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">REVIEW SOON</span>
+            if (d <= 90) return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">APPROACHING</span>
+            return null
+          }
 
           return (
             <>
@@ -1802,40 +1810,64 @@ export default function Reports() {
                               </tr>
                             </thead>
                             <tbody>
-                              {group.tranches.map(t => (
-                                <tr key={t.tranche_id} className="border-t border-gray-50 hover:bg-gray-50">
-                                  <td className="px-4 py-2.5 font-mono text-gray-500">
-                                    TRN-{String(t.tranche_id).padStart(5, '0')}
-                                  </td>
-                                  <td className="px-4 py-2.5 font-semibold" style={{ color: NAVY }}>
-                                    {CURRENCY_FLAGS[t.from_currency] || ''}{CURRENCY_FLAGS[t.to_currency] || ''} {t.currency_pair}
-                                  </td>
-                                  <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">
-                                    {t.description || t.reference || '—'}
-                                  </td>
-                                  <td className="px-4 py-2.5 font-mono">
-                                    {t.amount_currency} {new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(t.amount)}
-                                  </td>
-                                  <td className="px-4 py-2.5 font-mono">
-                                    {fmtBase(t.notional_base)}
-                                  </td>
-                                  <td className="px-4 py-2.5 font-mono">
-                                    {t.rate ? t.rate.toFixed(4) : '—'}
-                                  </td>
-                                  <td className="px-4 py-2.5 whitespace-nowrap">
-                                    {fmtVDate(t.value_date)}
-                                  </td>
-                                  <td className="px-4 py-2.5 font-bold whitespace-nowrap"
-                                    style={{ color: t.days_to_maturity != null ? daysColor(t.days_to_maturity) : '#9CA3AF' }}>
-                                    {t.days_to_maturity != null ? `${t.days_to_maturity}d` : '—'}
-                                  </td>
-                                  <td className="px-4 py-2.5">
-                                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${t.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-green-100 text-green-700'}`}>
-                                      {t.status}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
+                              {group.tranches.map(t => {
+                                const showRollover = t.days_to_maturity != null && t.days_to_maturity <= 60
+                                  && t.exposure_end_date && t.value_date
+                                  && t.exposure_end_date > t.value_date
+                                return (
+                                  <React.Fragment key={t.tranche_id}>
+                                    <tr className="border-t border-gray-50 hover:bg-gray-50">
+                                      <td className="px-4 py-2.5 font-mono text-gray-500">
+                                        TRN-{String(t.tranche_id).padStart(5, '0')}
+                                      </td>
+                                      <td className="px-4 py-2.5">
+                                        <span className="inline-flex items-center gap-1.5 font-semibold" style={{ color: NAVY }}>
+                                          <CurrencyPairFlags pair={t.currency_pair} />
+                                          {t.currency_pair}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">
+                                        {t.description || t.reference || '—'}
+                                      </td>
+                                      <td className="px-4 py-2.5 font-mono">
+                                        {t.amount_currency} {new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(t.amount)}
+                                      </td>
+                                      <td className="px-4 py-2.5 font-mono">
+                                        {fmtBase(t.notional_base)}
+                                      </td>
+                                      <td className="px-4 py-2.5 font-mono">
+                                        {t.rate ? t.rate.toFixed(4) : '—'}
+                                      </td>
+                                      <td className="px-4 py-2.5 whitespace-nowrap">
+                                        {fmtVDate(t.value_date)}
+                                      </td>
+                                      <td className="px-4 py-2.5 whitespace-nowrap">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-bold"
+                                            style={{ color: t.days_to_maturity != null ? daysColor(t.days_to_maturity) : '#9CA3AF' }}>
+                                            {t.days_to_maturity != null ? `${t.days_to_maturity}d` : '—'}
+                                          </span>
+                                          {urgencyBadge(t.days_to_maturity)}
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-2.5">
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${t.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-green-100 text-green-700'}`}>
+                                          {t.status}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                    {showRollover && (
+                                      <tr className="border-t-0">
+                                        <td colSpan={9} className="px-4 pb-2 pt-0">
+                                          <p className="text-xs text-amber-700 italic">
+                                            Consider rolling this position forward if the underlying exposure continues beyond value date.
+                                          </p>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </React.Fragment>
+                                )
+                              })}
                             </tbody>
                           </table>
                         </div>

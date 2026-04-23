@@ -3210,7 +3210,8 @@ async def get_maturity_schedule(
             e.description,
             e.reference,
             e.budget_rate,
-            e.amount_currency
+            e.amount_currency,
+            e.end_date         AS exposure_end_date
         FROM hedge_tranches ht
         JOIN exposures e ON e.id = ht.exposure_id
         WHERE e.company_id = :cid
@@ -3288,6 +3289,7 @@ async def get_maturity_schedule(
             "description":    m["description"] or "",
             "reference":      m["reference"] or "",
             "notes":          m["notes"] or "",
+            "exposure_end_date": m["exposure_end_date"].isoformat() if m["exposure_end_date"] else None,
         }
         tranches.append(tranche)
 
