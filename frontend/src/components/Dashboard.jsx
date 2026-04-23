@@ -6,7 +6,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, ShieldAlert, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { flagPair, flagCurrency } from '../utils/currency'
 import { CurrencyPairFlags, CURRENCY_TO_COUNTRY } from './CurrencyFlag'
@@ -360,7 +360,7 @@ function Dashboard() {
   const [lastUpdated,       setLastUpdated]       = useState(null)
   const [error,             setError]             = useState(null)
   const [policy,            setPolicy]            = useState(null)
-  const [dismissedZones,    setDismissedZones]    = useState({ defensive: false, opportunistic: false })
+  const [dismissedAlerts,   setDismissedAlerts]   = useState(new Set())
   const [summary,           setSummary]           = useState(null)
   const [summaryLoading,    setSummaryLoading]    = useState(true)
   const [mcRisk,            setMcRisk]            = useState(null)
@@ -495,9 +495,37 @@ function Dashboard() {
   )
   const hedgePct      = totalExposure > 0 ? (hedgedValue / totalExposure) * 100 : 0
 
-  // Zone alert pairs — from enriched endpoint (has live spot + budget)
-  const defensivePairs     = [...new Set(enrichedExposures.filter(e => e.current_zone === 'defensive').map(e => e.currency_pair))]
-  const opportunisticPairs = [...new Set(enrichedExposures.filter(e => e.current_zone === 'opportunistic').map(e => e.currency_pair))]
+  // Zone alert objects — per pair, aggregated from enriched endpoint (has live spot + budget + open_amount)
+  const defensiveAlerts = Object.values(
+    enrichedExposures
+      .filter(e => e.current_zone === 'defensive' && e.budget_rate && e.current_spot)
+      .reduce((acc, e) => {
+        if (!acc[e.currency_pair]) acc[e.currency_pair] = {
+          pair:       e.currency_pair,
+          spot:       e.current_spot,
+          budget:     e.budget_rate,
+          pctMove:    Math.abs(e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)),
+          openAmount: 0,
+          currency:   e.from_currency,
+        }
+        acc[e.currency_pair].openAmount += (e.open_amount || 0)
+        return acc
+      }, {})
+  )
+  const opportunisticAlerts = Object.values(
+    enrichedExposures
+      .filter(e => e.current_zone === 'opportunistic' && e.budget_rate && e.current_spot)
+      .reduce((acc, e) => {
+        if (!acc[e.currency_pair]) acc[e.currency_pair] = {
+          pair:    e.currency_pair,
+          spot:    e.current_spot,
+          budget:  e.budget_rate,
+          pctMove: Math.abs(e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)),
+          currency: e.from_currency,
+        }
+        return acc
+      }, {})
+  )
 
   // Currency mix pie — group by from_currency, use EUR notional from enriched endpoint
   const currencyDist = activeEnriched.length > 0
@@ -707,67 +735,88 @@ function Dashboard() {
         ))
       }
 
-      {/* 5a ── Defensive zone banners — per pair, links to register filtered */}
-      {defensivePairs.length > 0 && !dismissedZones.defensive && (
-        <div className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
-          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
-          <div className="flex items-center gap-3">
-            <AlertTriangle size={18} color={WARNING} />
-            <div>
-              <span className="font-bold text-sm" style={{ color: WARNING }}>
-                {defensivePairs.join(', ')}
-              </span>
-              <span className="text-sm text-gray-600 ml-1">
-                {defensivePairs.length === 1 ? 'has' : 'have'} moved adversely vs budget. Defensive hedging recommended.
-              </span>
+      {/* 5a ── Defensive zone banners — one per pair */}
+      {defensiveAlerts
+        .filter(a => !dismissedAlerts.has(`def:${a.pair}`))
+        .map(a => (
+          <div key={a.pair}
+            className="rounded-xl px-5 py-4 flex items-start justify-between gap-4"
+            style={{
+              background: 'rgba(239,68,68,0.05)',
+              border: '1px solid rgba(239,68,68,0.2)',
+              borderLeft: '4px solid #EF4444',
+            }}>
+            <div className="flex items-start gap-3 min-w-0">
+              <ShieldAlert size={22} color={DANGER} className="shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-bold text-sm" style={{ color: DANGER }}>
+                  Action Required — {a.pair} has moved adversely vs budget
+                </p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Spot {a.spot.toFixed(4)} vs budget {a.budget.toFixed(4)}
+                  {' '}— {a.pctMove.toFixed(2)}% adverse move.
+                  {a.openAmount > 0 && (
+                    <> Recommended: hedge {a.currency} {a.openAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}.</>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => navigate('/hedging', { state: { section: 'register', focusPair: a.pair } })}
+                className="text-xs px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
+                style={{ background: GOLD, color: NAVY }}>
+                Review & Hedge →
+              </button>
+              <button
+                onClick={() => setDismissedAlerts(prev => new Set([...prev, `def:${a.pair}`]))}
+                className="p-1 rounded hover:bg-red-50">
+                <X size={15} color={DANGER} />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => navigate('/hedging', {
-                state: { section: 'register', focusPair: defensivePairs[0] }
-              })}
-              className="text-xs px-3 py-1.5 rounded-lg font-semibold"
-              style={{ background: WARNING, color: 'white' }}>
-              Review →
-            </button>
-            <button onClick={() => setDismissedZones(d => ({ ...d, defensive: true }))}>
-              <X size={15} color={WARNING} />
-            </button>
-          </div>
-        </div>
-      )}
+        ))
+      }
 
-      {/* 5b ── Opportunistic zone banner */}
-      {opportunisticPairs.length > 0 && !dismissedZones.opportunistic && (
-        <div className="rounded-xl px-5 py-4 flex items-center justify-between gap-3"
-          style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)' }}>
-          <div className="flex items-center gap-3">
-            <TrendingUp size={18} color={SUCCESS} />
-            <div>
-              <span className="font-bold text-sm" style={{ color: SUCCESS }}>
-                {opportunisticPairs.join(', ')}
-              </span>
-              <span className="text-sm text-gray-600 ml-1">
-                {opportunisticPairs.length === 1 ? 'is' : 'are'} trading favourably. Consider opportunistic hedging.
-              </span>
+      {/* 5b ── Opportunistic zone banners — one per pair */}
+      {opportunisticAlerts
+        .filter(a => !dismissedAlerts.has(`opp:${a.pair}`))
+        .map(a => (
+          <div key={a.pair}
+            className="rounded-xl px-5 py-4 flex items-start justify-between gap-4"
+            style={{
+              background: 'rgba(16,185,129,0.05)',
+              border: '1px solid rgba(16,185,129,0.2)',
+              borderLeft: `4px solid ${SUCCESS}`,
+            }}>
+            <div className="flex items-start gap-3 min-w-0">
+              <TrendingUp size={22} color={SUCCESS} className="shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-bold text-sm" style={{ color: SUCCESS }}>
+                  Opportunity — {a.pair} is trading favourably
+                </p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  Spot {a.spot.toFixed(4)} vs budget {a.budget.toFixed(4)}
+                  {' '}— {a.pctMove.toFixed(2)}% favourable. Consider locking in current rates.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => navigate('/hedging', { state: { section: 'register', focusPair: a.pair } })}
+                className="text-xs px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
+                style={{ background: SUCCESS, color: 'white' }}>
+                Review →
+              </button>
+              <button
+                onClick={() => setDismissedAlerts(prev => new Set([...prev, `opp:${a.pair}`]))}
+                className="p-1 rounded hover:bg-green-50">
+                <X size={15} color={SUCCESS} />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => navigate('/hedging', {
-                state: { section: 'register', focusPair: opportunisticPairs[0] }
-              })}
-              className="text-xs px-3 py-1.5 rounded-lg font-semibold"
-              style={{ background: SUCCESS, color: 'white' }}>
-              Review →
-            </button>
-            <button onClick={() => setDismissedZones(d => ({ ...d, opportunistic: true }))}>
-              <X size={15} color={SUCCESS} />
-            </button>
-          </div>
-        </div>
-      )}
+        ))
+      }
 
       {/* 6 ── BIRK main panel */}
       {exposures.length > 0 && (

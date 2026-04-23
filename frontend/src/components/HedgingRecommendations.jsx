@@ -663,6 +663,9 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
           <div>
             <h2 className="text-2xl font-bold text-white">Hedge Recommendations</h2>
             <p className="text-sm mt-1" style={{ color: '#8DA4C4' }}>Based on your {policy} policy</p>
+            <p className="text-xs mt-2" style={{ color: 'rgba(141,164,196,0.75)' }}>
+              These are your open positions that need attention. Execute a forward to lock in a rate, or record a spot transaction if already dealt with your bank.
+            </p>
           </div>
           <button onClick={handleDownloadPDF} disabled={downloading}
             className="px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-60"

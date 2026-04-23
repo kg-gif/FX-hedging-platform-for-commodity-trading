@@ -609,7 +609,7 @@ const REMAINDER_STATUS_CONFIG = {
   untracked:        { label: 'Untracked',          bg: '#F3F4F6', color: '#6B7280' },
   spot_intended:    { label: 'Spot intended',       bg: '#EFF6FF', color: '#3B82F6' },
   forward_intended: { label: 'Forward intended',   bg: '#F0FDF4', color: '#16A34A' },
-  spot_urgent:      { label: 'Spot urgent ⚠',      bg: '#FEE2E2', color: '#DC2626' },
+  spot_urgent:      { label: 'Transact at Spot — Urgent', bg: '#FEE2E2', color: '#DC2626' },
 }
 
 function RemainderStatusBadge({ exposure, onUpdate }) {
@@ -636,7 +636,9 @@ function RemainderStatusBadge({ exposure, onUpdate }) {
       onChange={handleChange}
       onClick={e => e.stopPropagation()}
       disabled={saving}
-      title="Remainder instrument intent"
+      title={status === 'spot_urgent'
+        ? "Rate conditions or time constraints mean this position should be closed at spot immediately rather than hedged forward."
+        : "Remainder instrument intent"}
       className="mt-1 text-xs font-semibold rounded-full px-2 py-0.5 cursor-pointer"
       style={{
         background: cfg.bg, color: cfg.color,
@@ -928,14 +930,21 @@ export default function ExposureRegister({
 
       case 'Pair':
         return (
-          <td key="Pair" className="px-3 py-3 font-semibold whitespace-nowrap" style={{ color: NAVY }}>
-            <div className="flex items-center gap-1.5">
+          <td key="Pair" className="px-3 py-3 font-semibold" style={{ color: NAVY }}>
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
               {expanded[exp.id]
                 ? <ChevronUp size={13} className="text-gray-400" />
                 : <ChevronDown size={13} className="text-gray-400" />}
               <CurrencyPairFlags pair={exp.currency_pair} size="sm" />
               {exp.currency_pair}
             </div>
+            {exp.from_currency && (
+              <div className="text-xs font-normal text-gray-400 mt-0.5 pl-[17px] whitespace-nowrap">
+                {exp.exposure_type === 'payable'
+                  ? `You BUY ${exp.from_currency}`
+                  : `You SELL ${exp.from_currency}`}
+              </div>
+            )}
           </td>
         )
 
@@ -1113,7 +1122,7 @@ export default function ExposureRegister({
                     <button onClick={() => onHedgeNow(exp)}
                       className="text-xs px-2 py-1 rounded text-white font-semibold"
                       style={{ background: exp.status === 'BREACH' ? DANGER : NAVY }}>
-                      Hedge Now
+                      Execute Forward
                     </button>
                   )}
                   {exp.open_amount > 0 && (
@@ -1121,9 +1130,9 @@ export default function ExposureRegister({
                       onClick={() => setLogSpotModal(exp)}
                       className="text-xs px-2 py-1 rounded font-semibold border"
                       style={{ borderColor: '#D1D5DB', color: '#374151' }}
-                      title="Log a spot transaction for the remainder"
+                      title="Record that you transacted this amount at spot rate with your bank. No forward hedge created."
                     >
-                      Log Spot
+                      Record Spot Transaction
                     </button>
                   )}
                   {activeTab === 'awaiting_settlement' && (
