@@ -181,6 +181,29 @@ This is standard FX workflow — hedge protects the rate, but the physical curre
 
 ---
 
+## 🔁 ROLLOVER COST CALCULATOR
+**Priority:** Pre-pilot
+**Description:** When a forward approaches maturity and the underlying exposure continues, calculate the cost of rolling the position forward rather than closing and re-hedging.
+
+**Inputs:**
+- Existing forward rate
+- Current spot rate
+- New value date
+- Forward points for new tenor
+
+**Outputs:**
+- Cost/benefit of rolling vs closing and re-hedging
+- Break-even rate on the new forward
+- P&L impact of the roll (close-out gain/loss + new hedge cost)
+
+**Display:** "Calculate Rollover" button on each Maturity Schedule tranche row (appears when ≤60 days to maturity) → modal with full calculation breakdown.
+
+**Useful for:** Customers running continuous rolling forwards (e.g. 3-month EUR/NOK forwards rolled every quarter). Rollover prompt already surfaces in Maturity Schedule for eligible tranches — this modal is the natural next step.
+
+**Status:** Backlog — validate calculation methodology with pilot customers before building
+
+---
+
 ## ✅ TRADE CONFIRMATION — AUDIT TRAIL
 **Priority:** Pre-pilot
 
@@ -210,23 +233,27 @@ Tranches showing `confirmed` without a recorded confirmation event. Find where `
 
 ---
 
-## 📐 FORWARD POINTS / INTEREST RATE DIFFERENTIALS
-**Priority:** Pre-scale
-**Description:** Calculate and display forward points on each tranche.
+## 📐 FORWARD POINTS DISPLAY
+**Priority:** Pre-pilot
+**Description:** Show forward points on all forward tranches. Forward points = difference between the forward rate and spot rate, expressed in pips. Positive = forward premium; negative = forward discount. Helps treasurers understand the cost of hedging further out vs near-dated forwards.
 
-**Formula:** `Forward Rate = Spot × (1 + base_rate × days/360) / (1 + quote_rate × days/360)`
+**Formula:** `forward_points = (forward_rate − spot_rate) × 10,000`
 
-**Display:** Tranche detail shows three lines: Spot Rate | Forward Points | All-in Forward Rate
+**Display on:**
+- Execute modal — show before confirming the rate
+- Maturity Schedule — cost of carry to value date
+- MTM Report — inception forward points vs current
 
 **Reporting:**
 - Cost of carry in EUR per annum on each forward
 - Aggregate carry cost across portfolio in MTM Report — important for CFO board packs and auditor review
 
-**Interest rate data source (decision needed before building):**
-- Phase 1: Manual input per currency (add to Settings → Policy & Zones or a new "Interest Rates" section)
-- Phase 2: API feed — ECB, central bank data feeds
+**Data source (decision needed before building):**
+- Requires actual forward rate data from a pricing provider (not derivable from spot alone)
+- Phase 1 fallback: derive from interest rate parity — `Spot × (1 + base_rate × days/360) / (1 + quote_rate × days/360)` — but needs interest rates per currency (manual input in Settings or ECB feed)
+- Phase 2: direct forward rate feed from FX pricing provider
 
-**Status:** Backlog — needs interest rate data source decision before scoping
+**Status:** Backlog — requires forward rate data from pricing provider (not just spot); data source decision needed before scoping
 
 ---
 
