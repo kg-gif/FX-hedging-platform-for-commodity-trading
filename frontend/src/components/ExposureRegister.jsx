@@ -920,7 +920,19 @@ export default function ExposureRegister({
   const totalFloatingPnl = allActiveExposures.reduce((s, e) => s + (e.floating_pnl || 0), 0)
   const totalCombinedPnl = allActiveExposures.reduce((s, e) => s + (e.combined_pnl || 0), 0)
 
-  const currentExposures = tabData[activeTab]?.exposures || []
+  // For the Requires Action tab, also surface defensive zone exposures that are
+  // already at/above policy target (they live in in_progress or hedged tabs but
+  // still appear as dashboard alerts — users need to see them here too).
+  const currentExposures = (() => {
+    const base = tabData[activeTab]?.exposures || []
+    if (activeTab !== 'requires_action') return base
+    const existingIds = new Set(base.map(e => e.id))
+    const atTargetDefensive = ['in_progress', 'hedged']
+      .flatMap(t => tabData[t]?.exposures || [])
+      .filter(e => e.current_zone === 'defensive' && !existingIds.has(e.id))
+      .map(e => ({ ...e, _at_target: true }))
+    return [...base, ...atTargetDefensive]
+  })()
   const columns = TAB_COLUMNS[activeTab] || []
 
   // ── Cell renderer — returns a <td> for each column key ─────────────────────
@@ -1061,6 +1073,12 @@ export default function ExposureRegister({
 
       case 'Status':
         // Workflow status only — zone is shown in the dedicated Zone column.
+        // Defensive exposures already at policy target are shown as "Protected".
+        if (exp._at_target) return (
+          <td key="Status" className="px-3 py-3">
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Protected</span>
+          </td>
+        )
         return (
           <td key="Status" className="px-3 py-3">
             <StatusBadge status={exp.status} archived={exp.archived} />
@@ -1118,22 +1136,30 @@ export default function ExposureRegister({
                 </button>
               ) : (
                 <>
-                  {onHedgeNow && exp.open_amount > 0 && (
-                    <button onClick={() => onHedgeNow(exp)}
-                      className="text-xs px-2 py-1 rounded text-white font-semibold"
-                      style={{ background: exp.status === 'BREACH' ? DANGER : NAVY }}>
-                      Execute Forward
-                    </button>
-                  )}
-                  {exp.open_amount > 0 && (
-                    <button
-                      onClick={() => setLogSpotModal(exp)}
-                      className="text-xs px-2 py-1 rounded font-semibold border"
-                      style={{ borderColor: '#D1D5DB', color: '#374151' }}
-                      title="Record that you transacted this amount at spot rate with your bank. No forward hedge created."
-                    >
-                      Record Spot Transaction
-                    </button>
+                  {exp._at_target ? (
+                    <span className="text-xs text-green-700 font-medium">
+                      ✓ Policy target met — monitor rate for further adverse movement
+                    </span>
+                  ) : (
+                    <>
+                      {onHedgeNow && exp.open_amount > 0 && (
+                        <button onClick={() => onHedgeNow(exp)}
+                          className="text-xs px-2 py-1 rounded text-white font-semibold"
+                          style={{ background: exp.status === 'BREACH' ? DANGER : NAVY }}>
+                          Execute Forward
+                        </button>
+                      )}
+                      {exp.open_amount > 0 && (
+                        <button
+                          onClick={() => setLogSpotModal(exp)}
+                          className="text-xs px-2 py-1 rounded font-semibold border"
+                          style={{ borderColor: '#D1D5DB', color: '#374151' }}
+                          title="Record that you transacted this amount at spot rate with your bank. No forward hedge created."
+                        >
+                          Record Spot Transaction
+                        </button>
+                      )}
+                    </>
                   )}
                   {activeTab === 'awaiting_settlement' && (
                     <button onClick={() => handleMarkSettled(exp)}

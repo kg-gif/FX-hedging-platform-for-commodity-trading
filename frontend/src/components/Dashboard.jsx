@@ -361,6 +361,9 @@ function Dashboard() {
   const [error,             setError]             = useState(null)
   const [policy,            setPolicy]            = useState(null)
   const [dismissedAlerts,   setDismissedAlerts]   = useState(new Set())
+  const [expandedAlerts,    setExpandedAlerts]    = useState(new Set())
+  const [showMoreDef,       setShowMoreDef]       = useState(false)
+  const [showMoreOpp,       setShowMoreOpp]       = useState(false)
   const [summary,           setSummary]           = useState(null)
   const [summaryLoading,    setSummaryLoading]    = useState(true)
   const [mcRisk,            setMcRisk]            = useState(null)
@@ -735,88 +738,138 @@ function Dashboard() {
         ))
       }
 
-      {/* 5a ── Defensive zone banners — one per pair */}
-      {defensiveAlerts
-        .filter(a => !dismissedAlerts.has(`def:${a.pair}`))
-        .map(a => (
-          <div key={a.pair}
-            className="rounded-xl px-5 py-4 flex items-start justify-between gap-4"
-            style={{
-              background: 'rgba(239,68,68,0.05)',
-              border: '1px solid rgba(239,68,68,0.2)',
-              borderLeft: '4px solid #EF4444',
-            }}>
-            <div className="flex items-start gap-3 min-w-0">
-              <ShieldAlert size={22} color={DANGER} className="shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="font-bold text-sm" style={{ color: DANGER }}>
-                  Action Required — {a.pair} has moved adversely vs budget
-                </p>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  Spot {a.spot.toFixed(4)} vs budget {a.budget.toFixed(4)}
-                  {' '}— {a.pctMove.toFixed(2)}% adverse move.
-                  {a.openAmount > 0 && (
-                    <> Recommended: hedge {a.currency} {a.openAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}.</>
-                  )}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => navigate('/hedging', { state: { section: 'register', focusPair: a.pair } })}
-                className="text-xs px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
-                style={{ background: GOLD, color: NAVY }}>
-                Review & Hedge →
-              </button>
-              <button
-                onClick={() => setDismissedAlerts(prev => new Set([...prev, `def:${a.pair}`]))}
-                className="p-1 rounded hover:bg-red-50">
-                <X size={15} color={DANGER} />
-              </button>
-            </div>
-          </div>
-        ))
-      }
+      {/* 5a+5b ── Zone alert grid — defensive left, opportunistic right */}
+      {(() => {
+        const MAX_VISIBLE = 3
+        const visibleDef = defensiveAlerts.filter(a => !dismissedAlerts.has(`def:${a.pair}`))
+        const visibleOpp = opportunisticAlerts.filter(a => !dismissedAlerts.has(`opp:${a.pair}`))
+        if (visibleDef.length === 0 && visibleOpp.length === 0) return null
 
-      {/* 5b ── Opportunistic zone banners — one per pair */}
-      {opportunisticAlerts
-        .filter(a => !dismissedAlerts.has(`opp:${a.pair}`))
-        .map(a => (
-          <div key={a.pair}
-            className="rounded-xl px-5 py-4 flex items-start justify-between gap-4"
-            style={{
-              background: 'rgba(16,185,129,0.05)',
-              border: '1px solid rgba(16,185,129,0.2)',
-              borderLeft: `4px solid ${SUCCESS}`,
-            }}>
-            <div className="flex items-start gap-3 min-w-0">
-              <TrendingUp size={22} color={SUCCESS} className="shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="font-bold text-sm" style={{ color: SUCCESS }}>
-                  Opportunity — {a.pair} is trading favourably
-                </p>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  Spot {a.spot.toFixed(4)} vs budget {a.budget.toFixed(4)}
-                  {' '}— {a.pctMove.toFixed(2)}% favourable. Consider locking in current rates.
-                </p>
-              </div>
+        const displayedDef = showMoreDef ? visibleDef : visibleDef.slice(0, MAX_VISIBLE)
+        const displayedOpp = showMoreOpp ? visibleOpp : visibleOpp.slice(0, MAX_VISIBLE)
+
+        const toggleExpand = (key) => setExpandedAlerts(prev => {
+          const next = new Set(prev)
+          next.has(key) ? next.delete(key) : next.add(key)
+          return next
+        })
+        const dismiss = (key) => setDismissedAlerts(prev => new Set([...prev, key]))
+
+        return (
+          <div className="grid grid-cols-2 gap-3">
+            {/* Left — Action Required */}
+            <div className="space-y-1.5">
+              {visibleDef.length > 0 && (
+                <>
+                  <div className="flex items-center gap-1.5 px-0.5">
+                    <ShieldAlert size={11} color={DANGER} />
+                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: DANGER }}>
+                      Action Required · {visibleDef.length}
+                    </span>
+                  </div>
+                  {displayedDef.map(a => {
+                    const key = `def:${a.pair}`
+                    const open = expandedAlerts.has(key)
+                    return (
+                      <div key={a.pair}>
+                        <div
+                          className="rounded-lg px-3 py-2 flex items-center gap-2 cursor-pointer select-none"
+                          style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderLeft: '3px solid #EF4444' }}
+                          onClick={() => toggleExpand(key)}>
+                          <ShieldAlert size={13} color={DANGER} className="shrink-0" />
+                          <span className="font-semibold text-xs whitespace-nowrap" style={{ color: DANGER }}>{a.pair}</span>
+                          <span className="text-xs text-gray-500 truncate flex-1 min-w-0">
+                            {a.pctMove.toFixed(1)}% adverse · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => navigate('/hedging', { state: { section: 'register', focusPair: a.pair } })}
+                              className="text-xs px-2.5 py-1 rounded font-semibold whitespace-nowrap"
+                              style={{ background: GOLD, color: NAVY }}>
+                              Review & Hedge →
+                            </button>
+                            <button onClick={() => dismiss(key)} className="p-0.5 rounded hover:bg-red-50">
+                              <X size={12} color={DANGER} />
+                            </button>
+                          </div>
+                        </div>
+                        {open && (
+                          <div className="px-3 py-2 text-xs text-gray-600 rounded-b-lg border-x border-b"
+                            style={{ borderColor: 'rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.03)' }}>
+                            Spot {a.spot.toFixed(4)} vs budget {a.budget.toFixed(4)} — {a.pctMove.toFixed(2)}% adverse move.
+                            {a.openAmount > 0 && ` Recommended: hedge ${a.currency} ${a.openAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}.`}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {visibleDef.length > MAX_VISIBLE && (
+                    <button onClick={() => setShowMoreDef(v => !v)}
+                      className="text-xs text-gray-400 hover:text-gray-600 pl-0.5">
+                      {showMoreDef ? 'Show less' : `Show ${visibleDef.length - MAX_VISIBLE} more`}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => navigate('/hedging', { state: { section: 'register', focusPair: a.pair } })}
-                className="text-xs px-4 py-2 rounded-lg font-semibold whitespace-nowrap"
-                style={{ background: SUCCESS, color: 'white' }}>
-                Review →
-              </button>
-              <button
-                onClick={() => setDismissedAlerts(prev => new Set([...prev, `opp:${a.pair}`]))}
-                className="p-1 rounded hover:bg-green-50">
-                <X size={15} color={SUCCESS} />
-              </button>
+
+            {/* Right — Opportunities */}
+            <div className="space-y-1.5">
+              {visibleOpp.length > 0 && (
+                <>
+                  <div className="flex items-center gap-1.5 px-0.5">
+                    <TrendingUp size={11} color={SUCCESS} />
+                    <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: SUCCESS }}>
+                      Opportunity · {visibleOpp.length}
+                    </span>
+                  </div>
+                  {displayedOpp.map(a => {
+                    const key = `opp:${a.pair}`
+                    const open = expandedAlerts.has(key)
+                    return (
+                      <div key={a.pair}>
+                        <div
+                          className="rounded-lg px-3 py-2 flex items-center gap-2 cursor-pointer select-none"
+                          style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.2)', borderLeft: `3px solid ${SUCCESS}` }}
+                          onClick={() => toggleExpand(key)}>
+                          <TrendingUp size={13} color={SUCCESS} className="shrink-0" />
+                          <span className="font-semibold text-xs whitespace-nowrap" style={{ color: SUCCESS }}>{a.pair}</span>
+                          <span className="text-xs text-gray-500 truncate flex-1 min-w-0">
+                            {a.pctMove.toFixed(1)}% favourable · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => navigate('/hedging', { state: { section: 'register', focusPair: a.pair } })}
+                              className="text-xs px-2.5 py-1 rounded font-semibold whitespace-nowrap"
+                              style={{ background: SUCCESS, color: 'white' }}>
+                              Review →
+                            </button>
+                            <button onClick={() => dismiss(key)} className="p-0.5 rounded hover:bg-green-50">
+                              <X size={12} color={SUCCESS} />
+                            </button>
+                          </div>
+                        </div>
+                        {open && (
+                          <div className="px-3 py-2 text-xs text-gray-600 rounded-b-lg border-x border-b"
+                            style={{ borderColor: 'rgba(16,185,129,0.2)', background: 'rgba(16,185,129,0.03)' }}>
+                            Spot {a.spot.toFixed(4)} vs budget {a.budget.toFixed(4)} — {a.pctMove.toFixed(2)}% favourable. Consider locking in current rates.
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {visibleOpp.length > MAX_VISIBLE && (
+                    <button onClick={() => setShowMoreOpp(v => !v)}
+                      className="text-xs text-gray-400 hover:text-gray-600 pl-0.5">
+                      {showMoreOpp ? 'Show less' : `Show ${visibleOpp.length - MAX_VISIBLE} more`}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
-        ))
-      }
+        )
+      })()}
 
       {/* 6 ── BIRK main panel */}
       {exposures.length > 0 && (
