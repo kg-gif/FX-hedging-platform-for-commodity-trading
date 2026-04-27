@@ -606,10 +606,10 @@ function ArchiveModal({ exposure, onClose, onConfirm }) {
 
 // ── Remainder status badge — inline select ────────────────────────────────────
 const REMAINDER_STATUS_CONFIG = {
-  untracked:        { label: 'Untracked',          bg: '#F3F4F6', color: '#6B7280' },
-  spot_intended:    { label: 'Spot intended',       bg: '#EFF6FF', color: '#3B82F6' },
-  forward_intended: { label: 'Forward intended',   bg: '#F0FDF4', color: '#16A34A' },
-  spot_urgent:      { label: 'Transact at Spot — Urgent', bg: '#FEE2E2', color: '#DC2626' },
+  untracked:        { label: 'Not yet decided',              bg: '#F3F4F6', color: '#6B7280' },
+  spot_intended:    { label: 'Will buy spot when due',       bg: '#EFF6FF', color: '#3B82F6' },
+  forward_intended: { label: 'Plan to hedge with a forward', bg: '#F0FDF4', color: '#16A34A' },
+  spot_urgent:      { label: 'Buying spot now (urgent)',     bg: '#FEE2E2', color: '#DC2626' },
 }
 
 function RemainderStatusBadge({ exposure, onUpdate }) {
@@ -636,9 +636,7 @@ function RemainderStatusBadge({ exposure, onUpdate }) {
       onChange={handleChange}
       onClick={e => e.stopPropagation()}
       disabled={saving}
-      title={status === 'spot_urgent'
-        ? "Rate conditions or time constraints mean this position should be closed at spot immediately rather than hedged forward."
-        : "Remainder instrument intent"}
+      title="Tell the system how you plan to cover this open amount. This helps generate accurate forecasts."
       className="mt-1 text-xs font-semibold rounded-full px-2 py-0.5 cursor-pointer"
       style={{
         background: cfg.bg, color: cfg.color,
