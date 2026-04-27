@@ -554,14 +554,28 @@ Status: Backlog
 
 ---
 
-## RATE TICKER
-Priority: Pre-pilot
-Description:
-- Slim live rate bar between nav and summary strip
-- Shows company's active pairs only
-- Format: 🇬🇧🇺🇸 GBP/USD 1.3407 ▲+0.12%
-- Updates every 5 min from existing rate cache
-- Scrolls horizontally if many pairs
-- No extra API calls — uses cached rates
+## 📈 DASHBOARD RATE VISUALISATION
+Priority: Pre-pilot (high demo value)
+Build order: Rate ticker first (easiest, high visual impact) → historic chart → fan chart
 
+### 1. Live Rate Ticker (Priority 1 — pre-pilot)
+- Slim bar pinned between nav and content (above summary strip)
+- Shows active pairs only: 🇬🇧🇺🇸 GBP/USD 1.3504 ▲+0.12%
+- Updates every 5 min from existing rate cache — no extra API calls
+- Scrolls horizontally if many pairs
 Status: Backlog
+
+### 2. Historic Rates Chart (Priority 2 — pre-pilot)
+- 30/90/180-day spot rate history per currency pair
+- Budget rate as horizontal reference line
+- Executed hedge rates marked as points on the chart
+- Shows visually how far spot has moved vs budget
+- Data source: exchangerate-api.com historical endpoint (already on Pro plan)
+Status: Backlog
+
+### 3. Forward Fan Chart (Priority 3 — pre-scale)
+- Projects likely rate range forward using historical volatility
+- Shows best/base/worst case scenarios with budget rate as reference
+- Helps CFO visualise downside risk before hedging decisions
+- Requires volatility calculation: std dev of returns over lookback period
+Status: Backlog — requires volatility infrastructure; build after historic chart is live

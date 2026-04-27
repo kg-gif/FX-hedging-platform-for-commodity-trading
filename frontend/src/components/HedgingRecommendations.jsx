@@ -582,6 +582,17 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
       }
     : null
 
+  // Defensive zone exposures already at/above policy target — rate has moved adversely but
+  // hedging is complete. Dashboard shows these as zone alerts; surfaced here so users can
+  // account for all alerts in one place without needing to switch tabs.
+  const defensiveProtected = allExposures.filter(e =>
+    !e.archived &&
+    e.current_zone === 'defensive' &&
+    e.tab !== 'requires_action' &&
+    !recommendations.find(r => r.exposure_id === e.id) &&
+    !(adhocRec && adhocRec.exposure_id === e.id)
+  )
+
   async function loadMcRisk() {
     try {
       const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { headers: authHeaders() })
@@ -675,7 +686,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
         </div>
       </div>
 
-      {recommendations.length === 0 && !adhocRec && (
+      {recommendations.length === 0 && !adhocRec && defensiveProtected.length === 0 && (
         <div className={`rounded-xl p-6 border ${mcRisk?.at_risk_count > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
           {mcRisk?.at_risk_count > 0 ? (
             <p className="text-red-700 font-semibold text-sm">
@@ -686,6 +697,17 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
               All exposures are within policy targets. No action required.
             </p>
           )}
+        </div>
+      )}
+
+      {defensiveProtected.length > 0 && recommendations.length === 0 && !adhocRec && (
+        <div className="rounded-xl px-4 py-3 border" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+          <p className="text-sm font-semibold text-green-800">
+            {defensiveProtected.length === 1
+              ? '1 exposure is protected and monitoring for further adverse movement.'
+              : `${defensiveProtected.length} exposures are protected and monitoring for further adverse movement.`}
+          </p>
+          <p className="text-xs text-green-600 mt-0.5">Policy targets met — no execution required. Rate has moved adversely; see cards below.</p>
         </div>
       )}
 
@@ -814,6 +836,49 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
                   onExecuted={loadAll}
                 />
               )}
+            </div>
+          )
+        })}
+        {/* Defensive zone — already at/above target: monitoring cards */}
+        {defensiveProtected.map(exp => {
+          const pctMove = exp.pct_move_vs_budget != null
+            ? Math.abs(exp.pct_move_vs_budget)
+            : (exp.current_spot && exp.budget_rate)
+              ? Math.abs((exp.current_spot - exp.budget_rate) / exp.budget_rate * 100)
+              : null
+          return (
+            <div key={`protected-${exp.id}`}
+              className="bg-white rounded-xl shadow-sm p-4 border-l-4"
+              style={{ borderLeftColor: '#10B981' }}>
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h3 className="text-base font-bold" style={{ color: NAVY }}>
+                    <CurrencyPairFlags pair={exp.currency_pair} size="sm" />
+                    {' '}{exp.currency_pair}
+                  </h3>
+                  <span className="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                    Protected
+                  </span>
+                  <span className="px-2 py-1 rounded-full text-xs font-semibold"
+                    style={{ background: '#FEE2E2', color: '#991B1B' }}>
+                    DEFENSIVE
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-green-50 rounded-lg px-4 py-3 flex items-start gap-2">
+                <span className="text-green-600 font-bold text-base leading-tight">✓</span>
+                <div>
+                  <p className="text-sm font-semibold text-green-800">
+                    Policy target met — monitor rate for further adverse movement
+                  </p>
+                  {pctMove != null && (
+                    <p className="text-xs text-green-600 mt-0.5">
+                      Rate has moved {pctMove.toFixed(1)}% vs budget rate. No further hedging required under current policy.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )
         })}

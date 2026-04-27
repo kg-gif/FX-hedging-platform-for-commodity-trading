@@ -185,13 +185,22 @@ def calculate_pnl_split(exposure: dict, tranches: list, current_spot: float) -> 
     combined_pnl = locked_pnl + floating_pnl
     hedge_pct = (hedged_amount / total_amount * 100) if total_amount > 0 else 0
 
+    # Weighted average inception rate across executed/confirmed tranches
+    _exec = [t for t in tranches if t["status"] in ("executed", "confirmed") and t.get("amount") and t.get("rate")]
+    _exec_total = sum(float(t["amount"]) for t in _exec)
+    weighted_avg_rate = (
+        sum(float(t["rate"]) * float(t["amount"]) for t in _exec) / _exec_total
+        if _exec_total > 0 else None
+    )
+
     return {
-        "hedged_amount":  round(hedged_amount, 2),
-        "open_amount":    round(open_amount, 2),
-        "hedge_pct":      round(hedge_pct, 1),
-        "locked_pnl":     round(locked_pnl, 2),
-        "floating_pnl":   round(floating_pnl, 2),
-        "combined_pnl":   round(combined_pnl, 2),
+        "hedged_amount":     round(hedged_amount, 2),
+        "open_amount":       round(open_amount, 2),
+        "hedge_pct":         round(hedge_pct, 1),
+        "locked_pnl":        round(locked_pnl, 2),
+        "floating_pnl":      round(floating_pnl, 2),
+        "combined_pnl":      round(combined_pnl, 2),
+        "weighted_avg_rate": round(weighted_avg_rate, 6) if weighted_avg_rate is not None else None,
     }
 
 
@@ -883,6 +892,7 @@ async def get_enriched_exposures(
             "hedged_amount":    pnl["hedged_amount"],
             "open_amount":      pnl["open_amount"],
             "hedge_pct":        pnl["hedge_pct"],
+            "weighted_avg_rate": pnl.get("weighted_avg_rate"),
             "tranche_count":    len([t for t in tranche_list if t["status"] in ("executed","confirmed")]),
             "tranches":         tranche_list,
 

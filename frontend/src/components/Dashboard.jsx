@@ -504,14 +504,16 @@ function Dashboard() {
       .filter(e => e.current_zone === 'defensive' && e.budget_rate && e.current_spot)
       .reduce((acc, e) => {
         if (!acc[e.currency_pair]) acc[e.currency_pair] = {
-          pair:       e.currency_pair,
-          spot:       e.current_spot,
-          budget:     e.budget_rate,
-          pctMove:    Math.abs(e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)),
-          openAmount: 0,
-          currency:   e.from_currency,
+          pair:        e.currency_pair,
+          spot:        e.current_spot,
+          budget:      e.budget_rate,
+          pctMove:     Math.abs(e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)),
+          openAmount:  0,
+          floatingPnl: 0,
+          currency:    e.from_currency,
         }
-        acc[e.currency_pair].openAmount += (e.open_amount || 0)
+        acc[e.currency_pair].openAmount  += (e.open_amount   || 0)
+        acc[e.currency_pair].floatingPnl += (e.floating_pnl  || 0)
         return acc
       }, {})
   )
@@ -520,12 +522,14 @@ function Dashboard() {
       .filter(e => e.current_zone === 'opportunistic' && e.budget_rate && e.current_spot)
       .reduce((acc, e) => {
         if (!acc[e.currency_pair]) acc[e.currency_pair] = {
-          pair:    e.currency_pair,
-          spot:    e.current_spot,
-          budget:  e.budget_rate,
-          pctMove: Math.abs(e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)),
-          currency: e.from_currency,
+          pair:        e.currency_pair,
+          spot:        e.current_spot,
+          budget:      e.budget_rate,
+          pctMove:     Math.abs(e.pct_move_vs_budget ?? ((e.current_spot - e.budget_rate) / e.budget_rate * 100)),
+          floatingPnl: 0,
+          currency:    e.from_currency,
         }
+        acc[e.currency_pair].floatingPnl += (e.floating_pnl || 0)
         return acc
       }, {})
   )
@@ -596,13 +600,15 @@ function Dashboard() {
   // Lookup map used by the Rates panel to apply direction-aware colouring per pair
   const dominantTypeByPair = Object.fromEntries(rateChanges.map(e => [e.pair, e.dominantType || 'payable']))
 
-  // Hedge coverage by pair
+  // Hedge coverage by pair — also accumulates weighted avg inception rate
   const coverageByPair = Object.entries(
     enrichedExposures.reduce((acc, e) => {
       const pair = e.currency_pair
-      if (!acc[pair]) acc[pair] = { hedged: 0, total: 0 }
-      acc[pair].hedged += e.hedged_amount || 0
+      if (!acc[pair]) acc[pair] = { hedged: 0, total: 0, wavgNum: 0 }
+      const h = e.hedged_amount || 0
+      acc[pair].hedged += h
       acc[pair].total  += Math.abs(e.total_amount || 0)
+      if (e.weighted_avg_rate && h > 0) acc[pair].wavgNum += e.weighted_avg_rate * h
       return acc
     }, {})
   )
@@ -799,7 +805,7 @@ function Dashboard() {
                           <ShieldAlert size={13} color={DANGER} className="shrink-0" />
                           <span className="font-semibold text-xs whitespace-nowrap" style={{ color: DANGER }}>{a.pair}</span>
                           <span className="text-xs text-gray-500 truncate flex-1 min-w-0">
-                            {a.pctMove.toFixed(1)}% adverse · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)}
+                            {a.pctMove.toFixed(1)}% adverse · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)} · P&L: {fmtEur(a.floatingPnl)}
                           </span>
                           <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                             <button
@@ -816,7 +822,7 @@ function Dashboard() {
                         {open && (
                           <div className="px-3 py-2 text-xs text-gray-600 rounded-b-lg border-x border-b"
                             style={{ borderColor: 'rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.03)' }}>
-                            Spot {a.spot.toFixed(4)} vs budget {a.budget.toFixed(4)} — {a.pctMove.toFixed(2)}% adverse move.
+                            P&L impact on open exposure: <span className="font-semibold" style={{ color: DANGER }}>{fmtEur(a.floatingPnl)}</span> vs budget.
                             {a.openAmount > 0 && ` Recommended: hedge ${a.currency} ${a.openAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}.`}
                           </div>
                         )}
@@ -855,7 +861,7 @@ function Dashboard() {
                           <TrendingUp size={13} color={SUCCESS} className="shrink-0" />
                           <span className="font-semibold text-xs whitespace-nowrap" style={{ color: SUCCESS }}>{a.pair}</span>
                           <span className="text-xs text-gray-500 truncate flex-1 min-w-0">
-                            {a.pctMove.toFixed(1)}% favourable · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)}
+                            {a.pctMove.toFixed(1)}% favourable · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)} · P&L: {fmtEur(a.floatingPnl)}
                           </span>
                           <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                             <button
@@ -872,7 +878,7 @@ function Dashboard() {
                         {open && (
                           <div className="px-3 py-2 text-xs text-gray-600 rounded-b-lg border-x border-b"
                             style={{ borderColor: 'rgba(16,185,129,0.2)', background: 'rgba(16,185,129,0.03)' }}>
-                            Spot {a.spot.toFixed(4)} vs budget {a.budget.toFixed(4)} — {a.pctMove.toFixed(2)}% favourable. Consider locking in current rates.
+                            P&L impact on open exposure: <span className="font-semibold" style={{ color: SUCCESS }}>{fmtEur(a.floatingPnl)}</span> vs budget. Consider locking in current rates.
                           </div>
                         )}
                       </div>
@@ -1150,8 +1156,9 @@ function Dashboard() {
               {coverageByPair.length === 0 && (
                 <p className="text-xs text-gray-400 py-4">Loading coverage data...</p>
               )}
-              {coverageByPair.map(([pair, { hedged, total }]) => {
-                const pct   = total > 0 ? Math.min((hedged / total) * 100, 100) : 0
+              {coverageByPair.map(([pair, { hedged, total, wavgNum }]) => {
+                const pct  = total > 0 ? Math.min((hedged / total) * 100, 100) : 0
+                const wavg = hedged > 0 ? wavgNum / hedged : null
                 const color = pct >= 70 ? SUCCESS : pct >= 40 ? WARNING : DANGER
                 return (
                   <div key={pair} className="py-2.5">
@@ -1160,7 +1167,14 @@ function Dashboard() {
                         <CurrencyPairFlags pair={pair} />
                         {pair}
                       </span>
-                      <span className="text-xs font-bold" style={{ color }}>{pct.toFixed(0)}% hedged</span>
+                      <div className="flex items-center gap-3">
+                        {wavg != null && (
+                          <span className="text-xs text-gray-400">
+                            avg rate <span className="font-mono font-semibold text-gray-600">{wavg.toFixed(4)}</span>
+                          </span>
+                        )}
+                        <span className="text-xs font-bold" style={{ color }}>{pct.toFixed(0)}% hedged</span>
+                      </div>
                     </div>
                     <div className="rounded-full overflow-hidden" style={{ background: '#E5E7EB', height: 6 }}>
                       <div className="h-full rounded-full transition-all"

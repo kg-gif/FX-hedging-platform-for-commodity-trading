@@ -380,6 +380,12 @@ export default function Reports() {
   const [pnlFilterStatus,  setPnlFilterStatus]  = useState('')
   const [pnlFilterPnlType, setPnlFilterPnlType] = useState('')
   const [pnlPage,          setPnlPage]          = useState(1)
+  const [expandedPnlRows,  setExpandedPnlRows]  = useState(new Set())
+  const togglePnlRow = (id) => setExpandedPnlRows(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
   const PNL_PAGE_SIZE = 15
 
   // Policy Compliance filters + pagination
@@ -1358,7 +1364,7 @@ export default function Reports() {
                   <table className="min-w-full text-xs divide-y divide-gray-100">
                     <thead style={{ background: '#F4F6FA' }}>
                       <tr>
-                        {['Pair', 'Total Amount', 'Hedge %', 'Budget Rate', 'Current Rate', 'Locked P&L', 'Floating P&L', 'Combined P&L'].map(h => (
+                        {['', 'Pair', 'Total Amount', 'Hedge %', 'Avg Rate', 'Budget Rate', 'Current Rate', 'Locked P&L', 'Floating P&L', 'Combined P&L'].map(h => (
                           <th key={h} className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
                             style={{ color: NAVY }}>{h}</th>
                         ))}
@@ -1366,29 +1372,67 @@ export default function Reports() {
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {pnlPaged.map((e, i) => {
-                        const combined = e.combined_pnl ?? 0
+                        const combined  = e.combined_pnl ?? 0
+                        const isExpanded = expandedPnlRows.has(e.id)
                         return (
-                          <tr key={i} className="hover:bg-gray-50">
-                            <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{e.currency_pair}</td>
-                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{fmt(e.total_amount)} {e.from_currency}</td>
-                            <td className="px-3 py-2 text-right whitespace-nowrap">{(e.hedge_pct ?? 0).toFixed(1)}%</td>
-                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{(e.budget_rate ?? 0).toFixed(4)}</td>
-                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{(e.current_spot ?? 0).toFixed(4)}</td>
-                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap"
-                              style={{ color: (e.locked_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
-                              {(e.locked_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.locked_pnl)}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-right whitespace-nowrap"
-                              style={{ color: Math.abs(e.floating_pnl ?? 0) < 0.005 ? '#9CA3AF' : (e.floating_pnl ?? 0) > 0 ? SUCCESS : DANGER }}>
-                              {Math.abs(e.floating_pnl ?? 0) < 0.005
-                                ? '—'
-                                : `${(e.floating_pnl ?? 0) > 0 ? '+' : ''}${fmt(e.floating_pnl)}`}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-right font-bold whitespace-nowrap"
-                              style={{ color: combined >= 0 ? SUCCESS : DANGER }}>
-                              {combined >= 0 ? '+' : ''}{fmt(combined)}
-                            </td>
-                          </tr>
+                          <React.Fragment key={i}>
+                            <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => togglePnlRow(e.id)}>
+                              <td className="px-2 py-2 w-6 text-gray-400">
+                                {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                              </td>
+                              <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{e.currency_pair}</td>
+                              <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{fmt(e.total_amount)} {e.from_currency}</td>
+                              <td className="px-3 py-2 text-right whitespace-nowrap">{(e.hedge_pct ?? 0).toFixed(1)}%</td>
+                              <td className="px-3 py-2 font-mono text-right whitespace-nowrap text-gray-500">
+                                {e.weighted_avg_rate != null ? e.weighted_avg_rate.toFixed(4) : '—'}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{(e.budget_rate ?? 0).toFixed(4)}</td>
+                              <td className="px-3 py-2 font-mono text-right whitespace-nowrap">{(e.current_spot ?? 0).toFixed(4)}</td>
+                              <td className="px-3 py-2 font-mono text-right whitespace-nowrap"
+                                style={{ color: (e.locked_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
+                                {(e.locked_pnl ?? 0) >= 0 ? '+' : ''}{fmt(e.locked_pnl)}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-right whitespace-nowrap"
+                                style={{ color: Math.abs(e.floating_pnl ?? 0) < 0.005 ? '#9CA3AF' : (e.floating_pnl ?? 0) > 0 ? SUCCESS : DANGER }}>
+                                {Math.abs(e.floating_pnl ?? 0) < 0.005
+                                  ? '—'
+                                  : `${(e.floating_pnl ?? 0) > 0 ? '+' : ''}${fmt(e.floating_pnl)}`}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-right font-bold whitespace-nowrap"
+                                style={{ color: combined >= 0 ? SUCCESS : DANGER }}>
+                                {combined >= 0 ? '+' : ''}{fmt(combined)}
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr style={{ background: '#F9FAFB' }}>
+                                <td colSpan={10} className="px-5 py-3">
+                                  <div className="grid grid-cols-3 gap-4 text-xs">
+                                    <div className="rounded-lg border border-gray-200 px-3 py-2.5">
+                                      <p className="font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Hedged Portion</p>
+                                      <p className="text-gray-700">{fmt(e.hedged_amount)} {e.from_currency} at avg rate <span className="font-mono font-semibold">{e.weighted_avg_rate != null ? e.weighted_avg_rate.toFixed(4) : '—'}</span></p>
+                                      <p className="mt-1 font-semibold" style={{ color: (e.locked_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
+                                        Locked P&L: {(e.locked_pnl ?? 0) >= 0 ? '+' : ''}{fmtEur(e.locked_pnl)}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border border-gray-200 px-3 py-2.5">
+                                      <p className="font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Open Portion</p>
+                                      <p className="text-gray-700">{fmt(e.open_amount)} {e.from_currency} at spot <span className="font-mono font-semibold">{(e.current_spot ?? 0).toFixed(4)}</span> vs budget <span className="font-mono">{(e.budget_rate ?? 0).toFixed(4)}</span></p>
+                                      <p className="mt-1 font-semibold" style={{ color: Math.abs(e.floating_pnl ?? 0) < 0.005 ? '#9CA3AF' : (e.floating_pnl ?? 0) >= 0 ? SUCCESS : DANGER }}>
+                                        Floating P&L: {Math.abs(e.floating_pnl ?? 0) < 0.005 ? '—' : `${(e.floating_pnl ?? 0) >= 0 ? '+' : ''}${fmtEur(e.floating_pnl)}`}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border border-gray-200 px-3 py-2.5">
+                                      <p className="font-semibold uppercase tracking-wider text-gray-400 mb-1.5">Combined P&L</p>
+                                      <p className="text-gray-700">Locked + floating on {fmt(e.total_amount)} {e.from_currency}</p>
+                                      <p className="mt-1 font-bold text-sm" style={{ color: combined >= 0 ? SUCCESS : DANGER }}>
+                                        {combined >= 0 ? '+' : ''}{fmtEur(combined)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         )
                       })}
                     </tbody>
