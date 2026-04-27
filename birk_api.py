@@ -1321,6 +1321,7 @@ async def _send_company_digest(
     base_currency: str,
     db,
     triggered_by: str = "cron",
+    include_healthy: bool = False,
 ) -> dict:
     """
     Build and send the daily FX digest for a single company.
@@ -1494,7 +1495,9 @@ async def _send_company_digest(
 
     breach_section      = exposure_section("Breaches",     "⚠️", "#E74C3C", defensive_rows,    "#FEF2F2")
     opportunity_section = exposure_section("Opportunities", "✅", "#27AE60", opportunistic_rows, "#F0FDF4")
-    healthy_section     = exposure_section("Healthy",       "📊", "#555555", base_rows,          "#F9FAFB")
+    # Healthy section omitted from scheduled digest — CFOs don't need a list of things that are fine.
+    # Only included when manually triggered (admin panel) for testing/demo purposes.
+    healthy_section     = exposure_section("Healthy",       "📊", "#555555", base_rows,          "#F9FAFB") if include_healthy else ""
 
     # ── Maturity section ──────────────────────────────────────────────────────
     today_date = datetime.now(timezone.utc).date()
@@ -1810,12 +1813,13 @@ async def admin_trigger_digest(
     for company_row in companies:
         c = company_row._mapping
         result = await _send_company_digest(
-            company_id    = c["id"],
-            company_name  = c["name"],
-            alert_email   = c["alert_email"],
-            base_currency = c.get("base_currency") or "EUR",
-            db            = db,
-            triggered_by  = f"admin:{payload.get('email', 'unknown')}",
+            company_id      = c["id"],
+            company_name    = c["name"],
+            alert_email     = c["alert_email"],
+            base_currency   = c.get("base_currency") or "EUR",
+            db              = db,
+            triggered_by    = f"admin:{payload.get('email', 'unknown')}",
+            include_healthy = True,
         )
         results.append(result)
         if result.get("status") == "sent":
@@ -1871,12 +1875,13 @@ async def send_digest(
     for company_row in companies:
         c = company_row._mapping
         result = await _send_company_digest(
-            company_id    = c["id"],
-            company_name  = c["name"],
-            alert_email   = c["alert_email"],
-            base_currency = c.get("base_currency") or "EUR",
-            db            = db,
-            triggered_by  = triggered_by,
+            company_id      = c["id"],
+            company_name    = c["name"],
+            alert_email     = c["alert_email"],
+            base_currency   = c.get("base_currency") or "EUR",
+            db              = db,
+            triggered_by    = triggered_by,
+            include_healthy = True,
         )
         if result.get("status") == "sent":
             sent_count += 1
@@ -1937,7 +1942,7 @@ async def get_cron_status(
     )).fetchone()
 
     zone_row = db.execute(text(
-        "SELECT MAX(created_at) AS last_ran FROM zone_change_log WHERE trigger_type = 'email'"
+        "SELECT MAX(sent_at) AS last_ran FROM email_log WHERE email_type = 'zone_alert'"
     )).fetchone()
 
     mc_row = db.execute(text(
@@ -2190,6 +2195,7 @@ async def send_zone_alerts_manual(
                 f"<p><em>Triggered by: manual scan ({'forced' if force else 'weekday' if is_weekday else 'non-weekday'})</em></p>"
                 f"<p><a href='{frontend_url}'>Review in Sumnohow →</a></p>"
             )
+            _zone_subject = f"{pair} Zone Alert — {zone_label}"
             try:
                 import httpx as _httpx
                 async with _httpx.AsyncClient(timeout=10) as client:
@@ -2200,15 +2206,31 @@ async def send_zone_alerts_manual(
                             "from":    "Sumnohow <alerts@updates.sumnohow.com>",
                             "to":      ["alerts@updates.sumnohow.com"],
                             "bcc":     [alert_email],
-                            "subject": f"[Manual Scan] {pair} Zone Alert — {zone_label}",
+                            "subject": _zone_subject,
                             "html":    body_html,
                         },
                     )
                 entry["email"] = f"sent — HTTP {resp.status_code}"
                 print(f"[zone-scan] email sent to {alert_email} for {pair} → {current_zone} | {resp.status_code}")
+                try:
+                    db.execute(_t("""
+                        INSERT INTO email_log (email_type, recipient, company_name, subject, status, triggered_by)
+                        VALUES ('zone_alert', :r, :c, :s, 'sent', 'cron')
+                    """), {"r": alert_email, "c": cname, "s": _zone_subject})
+                    db.commit()
+                except Exception:
+                    pass
             except Exception as _e:
                 entry["email"] = f"failed: {_e}"
                 print(f"[zone-scan] email FAILED for {pair}: {_e}")
+                try:
+                    db.execute(_t("""
+                        INSERT INTO email_log (email_type, recipient, company_name, subject, status, triggered_by, error_detail)
+                        VALUES ('zone_alert', :r, :c, :s, 'failed', 'cron', :e)
+                    """), {"r": alert_email, "c": cname, "s": _zone_subject, "e": str(_e)})
+                    db.commit()
+                except Exception:
+                    pass
 
             company_results.append(entry)
             checked_pairs.add(pair)
