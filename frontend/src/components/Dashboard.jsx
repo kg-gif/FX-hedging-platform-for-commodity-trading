@@ -9,6 +9,7 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { AlertTriangle, ShieldAlert, ShieldCheck, TrendingDown, TrendingUp, RefreshCw, X } from 'lucide-react'
 import { NAVY, GOLD, DANGER, WARNING, SUCCESS } from '../brand'
 import { flagPair, flagCurrency } from '../utils/currency'
+import { formatPnL } from '../utils/formatting'
 import { CurrencyPairFlags, CURRENCY_TO_COUNTRY } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
@@ -805,7 +806,7 @@ function Dashboard() {
                           <ShieldAlert size={13} color={DANGER} className="shrink-0" />
                           <span className="font-semibold text-xs whitespace-nowrap" style={{ color: DANGER }}>{a.pair}</span>
                           <span className="text-xs text-gray-500 truncate flex-1 min-w-0">
-                            {a.pctMove.toFixed(1)}% adverse · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)} · P&L: {fmtEur(a.floatingPnl)}
+                            {a.pctMove.toFixed(1)}% adverse · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)} · P&L: {formatPnL(a.floatingPnl, selectedCompany?.base_currency)}
                           </span>
                           <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                             <button
@@ -822,7 +823,7 @@ function Dashboard() {
                         {open && (
                           <div className="px-3 py-2 text-xs text-gray-600 rounded-b-lg border-x border-b"
                             style={{ borderColor: 'rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.03)' }}>
-                            P&L impact on open exposure: <span className="font-semibold" style={{ color: DANGER }}>{fmtEur(a.floatingPnl)}</span> vs budget.
+                            P&L impact on open exposure: <span className="font-semibold" style={{ color: DANGER }}>{formatPnL(a.floatingPnl, selectedCompany?.base_currency)}</span> vs budget.
                             {a.openAmount > 0 && ` Recommended: hedge ${a.currency} ${a.openAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}.`}
                           </div>
                         )}
@@ -861,7 +862,7 @@ function Dashboard() {
                           <TrendingUp size={13} color={SUCCESS} className="shrink-0" />
                           <span className="font-semibold text-xs whitespace-nowrap" style={{ color: SUCCESS }}>{a.pair}</span>
                           <span className="text-xs text-gray-500 truncate flex-1 min-w-0">
-                            {a.pctMove.toFixed(1)}% favourable · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)} · P&L: {fmtEur(a.floatingPnl)}
+                            {a.pctMove.toFixed(1)}% favourable · {a.spot.toFixed(4)} vs {a.budget.toFixed(4)} · P&L: {formatPnL(a.floatingPnl, selectedCompany?.base_currency)}
                           </span>
                           <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                             <button
@@ -878,7 +879,7 @@ function Dashboard() {
                         {open && (
                           <div className="px-3 py-2 text-xs text-gray-600 rounded-b-lg border-x border-b"
                             style={{ borderColor: 'rgba(16,185,129,0.2)', background: 'rgba(16,185,129,0.03)' }}>
-                            P&L impact on open exposure: <span className="font-semibold" style={{ color: SUCCESS }}>{fmtEur(a.floatingPnl)}</span> vs budget. Consider locking in current rates.
+                            P&L impact on open exposure: <span className="font-semibold" style={{ color: SUCCESS }}>{formatPnL(a.floatingPnl, selectedCompany?.base_currency)}</span> vs budget. Consider locking in current rates.
                           </div>
                         )}
                       </div>
