@@ -10,7 +10,7 @@ import httpx
 
 from routes.pdf_routes import router as pdf_router
 from routes.settings_routes import router as settings_router
-from routes.admin_routes import router as admin_router
+from routes.admin_routes import router as admin_router, require_admin
 from routes.auth_routes import router as auth_router
 
 from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
@@ -1314,186 +1314,144 @@ async def get_simulator(
 
 
 
-@app.get("/api/alerts/send-daily")
-async def send_daily_alerts(
-    secret: str = "",
-    db: Session = Depends(get_db)
-):
+async def _send_company_digest(
+    company_id: int,
+    company_name: str,
+    alert_email: str,
+    base_currency: str,
+    db,
+    triggered_by: str = "cron",
+) -> dict:
     """
-    Daily digest endpoint — called by cron-job.org at 7am UTC.
-    Protected by CRON_SECRET env variable instead of JWT (cron can't log in).
-    Sends each company their own digest to their configured alert email.
+    Build and send the daily FX digest for a single company.
+    Called by the scheduled cron endpoint and the admin manual-trigger endpoint.
+    Shared code path — a bug here surfaces in both places immediately.
     """
-    from sqlalchemy import text
-
-    # Verify cron secret
-    expected_secret = os.getenv("CRON_SECRET", "")
-    if not expected_secret or secret != expected_secret:
-        raise HTTPException(status_code=401, detail="Invalid cron secret")
-
-    # Weekend suppression — FX markets closed Fri 5pm → Sun 5pm; digest on stale rates is noise
-    if datetime.now(timezone.utc).weekday() >= 5:  # 5=Saturday, 6=Sunday
-        print("[daily-digest] Weekend — skipping digest")
-        return {"status": "skipped", "reason": "weekend - markets closed"}
-
-    resend_api_key = os.getenv("RESEND_API_KEY")
-    frontend_url = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
-
     from services.currency_utils import CURRENCY_SYMBOLS
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    frontend_url   = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
+    ccy_symbol     = CURRENCY_SYMBOLS.get(base_currency, base_currency + " ")
 
-    # Get all companies with an alert email configured
-    companies = db.execute(text("""
-        SELECT id, name, alert_email, base_currency
-        FROM companies
-        WHERE alert_email IS NOT NULL AND alert_email != ''
-    """)).fetchall()
+    print(f"[digest] processing company={company_name} email={alert_email} triggered_by={triggered_by}")
 
-    if not companies:
-        return {"message": "No companies with alert emails configured", "sent": 0}
+    # ── DB queries ────────────────────────────────────────────────────────────
+    exposures = db.execute(text("""
+        SELECT id, from_currency, to_currency, amount, budget_rate,
+               hedge_ratio_policy, description, exposure_type
+        FROM exposures
+        WHERE company_id = :cid
+        AND (is_active IS NULL OR is_active = true)
+        AND budget_rate IS NOT NULL
+    """), {"cid": company_id}).fetchall()
 
-    sent_count = 0
-    results = []
+    if not exposures:
+        return {"status": "no_exposures", "company": company_name, "email": alert_email,
+                "n_breach": 0, "n_opp": 0, "error": None}
 
-    for company_row in companies:
-        c = company_row._mapping
-        company_id    = c["id"]
-        company_name  = c["name"]
-        alert_email   = c["alert_email"]
-        base_currency = c.get("base_currency") or "EUR"
-        ccy_symbol    = CURRENCY_SYMBOLS.get(base_currency, base_currency + " ")
-        print(f"[daily-digest] processing company={company_name} email={alert_email}")
+    tranche_rows = db.execute(text("""
+        SELECT ht.exposure_id, ht.amount, ht.rate
+        FROM hedge_tranches ht
+        JOIN exposures e ON e.id = ht.exposure_id
+        WHERE e.company_id = :cid
+          AND (e.is_active IS NULL OR e.is_active = true)
+          AND ht.status IN ('executed', 'confirmed')
+          AND ht.rate IS NOT NULL AND ht.amount IS NOT NULL
+    """), {"cid": company_id}).fetchall()
+    tranches_by_exposure = {}
+    for t in tranche_rows:
+        tp = t._mapping
+        tranches_by_exposure.setdefault(tp["exposure_id"], []).append(tp)
 
-        # Get exposures with P&L data
-        exposures = db.execute(text("""
-            SELECT id, from_currency, to_currency, amount, budget_rate,
-                   hedge_ratio_policy, description, exposure_type
-            FROM exposures
-            WHERE company_id = :cid
-            AND (is_active IS NULL OR is_active = true)
-            AND budget_rate IS NOT NULL
-        """), {"cid": company_id}).fetchall()
+    upcoming_maturities = db.execute(text("""
+        SELECT ht.id, ht.amount, ht.rate, ht.value_date,
+               e.from_currency, e.to_currency, e.description, e.reference
+        FROM hedge_tranches ht
+        JOIN exposures e ON e.id = ht.exposure_id
+        WHERE e.company_id = :cid
+          AND (e.is_active IS NULL OR e.is_active = true)
+          AND ht.status IN ('executed', 'confirmed')
+          AND LOWER(ht.instrument) = 'forward'
+          AND ht.value_date IS NOT NULL
+          AND ht.value_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+        ORDER BY ht.value_date ASC
+        LIMIT 10
+    """), {"cid": company_id}).fetchall()
 
-        # Executed/confirmed tranches — used to compute locked P&L for combined figure
-        tranche_rows = db.execute(text("""
-            SELECT ht.exposure_id, ht.amount, ht.rate
-            FROM hedge_tranches ht
-            JOIN exposures e ON e.id = ht.exposure_id
-            WHERE e.company_id = :cid
-              AND (e.is_active IS NULL OR e.is_active = true)
-              AND ht.status IN ('executed', 'confirmed')
-              AND ht.rate IS NOT NULL AND ht.amount IS NOT NULL
-        """), {"cid": company_id}).fetchall()
-        tranches_by_exposure = {}
-        for t in tranche_rows:
-            tp = t._mapping
-            tranches_by_exposure.setdefault(tp["exposure_id"], []).append(tp)
+    # ── Live rates ────────────────────────────────────────────────────────────
+    pairs = list(dict.fromkeys([
+        f"{r._mapping['from_currency']}/{r._mapping['to_currency']}"
+        for r in exposures
+    ]))
+    live_rates = await get_current_rates(pairs)
 
-        # Upcoming maturities — next 30 days of executed/confirmed forward tranches
-        upcoming_maturities = db.execute(text("""
-            SELECT ht.id, ht.amount, ht.rate, ht.value_date,
-                   e.from_currency, e.to_currency, e.description, e.reference
-            FROM hedge_tranches ht
-            JOIN exposures e ON e.id = ht.exposure_id
-            WHERE e.company_id = :cid
-              AND (e.is_active IS NULL OR e.is_active = true)
-              AND ht.status IN ('executed', 'confirmed')
-              AND LOWER(ht.instrument) = 'forward'
-              AND ht.value_date IS NOT NULL
-              AND ht.value_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
-            ORDER BY ht.value_date ASC
-            LIMIT 10
-        """), {"cid": company_id}).fetchall()
+    # ── P&L per exposure ─────────────────────────────────────────────────────
+    defensive_rows, opportunistic_rows, base_rows = [], [], []
+    total_pnl    = 0
+    combined_pnl = 0
 
-        if not exposures:
-            continue
+    def truncate_desc(text, max_len=60):
+        if not text:
+            return '—'
+        if len(text) <= max_len:
+            return text
+        cut = text[:max_len].rfind(' ')
+        return (text[:cut] if cut > 0 else text[:max_len]) + '...'
 
-        # Fetch LIVE rates for all pairs in this company
-        pairs = list(dict.fromkeys([
-            f"{r._mapping['from_currency']}/{r._mapping['to_currency']}"
-            for r in exposures
-        ]))
-        live_rates = await get_current_rates(pairs)
+    for row in exposures:
+        r = row._mapping
+        from_ccy = r['from_currency']
+        to_ccy   = r['to_currency']
+        pair = f"{from_ccy}/{to_ccy}"
+        rate_info    = live_rates.get(pair)
+        current_rate = rate_info["rate"] if rate_info and rate_info.get("rate") else 0.0
+        budget_rate  = float(r["budget_rate"])
 
-        # Calculate P&L for each exposure, converted to base_currency
-        # Classified by zone: defensive = breach, opportunistic = opportunity, base = healthy
-        defensive_rows, opportunistic_rows, base_rows = [], [], []
-        total_pnl    = 0  # Full notional vs spot (as if unhedged) — used for label clarity
-        combined_pnl = 0  # Locked (hedged tranches) + floating (open amount) — matches dashboard
+        exp_type = (r.get("exposure_type") or "payable").strip().lower()
+        is_receivable = exp_type in ("receivable", "sell", "receive")
+        sign = 1 if is_receivable else -1
+        pnl_native = sign * (current_rate - budget_rate) * float(r["amount"])
 
-        def truncate_desc(text, max_len=60):
-            """Truncate at a word boundary — never mid-word."""
-            if not text:
-                return '—'
-            if len(text) <= max_len:
-                return text
-            cut = text[:max_len].rfind(' ')
-            return (text[:cut] if cut > 0 else text[:max_len]) + '...'
+        if to_ccy == base_currency:
+            pnl_base = pnl_native
+            conv = 1.0
+        else:
+            conv = await get_rate_async(to_ccy, base_currency)
+            pnl_base = pnl_native * conv
+        total_pnl += pnl_base
 
-        for row in exposures:
-            r = row._mapping
-            from_ccy = r['from_currency']
-            to_ccy   = r['to_currency']
-            pair = f"{from_ccy}/{to_ccy}"
-            rate_info    = live_rates.get(pair)
-            current_rate = rate_info["rate"] if rate_info and rate_info.get("rate") else 0.0
-            budget_rate  = float(r["budget_rate"])
+        exp_tranches  = tranches_by_exposure.get(r["id"], [])
+        hedged_amt    = sum(float(t["amount"]) for t in exp_tranches)
+        open_amt      = max(float(r["amount"]) - hedged_amt, 0)
+        locked_native = sum(
+            sign * (float(t["rate"]) - budget_rate) * float(t["amount"])
+            for t in exp_tranches
+        )
+        float_native  = sign * (current_rate - budget_rate) * open_amt
+        combined_pnl += (locked_native + float_native) * conv
 
-            # Direction-aware P&L — payables: falling spot = favourable; receivables: rising spot = favourable
-            exp_type = (r.get("exposure_type") or "payable").strip().lower()
-            is_receivable = exp_type in ("receivable", "sell", "receive")
-            sign = 1 if is_receivable else -1
-            pnl_native = sign * (current_rate - budget_rate) * float(r["amount"])
+        zone = calculate_zone(current_rate, budget_rate, 3.0, 3.0, exp_type)
+        entry = {
+            "pair": pair, "pnl": pnl_base, "amount": float(r["amount"]),
+            "from_currency": from_ccy, "current_rate": current_rate,
+            "budget_rate": budget_rate, "description": r["description"] or "", "zone": zone,
+        }
+        if zone == "defensive":
+            defensive_rows.append(entry)
+        elif zone == "opportunistic":
+            opportunistic_rows.append(entry)
+        else:
+            base_rows.append(entry)
 
-            # Convert to base_currency
-            if to_ccy == base_currency:
-                pnl_base = pnl_native
-                conv = 1.0
-            else:
-                conv = await get_rate_async(to_ccy, base_currency)
-                pnl_base = pnl_native * conv
-            total_pnl += pnl_base
+    # ── Local HTML helpers ────────────────────────────────────────────────────
+    def fmt_pnl(n):
+        sign = "+" if n >= 0 else "-"
+        return f"{sign}{ccy_symbol}{abs(int(n)):,}"
 
-            # Combined P&L = locked (from hedged tranches) + floating (on open amount)
-            exp_tranches  = tranches_by_exposure.get(r["id"], [])
-            hedged_amt    = sum(float(t["amount"]) for t in exp_tranches)
-            open_amt      = max(float(r["amount"]) - hedged_amt, 0)
-            locked_native = sum(
-                sign * (float(t["rate"]) - budget_rate) * float(t["amount"])
-                for t in exp_tranches
-            )
-            float_native  = sign * (current_rate - budget_rate) * open_amt
-            combined_pnl += (locked_native + float_native) * conv
+    def pnl_color(n):
+        return "#27AE60" if n >= 0 else "#E74C3C"
 
-            # Classify by zone using 3% default thresholds (same logic as app)
-            zone = calculate_zone(current_rate, budget_rate, 3.0, 3.0, exp_type)
-
-            entry = {
-                "pair": pair,
-                "pnl": pnl_base,
-                "amount": float(r["amount"]),
-                "from_currency": from_ccy,
-                "current_rate": current_rate,
-                "budget_rate": budget_rate,
-                "description": r["description"] or "",
-                "zone": zone
-            }
-            if zone == "defensive":
-                defensive_rows.append(entry)
-            elif zone == "opportunistic":
-                opportunistic_rows.append(entry)
-            else:
-                base_rows.append(entry)
-
-        # Format P&L with base currency symbol
-        def fmt_pnl(n):
-            sign = "+" if n >= 0 else "-"
-            return f"{sign}{ccy_symbol}{abs(int(n)):,}"
-
-        def pnl_color(n):
-            return "#27AE60" if n >= 0 else "#E74C3C"
-
-        def exposure_row(e, bg):
-            return f"""
+    def exposure_row(e, bg):
+        return f"""
             <tr style="background:{bg};">
               <td style="padding:10px 12px;font-weight:600;color:#1A2744;">{e['pair']}</td>
               <td style="padding:10px 12px;color:#555;">{truncate_desc(e['description'])}</td>
@@ -1511,13 +1469,11 @@ async def send_daily_alerts(
               </td>
             </tr>"""
 
-        # Build exposure table rows by zone
-        def exposure_section(title, icon, header_color, rows, row_bg):
-            """Render a titled section with its own table (omit entire section if no rows)."""
-            if not rows:
-                return ""
-            row_html = "".join(exposure_row(e, row_bg) for e in rows)
-            return f"""
+    def exposure_section(title, icon, header_color, rows, row_bg):
+        if not rows:
+            return ""
+        row_html = "".join(exposure_row(e, row_bg) for e in rows)
+        return f"""
             <p style="font-size:13px;font-weight:700;color:{header_color};margin:20px 0 8px;">{icon} {title}</p>
             <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">
               <thead>
@@ -1535,63 +1491,63 @@ async def send_daily_alerts(
               <tbody>{row_html}</tbody>
             </table>"""
 
-        breach_section     = exposure_section("Breaches",     "⚠️",  "#E74C3C", defensive_rows,    "#FEF2F2")
-        opportunity_section= exposure_section("Opportunities", "✅",  "#27AE60", opportunistic_rows, "#F0FDF4")
-        healthy_section    = exposure_section("Healthy",       "📊",  "#555555", base_rows,          "#F9FAFB")
+    breach_section      = exposure_section("Breaches",     "⚠️", "#E74C3C", defensive_rows,    "#FEF2F2")
+    opportunity_section = exposure_section("Opportunities", "✅", "#27AE60", opportunistic_rows, "#F0FDF4")
+    healthy_section     = exposure_section("Healthy",       "📊", "#555555", base_rows,          "#F9FAFB")
 
-        # Build maturity section HTML (pre-rendered to avoid nested f-string complexity)
-        today_date = datetime.now(timezone.utc).date()
-        if upcoming_maturities:
-            mat_rows = ""
-            for m in upcoming_maturities:
-                mp = m._mapping
-                days = (mp["value_date"] - today_date).days
-                row_bg = "#FEF2F2" if days <= 7 else "#F9FAFB"
-                days_color = "#E74C3C" if days <= 7 else "#F59E0B" if days <= 30 else "#27AE60"
-                rate_str = f"{float(mp['rate']):.4f}" if mp["rate"] else "—"
-                desc_str = truncate_desc(mp["description"] or mp["reference"] or "")
-                mat_rows += (
-                    f'<tr style="background:{row_bg};">'
-                    f'<td style="padding:8px 12px;font-weight:600;color:#1A2744;">{mp["from_currency"]}/{mp["to_currency"]}</td>'
-                    f'<td style="padding:8px 12px;color:#555;">{desc_str}</td>'
-                    f'<td style="padding:8px 12px;text-align:right;font-family:monospace;">{mp["from_currency"]} {int(mp["amount"] or 0):,}</td>'
-                    f'<td style="padding:8px 12px;text-align:right;font-family:monospace;">{rate_str}</td>'
-                    f'<td style="padding:8px 12px;text-align:right;">{mp["value_date"].strftime("%d %b %Y")}</td>'
-                    f'<td style="padding:8px 12px;text-align:right;font-weight:700;color:{days_color};">{days}d</td>'
-                    f'</tr>'
-                )
-        else:
-            mat_rows = '<tr><td colspan="6" style="padding:12px;text-align:center;color:#aaa;">No maturities in the next 30 days</td></tr>'
+    # ── Maturity section ──────────────────────────────────────────────────────
+    today_date = datetime.now(timezone.utc).date()
+    if upcoming_maturities:
+        mat_rows = ""
+        for m in upcoming_maturities:
+            mp = m._mapping
+            days = (mp["value_date"] - today_date).days
+            row_bg     = "#FEF2F2" if days <= 7 else "#F9FAFB"
+            days_color = "#E74C3C" if days <= 7 else "#F59E0B" if days <= 30 else "#27AE60"
+            rate_str   = f"{float(mp['rate']):.4f}" if mp["rate"] else "—"
+            desc_str   = truncate_desc(mp["description"] or mp["reference"] or "")
+            mat_rows += (
+                f'<tr style="background:{row_bg};">'
+                f'<td style="padding:8px 12px;font-weight:600;color:#1A2744;">{mp["from_currency"]}/{mp["to_currency"]}</td>'
+                f'<td style="padding:8px 12px;color:#555;">{desc_str}</td>'
+                f'<td style="padding:8px 12px;text-align:right;font-family:monospace;">{mp["from_currency"]} {int(mp["amount"] or 0):,}</td>'
+                f'<td style="padding:8px 12px;text-align:right;font-family:monospace;">{rate_str}</td>'
+                f'<td style="padding:8px 12px;text-align:right;">{mp["value_date"].strftime("%d %b %Y")}</td>'
+                f'<td style="padding:8px 12px;text-align:right;font-weight:700;color:{days_color};">{days}d</td>'
+                f'</tr>'
+            )
+    else:
+        mat_rows = '<tr><td colspan="6" style="padding:12px;text-align:center;color:#aaa;">No maturities in the next 30 days</td></tr>'
 
-        maturity_section_html = (
-            '<h3 style="color:#1A2744;font-size:14px;margin:24px 0 8px;">&#128197; Maturities in the Next 30 Days</h3>'
-            '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px;">'
-            '<thead><tr style="background:#1A2744;">'
-            '<th style="padding:8px 12px;text-align:left;color:#C9A86C;font-weight:600;">Pair</th>'
-            '<th style="padding:8px 12px;text-align:left;color:#C9A86C;font-weight:600;">Description</th>'
-            '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Amount</th>'
-            '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Rate</th>'
-            '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Value Date</th>'
-            '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Days</th>'
-            '</tr></thead>'
-            f'<tbody>{mat_rows}</tbody>'
-            '</table>'
-        )
+    maturity_section_html = (
+        '<h3 style="color:#1A2744;font-size:14px;margin:24px 0 8px;">&#128197; Maturities in the Next 30 Days</h3>'
+        '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px;">'
+        '<thead><tr style="background:#1A2744;">'
+        '<th style="padding:8px 12px;text-align:left;color:#C9A86C;font-weight:600;">Pair</th>'
+        '<th style="padding:8px 12px;text-align:left;color:#C9A86C;font-weight:600;">Description</th>'
+        '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Amount</th>'
+        '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Rate</th>'
+        '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Value Date</th>'
+        '<th style="padding:8px 12px;text-align:right;color:#C9A86C;font-weight:600;">Days</th>'
+        '</tr></thead>'
+        f'<tbody>{mat_rows}</tbody>'
+        '</table>'
+    )
 
-        # Summary status — based on zone classification
-        status_color = "#E74C3C" if defensive_rows else "#F59E0B" if opportunistic_rows else "#27AE60"
-        n_breach = len(defensive_rows)
-        n_opp    = len(opportunistic_rows)
-        if n_breach:
-            status_text = f"{n_breach} pair{'s' if n_breach != 1 else ''} in defensive zone — review urgently"
-        elif n_opp:
-            status_text = f"{n_opp} pair{'s' if n_opp != 1 else ''} in opportunistic zone"
-        else:
-            status_text = "All exposures within policy"
+    # ── Status summary ────────────────────────────────────────────────────────
+    status_color = "#E74C3C" if defensive_rows else "#F59E0B" if opportunistic_rows else "#27AE60"
+    n_breach     = len(defensive_rows)
+    n_opp        = len(opportunistic_rows)
+    if n_breach:
+        status_text = f"{n_breach} pair{'s' if n_breach != 1 else ''} in defensive zone — review urgently"
+    elif n_opp:
+        status_text = f"{n_opp} pair{'s' if n_opp != 1 else ''} in opportunistic zone"
+    else:
+        status_text = "All exposures within policy"
 
-        subject = f"{'⚠️ Action Required' if defensive_rows else '📊 Daily FX Digest'} — {company_name}"
+    subject = f"{'⚠️ Action Required' if defensive_rows else '📊 Daily FX Digest'} — {company_name}"
 
-        html = f"""
+    html = f"""
         <div style="font-family:sans-serif;max-width:640px;margin:0 auto;padding:32px;">
 
           <div style="background:#1A2744;padding:24px;border-radius:12px;text-align:center;margin-bottom:24px;">
@@ -1660,32 +1616,108 @@ async def send_daily_alerts(
         </div>
         """
 
+    # ── Send via Resend ───────────────────────────────────────────────────────
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from":    "Sumnohow <alerts@updates.sumnohow.com>",
+                    "to":      ["alerts@updates.sumnohow.com"],
+                    "bcc":     [alert_email],
+                    "subject": subject,
+                    "html":    html,
+                }
+            )
+        if resp.status_code == 200:
+            print(f"[digest] ✓ sent to {alert_email} ({company_name})")
+            try:
+                db.execute(text("""
+                    INSERT INTO email_log (email_type, recipient, company_name, subject, status, triggered_by)
+                    VALUES ('daily_digest', :r, :c, :s, 'sent', :t)
+                """), {"r": alert_email, "c": company_name, "s": subject, "t": triggered_by})
+                db.commit()
+            except Exception:
+                pass
+            return {"status": "sent", "company": company_name, "email": alert_email,
+                    "n_breach": n_breach, "n_opp": n_opp, "error": None}
+        else:
+            err = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            print(f"[digest] ✗ FAILED for {company_name} — {err}")
+            try:
+                db.execute(text("""
+                    INSERT INTO email_log (email_type, recipient, company_name, subject, status, triggered_by, error_detail)
+                    VALUES ('daily_digest', :r, :c, :s, 'failed', :t, :e)
+                """), {"r": alert_email, "c": company_name, "s": subject, "t": triggered_by, "e": err})
+                db.commit()
+            except Exception:
+                pass
+            return {"status": "failed", "company": company_name, "email": alert_email,
+                    "n_breach": n_breach, "n_opp": n_opp, "error": err}
+    except Exception as e:
+        print(f"[digest] ✗ ERROR for {company_name} — {e}")
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    "https://api.resend.com/emails",
-                    headers={
-                        "Authorization": f"Bearer {resend_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "from":    "Sumnohow <alerts@updates.sumnohow.com>",
-                        "to":      ["alerts@updates.sumnohow.com"],
-                        "bcc":     [alert_email],
-                        "subject": subject,
-                        "html":    html
-                    }
-                )
-            if resp.status_code == 200:
-                sent_count += 1
-                print(f"[daily-digest] ✓ sent to {alert_email} ({company_name})")
-                results.append({"company": company_name, "email": alert_email, "breaches": len(breaches), "status": "sent"})
-            else:
-                print(f"[daily-digest] ✗ FAILED for {company_name} ({alert_email}) — HTTP {resp.status_code}: {resp.text[:200]}")
-                results.append({"company": company_name, "email": alert_email, "status": "failed", "error": resp.text})
-        except Exception as e:
-            print(f"[daily-digest] ✗ ERROR for {company_name} ({alert_email}) — {e}")
-            results.append({"company": company_name, "email": alert_email, "status": "error", "error": str(e)})
+            db.execute(text("""
+                INSERT INTO email_log (email_type, recipient, company_name, subject, status, triggered_by, error_detail)
+                VALUES ('daily_digest', :r, :c, :s, 'error', :t, :e)
+            """), {"r": alert_email, "c": company_name, "s": subject, "t": triggered_by, "e": str(e)})
+            db.commit()
+        except Exception:
+            pass
+        return {"status": "error", "company": company_name, "email": alert_email,
+                "n_breach": n_breach, "n_opp": n_opp, "error": str(e)}
+
+
+@app.get("/api/alerts/send-daily")
+async def send_daily_alerts(
+    secret: str = "",
+    db: Session = Depends(get_db)
+):
+    """
+    Daily digest endpoint — called by cron-job.org at 7am UTC.
+    Protected by CRON_SECRET env variable instead of JWT (cron can't log in).
+    Sends each company their own digest to their configured alert email.
+    """
+    from sqlalchemy import text
+
+    expected_secret = os.getenv("CRON_SECRET", "")
+    if not expected_secret or secret != expected_secret:
+        raise HTTPException(status_code=401, detail="Invalid cron secret")
+
+    # Weekend suppression — FX markets closed Fri 5pm → Sun 5pm; digest on stale rates is noise
+    if datetime.now(timezone.utc).weekday() >= 5:  # 5=Saturday, 6=Sunday
+        print("[daily-digest] Weekend — skipping digest")
+        return {"status": "skipped", "reason": "weekend - markets closed"}
+
+    companies = db.execute(text("""
+        SELECT id, name, alert_email, base_currency
+        FROM companies
+        WHERE alert_email IS NOT NULL AND alert_email != ''
+    """)).fetchall()
+
+    if not companies:
+        return {"message": "No companies with alert emails configured", "sent": 0}
+
+    sent_count = 0
+    results = []
+
+    for company_row in companies:
+        c = company_row._mapping
+        result = await _send_company_digest(
+            company_id    = c["id"],
+            company_name  = c["name"],
+            alert_email   = c["alert_email"],
+            base_currency = c.get("base_currency") or "EUR",
+            db            = db,
+            triggered_by  = "cron",
+        )
+        results.append(result)
+        if result.get("status") == "sent":
+            sent_count += 1
 
     logger.info(f"Daily digest: {sent_count} emails sent")
 
@@ -1737,6 +1769,140 @@ async def send_daily_alerts(
         logger.warning(f"Scheduled inception rate fill error: {e}")
 
     return {"message": f"Daily digest sent to {sent_count} companies", "sent": sent_count, "results": results}
+
+
+@app.post("/api/admin/trigger-digest")
+async def admin_trigger_digest(
+    company_id: Optional[int] = None,
+    payload: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin endpoint — manually fire the daily digest for one or all companies.
+    Requires admin JWT. No weekend suppression so it can be used for testing.
+
+    POST /api/admin/trigger-digest            → send for ALL companies
+    POST /api/admin/trigger-digest?company_id=3 → send for company 3 only
+    """
+    from sqlalchemy import text
+
+    if company_id is not None:
+        row = db.execute(text("""
+            SELECT id, name, alert_email, base_currency
+            FROM companies
+            WHERE id = :cid AND alert_email IS NOT NULL AND alert_email != ''
+        """), {"cid": company_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Company not found or has no alert email")
+        companies = [row]
+    else:
+        companies = db.execute(text("""
+            SELECT id, name, alert_email, base_currency
+            FROM companies
+            WHERE alert_email IS NOT NULL AND alert_email != ''
+        """)).fetchall()
+        if not companies:
+            return {"message": "No companies with alert emails configured", "sent": 0, "results": []}
+
+    sent_count = 0
+    results = []
+    for company_row in companies:
+        c = company_row._mapping
+        result = await _send_company_digest(
+            company_id    = c["id"],
+            company_name  = c["name"],
+            alert_email   = c["alert_email"],
+            base_currency = c.get("base_currency") or "EUR",
+            db            = db,
+            triggered_by  = f"admin:{payload.get('email', 'unknown')}",
+        )
+        results.append(result)
+        if result.get("status") == "sent":
+            sent_count += 1
+
+    return {"message": f"Digest sent to {sent_count} companies", "sent": sent_count, "results": results}
+
+
+@app.get("/api/admin/email-log")
+async def get_email_log(
+    payload: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Last 20 emails from email_log — powers the Admin Email & Notifications tab."""
+    from sqlalchemy import text
+    rows = db.execute(text("""
+        SELECT id, email_type, recipient, company_name, subject, status, triggered_by,
+               sent_at AT TIME ZONE 'UTC' AS sent_at, error_detail
+        FROM email_log
+        ORDER BY sent_at DESC
+        LIMIT 20
+    """)).fetchall()
+    return {"logs": [
+        {**dict(r._mapping), "sent_at": r._mapping["sent_at"].isoformat() if r._mapping["sent_at"] else None}
+        for r in rows
+    ]}
+
+
+@app.get("/api/admin/cron-status")
+async def get_cron_status(
+    payload: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Scheduled job status — last ran (from email_log / alert logs) + next run computation."""
+    from sqlalchemy import text
+    from datetime import datetime, timezone, timedelta
+
+    def next_weekday_7am_utc():
+        now = datetime.now(timezone.utc)
+        candidate = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        while candidate.weekday() >= 5:
+            candidate += timedelta(days=1)
+        return candidate.isoformat()
+
+    def iso(ts):
+        if ts is None:
+            return None
+        return ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+
+    next_run = next_weekday_7am_utc()
+
+    digest_row = db.execute(text(
+        "SELECT MAX(sent_at) AS last_ran FROM email_log WHERE email_type = 'daily_digest'"
+    )).fetchone()
+
+    zone_row = db.execute(text(
+        "SELECT MAX(created_at) AS last_ran FROM zone_change_log WHERE trigger_type = 'email'"
+    )).fetchone()
+
+    mc_row = db.execute(text(
+        "SELECT MAX(triggered_at) AS last_ran FROM margin_call_alert_log WHERE alert_sent = true"
+    )).fetchone()
+
+    return {"jobs": [
+        {
+            "name":      "Daily FX Digest",
+            "schedule":  "Weekdays 07:00 UTC",
+            "last_ran":  iso(digest_row._mapping["last_ran"]) if digest_row else None,
+            "next_run":  next_run,
+            "status":    "active",
+        },
+        {
+            "name":      "Zone Alerts",
+            "schedule":  "Weekdays 07:00 UTC",
+            "last_ran":  iso(zone_row._mapping["last_ran"]) if zone_row else None,
+            "next_run":  next_run,
+            "status":    "active",
+        },
+        {
+            "name":      "Margin Call Checks",
+            "schedule":  "Weekdays 07:00 UTC",
+            "last_ran":  iso(mc_row._mapping["last_ran"]) if mc_row else None,
+            "next_run":  next_run,
+            "status":    "active",
+        },
+    ]}
 
 
 @app.get("/api/alerts/send-zone")
@@ -2294,6 +2460,22 @@ async def startup_event():
             # Pre-fills direction on manual entry and imports; individual exposures always win.
             # Most companies are predominantly one or the other — this avoids repetitive selection.
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_exposure_direction VARCHAR(10) DEFAULT 'payable'",
+
+            # ── Email send log ─────────────────────────────────────────────────
+            # Written by _send_company_digest after every Resend API call.
+            # Powers the Admin → Email & Notifications → Email Log table and
+            # the "Last ran" values in the Scheduled Jobs status panel.
+            """CREATE TABLE IF NOT EXISTS email_log (
+                id           SERIAL PRIMARY KEY,
+                email_type   VARCHAR(50)  NOT NULL,
+                recipient    VARCHAR(255),
+                company_name VARCHAR(255),
+                subject      VARCHAR(500),
+                status       VARCHAR(20)  NOT NULL,
+                triggered_by VARCHAR(255),
+                sent_at      TIMESTAMP DEFAULT NOW(),
+                error_detail TEXT
+            )""",
         ]
         for sql in migrations:
             try:

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import {
   UserPlus, Users, Trash2, Edit2, CheckCircle, AlertTriangle,
-  Building2, Plus, ChevronDown, ChevronRight, RotateCcw
+  Building2, Plus, ChevronDown, ChevronRight, RotateCcw,
+  Bell, Send, History, CalendarClock
 } from 'lucide-react'
 import { NAVY, GOLD } from '../brand'
 import { useCompany } from '../contexts/CompanyContext'
@@ -759,6 +760,209 @@ function UsersTab({ authUser, toast }) {
   )
 }
 
+// ── EmailNotificationsTab ─────────────────────────────────────────────────────
+function EmailNotificationsTab({ authUser, toast }) {
+  const [emailLog,    setEmailLog]    = useState([])
+  const [cronStatus,  setCronStatus]  = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [sending,     setSending]     = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [sendResult,  setSendResult]  = useState(null)
+
+  useEffect(() => { loadData() }, [])
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const [logRes, cronRes] = await Promise.all([
+        fetch(`${API_BASE}/api/admin/email-log`,   { headers: authHeaders() }),
+        fetch(`${API_BASE}/api/admin/cron-status`, { headers: authHeaders() }),
+      ])
+      const logData  = await logRes.json()
+      const cronData = await cronRes.json()
+      setEmailLog(logData.logs || [])
+      setCronStatus(cronData.jobs || [])
+    } catch { toast.show('error', 'Failed to load email data') }
+    finally { setLoading(false) }
+  }
+
+  const sendDigest = async () => {
+    setSending(true)
+    setConfirmOpen(false)
+    setSendResult(null)
+    try {
+      const r    = await fetch(`${API_BASE}/api/admin/trigger-digest`, { method: 'POST', headers: authHeaders() })
+      const data = await r.json()
+      if (r.ok) {
+        const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+        const sentTo = (data.results || []).filter(x => x.status === 'sent').map(x => x.email).join(', ') || '—'
+        setSendResult({ ok: true, message: `Digest sent to ${sentTo} at ${time}` })
+        toast.show('success', `Digest sent to ${data.sent} company(s)`)
+        loadData()
+      } else {
+        setSendResult({ ok: false, message: data.detail || 'Failed to send digest' })
+        toast.show('error', 'Digest failed — check error below')
+      }
+    } catch (e) {
+      setSendResult({ ok: false, message: e.message })
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const fmtType = (t) => ({
+    daily_digest: 'Daily Digest',
+    zone_alert:   'Zone Alert',
+    margin_call:  'Margin Call',
+  }[t] ?? t)
+
+  const fmtTriggeredBy = (t) => {
+    if (!t) return '—'
+    if (t === 'cron') return 'Scheduled'
+    if (t.startsWith('admin:')) return t.replace('admin:', '')
+    return t
+  }
+
+  const fmtDateTime = (iso) => {
+    if (!iso) return '—'
+    const d = new Date(iso)
+    return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+  }
+
+  const StatusBadge = ({ status }) => {
+    const map = {
+      sent:         { label: 'Delivered', bg: '#ECFDF5', color: '#065F46' },
+      failed:       { label: 'Failed',    bg: '#FEF2F2', color: '#991B1B' },
+      error:        { label: 'Error',     bg: '#FEF2F2', color: '#991B1B' },
+      no_exposures: { label: 'Skipped',   bg: '#F9FAFB', color: '#6B7280' },
+    }
+    const s = map[status] || { label: status, bg: '#F9FAFB', color: '#6B7280' }
+    return (
+      <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
+        style={{ background: s.bg, color: s.color }}>{s.label}</span>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+
+      {/* ── Send Digest Now ── */}
+      <Section icon={Send} title="Send Digest Now">
+        <div className="px-6 py-5">
+          {sendResult && (
+            <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${sendResult.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>
+              {sendResult.message}
+            </div>
+          )}
+          <p className="text-sm text-gray-500 mb-4">
+            Manually fire the daily FX digest to all companies with a configured alert email.
+            Uses the identical code path as the scheduled 07:00 UTC job — no weekend suppression.
+          </p>
+          <button
+            onClick={() => { setSendResult(null); setConfirmOpen(true) }}
+            disabled={sending}
+            className="px-6 py-2.5 rounded-lg font-semibold text-sm transition-opacity"
+            style={{ background: NAVY, color: GOLD, opacity: sending ? 0.65 : 1 }}>
+            {sending ? 'Sending…' : 'Send Digest Now'}
+          </button>
+        </div>
+      </Section>
+
+      {/* ── Confirmation modal ── */}
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)' }}>
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
+            <h3 className="font-bold text-gray-900 mb-2 text-base">Confirm: Send Digest Now</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              This will send the full daily FX digest to all companies with a configured alert email.
+              Recipients receive the email immediately and this will be logged in the audit trail.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmOpen(false)}
+                className="px-4 py-2 text-sm text-gray-500 hover:text-gray-800 font-medium">
+                Cancel
+              </button>
+              <button onClick={sendDigest}
+                className="px-5 py-2 rounded-lg text-sm font-semibold"
+                style={{ background: NAVY, color: GOLD }}>
+                Yes, Send Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Email Log ── */}
+      <Section icon={History} title="Email Log — Last 20">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                <th className="px-6 py-3 text-left">Type</th>
+                <th className="px-6 py-3 text-left">Recipient</th>
+                <th className="px-6 py-3 text-left">Company</th>
+                <th className="px-6 py-3 text-left">Triggered by</th>
+                <th className="px-6 py-3 text-left">Sent at</th>
+                <th className="px-6 py-3 text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} className="px-6 py-10 text-center text-gray-400 text-sm">Loading…</td></tr>
+              ) : emailLog.length === 0 ? (
+                <tr><td colSpan={6} className="px-6 py-10 text-center text-gray-400 text-sm">No emails sent yet</td></tr>
+              ) : emailLog.map(row => (
+                <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-3 font-medium text-gray-800 whitespace-nowrap">{fmtType(row.email_type)}</td>
+                  <td className="px-6 py-3 text-gray-600 font-mono text-xs">{row.recipient || '—'}</td>
+                  <td className="px-6 py-3 text-gray-600">{row.company_name || '—'}</td>
+                  <td className="px-6 py-3 text-gray-500 text-xs">{fmtTriggeredBy(row.triggered_by)}</td>
+                  <td className="px-6 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDateTime(row.sent_at)}</td>
+                  <td className="px-6 py-3"><StatusBadge status={row.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      {/* ── Scheduled Jobs ── */}
+      <Section icon={CalendarClock} title="Scheduled Jobs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                <th className="px-6 py-3 text-left">Job</th>
+                <th className="px-6 py-3 text-left">Schedule</th>
+                <th className="px-6 py-3 text-left">Last Ran</th>
+                <th className="px-6 py-3 text-left">Next Run</th>
+                <th className="px-6 py-3 text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={5} className="px-6 py-10 text-center text-gray-400 text-sm">Loading…</td></tr>
+              ) : cronStatus.map((job, i) => (
+                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-3 font-medium text-gray-800">{job.name}</td>
+                  <td className="px-6 py-3 text-gray-500 text-xs">{job.schedule}</td>
+                  <td className="px-6 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDateTime(job.last_ran)}</td>
+                  <td className="px-6 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDateTime(job.next_run)}</td>
+                  <td className="px-6 py-3">
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                      style={{ background: '#ECFDF5', color: '#065F46' }}>Active</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+    </div>
+  )
+}
+
 export default function Admin({ authUser }) {
   const [tab, setTab] = useState('companies')
   const toast = useToast()
@@ -771,7 +975,11 @@ export default function Admin({ authUser }) {
         <p className="text-xs mt-1" style={{ color: '#8DA4C4' }}>Manage pilot companies, exposures and user accounts</p>
       </div>
       <div className="flex gap-1 mb-6 bg-white rounded-xl p-1 shadow-sm border border-gray-100 w-fit">
-        {[{ id: 'companies', label: 'Companies', Icon: Building2 }, { id: 'users', label: 'Users', Icon: Users }].map(t => (
+        {[
+          { id: 'companies', label: 'Companies',            Icon: Building2    },
+          { id: 'users',     label: 'Users',                Icon: Users        },
+          { id: 'email',     label: 'Email & Notifications', Icon: Bell        },
+        ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all"
             style={{ background: tab === t.id ? NAVY : 'transparent', color: tab === t.id ? GOLD : '#6B7280' }}>
@@ -780,7 +988,8 @@ export default function Admin({ authUser }) {
         ))}
       </div>
       {tab === 'companies' && <CompaniesTab toast={toast} authUser={authUser} />}
-      {tab === 'users' && <UsersTab authUser={authUser} toast={toast} />}
+      {tab === 'users'     && <UsersTab authUser={authUser} toast={toast} />}
+      {tab === 'email'     && <EmailNotificationsTab authUser={authUser} toast={toast} />}
     </div>
   )
 }
