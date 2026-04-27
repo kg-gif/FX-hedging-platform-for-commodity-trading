@@ -138,6 +138,7 @@ async def get_margin_call_status(
             m.calculated_at,
             ht.amount        AS notional,
             ht.rate          AS tranche_rate,
+            ht.facility_id,
             e.from_currency,
             e.to_currency
         FROM mtm_snapshot_log m
@@ -181,6 +182,7 @@ async def get_margin_call_status(
         at_risk.append({
             "tranche_id":           m["tranche_id"],
             "exposure_id":          m["exposure_id"],
+            "facility_id":          m["facility_id"],
             "pair":                 f"{m['from_currency']}/{m['to_currency']}",
             "notional":             float(m["notional"] or 0),
             "notional_eur":         round(notional_eur, 2),

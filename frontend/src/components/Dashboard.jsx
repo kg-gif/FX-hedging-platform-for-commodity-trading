@@ -658,7 +658,7 @@ function Dashboard() {
             <div>
               <span className="font-bold text-sm" style={{ color: DANGER }}>
                 Margin Call Risk — {mcRisk.at_risk_count} tranche{mcRisk.at_risk_count > 1 ? 's' : ''} at risk
-                {' '}(€{(mcRisk.total_exposure_at_risk_eur / 1000).toFixed(0)}K exposure)
+                {' '}(EUR {Math.round(mcRisk.total_exposure_at_risk_eur).toLocaleString('en-US')} exposure)
               </span>
               <span className="text-sm text-gray-600 ml-1.5">
                 MTM loss exceeds {mcRisk.threshold_pct}% threshold.
@@ -669,7 +669,7 @@ function Dashboard() {
             onClick={() => navigate('/reports', { state: { mtmFilter: 'at_risk' } })}
             className="text-xs px-3 py-1.5 rounded-lg font-semibold shrink-0"
             style={{ background: DANGER, color: 'white' }}>
-            Review in MTM Report →
+            Review affected tranches →
           </button>
         </div>
       )}
@@ -677,7 +677,17 @@ function Dashboard() {
       {/* 4 ── Facility utilisation cards — clickable to bank settings */}
       {facilities?.facilities?.length > 0 && (
         <div className="flex flex-wrap gap-3">
-          {facilities.facilities.map(fac => {
+          {(() => {
+            // Build a facility_id → at-risk tranche count map from mcRisk data
+            const facilityAtRisk = {}
+            if (mcRisk?.tranches) {
+              mcRisk.tranches.forEach(t => {
+                if (t.facility_id != null) {
+                  facilityAtRisk[t.facility_id] = (facilityAtRisk[t.facility_id] || 0) + 1
+                }
+              })
+            }
+            return facilities.facilities.map(fac => {
             const barColor = fac.utilisation_pct > 90 ? '#EF4444'
                            : fac.utilisation_pct >= 70 ? '#F59E0B'
                            : '#10B981'
@@ -690,15 +700,24 @@ function Dashboard() {
               if (!s) return null
               return new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
             }
+            const atRiskCount = facilityAtRisk[fac.id] || 0
             return (
               <button key={fac.id}
                 onClick={() => navigate('/settings/bank')}
                 className="rounded-xl border p-4 text-left hover:shadow-md transition-shadow"
-                style={{ background: 'white', borderColor: '#E5E7EB', minWidth: 200, flex: '1 1 200px', maxWidth: 280 }}>
-                <div className="flex items-center justify-between mb-2">
+                style={{ background: 'white', borderColor: atRiskCount > 0 ? 'rgba(239,68,68,0.4)' : '#E5E7EB', minWidth: 200, flex: '1 1 200px', maxWidth: 280 }}>
+                <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-bold" style={{ color: NAVY }}>{fac.bank_name}</span>
                   <span className="text-sm font-bold" style={{ color: barColor }}>{fac.utilisation_pct.toFixed(0)}%</span>
                 </div>
+                {atRiskCount > 0 && (
+                  <div className="mb-2">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold"
+                      style={{ background: 'rgba(239,68,68,0.1)', color: DANGER, border: '1px solid rgba(239,68,68,0.3)' }}>
+                      AT RISK · {atRiskCount} tranche{atRiskCount > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                )}
                 <div className="rounded-full overflow-hidden mb-2" style={{ background: '#E5E7EB', height: 6 }}>
                   <div className="h-full rounded-full transition-all"
                     style={{ width: `${Math.min(fac.utilisation_pct, 100)}%`, background: barColor }} />
@@ -711,7 +730,8 @@ function Dashboard() {
                 </p>
               </button>
             )
-          })}
+          })
+          })()}
         </div>
       )}
 
