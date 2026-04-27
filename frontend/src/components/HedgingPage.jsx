@@ -211,7 +211,7 @@ function ForecastingSection({ companyId }) {
 
   return (
     <div className="space-y-4">
-      {/* Section header + summary strip */}
+      {/* Single card: header · summary · chart · inline drilldown · currency breakdown */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-3" style={{ background: NAVY }}>
           <h3 className="font-semibold text-white text-sm">Exposure Forecast</h3>
@@ -244,13 +244,14 @@ function ForecastingSection({ companyId }) {
           ))}
         </div>
 
-        {/* Stacked bar chart — always 12 months */}
+        {/* Stacked bar chart — always 12 months, click bar to drill down */}
         <div className="px-5 pb-5">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 mt-2">
             12-month exposure timeline — click a bar to expand
           </p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData} barCategoryGap="30%"
+              style={{ cursor: 'pointer' }}
               onClick={e => {
                 if (e?.activePayload) {
                   const mk = e.activePayload[0]?.payload?.month
@@ -274,6 +275,70 @@ function ForecastingSection({ companyId }) {
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Drilldown panel — inline below chart, shown when a bar is clicked */}
+        {expandedMonth && timelineMap[expandedMonth] && (() => {
+          const m = timelineMap[expandedMonth]
+          return (
+            <div className="mx-5 mb-5 rounded-xl border border-gray-100 overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
+                style={{ background: 'rgba(26,39,68,0.04)' }}>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="font-semibold text-sm" style={{ color: NAVY }}>{m.label}</span>
+                  <span className="text-xs text-gray-400">
+                    {m.exposures.length} exposure{m.exposures.length !== 1 ? 's' : ''}
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: SUCCESS }}>
+                    Hedged {ccy} {formatEUR(m.total_hedged_eur)}
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: WARNING }}>
+                    Open {ccy} {formatEUR(m.total_open_eur)}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setExpandedMonth(null)}
+                  className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                  ▲ close
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr style={{ background: 'rgba(26,39,68,0.04)' }}>
+                      {['Pair', 'Description', 'Amount', 'Hedge %', 'Confidence', 'Source', 'Maturity'].map(h => (
+                        <th key={h} className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {m.exposures.map(e => (
+                      <tr key={e.id} className="border-t border-gray-50 hover:bg-gray-50">
+                        <td className="px-4 py-2.5 font-semibold" style={{ color: NAVY }}>{e.pair}</td>
+                        <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">
+                          {e.description || e.reference || '—'}
+                        </td>
+                        <td className="px-4 py-2.5 font-mono">{ccy} {formatEUR(e.amount_eur)}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="font-semibold"
+                            style={{ color: e.hedge_pct >= 60 ? SUCCESS : e.hedge_pct >= 20 ? WARNING : DANGER }}>
+                            {e.hedge_pct.toFixed(0)}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5"><ConfidenceBadge value={e.confidence} /></td>
+                        <td className="px-4 py-2.5">
+                          <span title={`Data source: ${e.data_source}`}>
+                            {DATA_SOURCE_ICON[e.data_source] || '📋'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-500">{e.maturity_date || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Currency breakdown */}
         {ccyBreakdown.length > 0 && (
@@ -323,116 +388,6 @@ function ForecastingSection({ companyId }) {
           </div>
         )}
       </div>
-
-      {/* Expandable month detail tables — only months with actual data */}
-      {chartData.filter(cd => (cd.hedged_eur + cd.open_eur) > 0).map(cd => {
-        const m = timelineMap[cd.month]
-        if (!m) return null
-        return (
-          <div key={m.month} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <button
-              className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors"
-              onClick={() => toggleMonth(m.month)}
-            >
-              <div className="flex items-center gap-3">
-                <span className="font-semibold text-sm" style={{ color: NAVY }}>{m.label}</span>
-                <span className="text-xs text-gray-400">
-                  {m.exposures.length} exposure{m.exposures.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-              <div className="flex items-center gap-4 text-xs">
-                <span style={{ color: SUCCESS }}>Hedged {ccy} {formatEUR(m.total_hedged_eur)}</span>
-                <span style={{ color: WARNING }}>Open {ccy} {formatEUR(m.total_open_eur)}</span>
-                <span className="text-gray-400">{expandedMonth === m.month ? '▲' : '▼'}</span>
-              </div>
-            </button>
-
-            {expandedMonth === m.month && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr style={{ background: 'rgba(26,39,68,0.04)' }}>
-                      {['Pair', 'Description', 'Amount', 'Hedge %', 'Confidence', 'Source', 'Maturity'].map(h => (
-                        <th key={h} className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {m.exposures.map(e => (
-                      <tr key={e.id} className="border-t border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-2.5 font-semibold" style={{ color: NAVY }}>{e.pair}</td>
-                        <td className="px-4 py-2.5 text-gray-600 max-w-xs truncate">
-                          {e.description || e.reference || '—'}
-                        </td>
-                        <td className="px-4 py-2.5 font-mono">{ccy} {formatEUR(e.amount_eur)}</td>
-                        <td className="px-4 py-2.5">
-                          <span className="font-semibold"
-                            style={{ color: e.hedge_pct >= 60 ? SUCCESS : e.hedge_pct >= 20 ? WARNING : DANGER }}>
-                            {e.hedge_pct.toFixed(0)}%
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5"><ConfidenceBadge value={e.confidence} /></td>
-                        <td className="px-4 py-2.5">
-                          <span title={`Data source: ${e.data_source}`}>
-                            {DATA_SOURCE_ICON[e.data_source] || '📋'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-gray-500">{e.maturity_date || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )
-      })}
-
-      {/* No-date bucket */}
-      {timeline.find(m => m.month === 'no-date') && (() => {
-        const m = timeline.find(x => x.month === 'no-date')
-        return (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden opacity-70">
-            <button
-              className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50"
-              onClick={() => toggleMonth('no-date')}
-            >
-              <div className="flex items-center gap-3">
-                <span className="font-semibold text-sm text-gray-400">No maturity date</span>
-                <span className="text-xs text-gray-400">
-                  {m.exposures.length} exposure{m.exposures.length !== 1 ? 's' : ''}
-                </span>
-              </div>
-              <span className="text-gray-400 text-xs">{expandedMonth === 'no-date' ? '▲' : '▼'}</span>
-            </button>
-            {expandedMonth === 'no-date' && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr style={{ background: 'rgba(26,39,68,0.04)' }}>
-                      {['Pair', 'Description', 'Amount', 'Hedge %', 'Confidence', 'Source'].map(h => (
-                        <th key={h} className="px-4 py-2 text-left font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {m.exposures.map(e => (
-                      <tr key={e.id} className="border-t border-gray-50">
-                        <td className="px-4 py-2.5 font-semibold" style={{ color: NAVY }}>{e.pair}</td>
-                        <td className="px-4 py-2.5 text-gray-600">{e.description || e.reference || '—'}</td>
-                        <td className="px-4 py-2.5 font-mono">{ccy} {formatEUR(e.amount_eur)}</td>
-                        <td className="px-4 py-2.5">{e.hedge_pct.toFixed(0)}%</td>
-                        <td className="px-4 py-2.5"><ConfidenceBadge value={e.confidence} /></td>
-                        <td className="px-4 py-2.5">{DATA_SOURCE_ICON[e.data_source] || '📋'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )
-      })()}
     </div>
   )
 }
@@ -450,7 +405,7 @@ export default function HedgingPage() {
 
   const storageKey = `hedging_tab_${companyId}`
   const [activeTab, setActiveTab] = useState(
-    () => localStorage.getItem(storageKey) || 'requires_action'
+    () => localStorage.getItem(storageKey) || 'forecast'
   )
   // Tab counts + P&L totals — populated by ExposureRegister's onTabDataLoaded callback
   const [tabCounts, setTabCounts]         = useState({})
