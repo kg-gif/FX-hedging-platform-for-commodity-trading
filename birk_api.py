@@ -1327,6 +1327,7 @@ async def _send_company_digest(
     Called by the scheduled cron endpoint and the admin manual-trigger endpoint.
     Shared code path — a bug here surfaces in both places immediately.
     """
+    from sqlalchemy import text
     from services.currency_utils import CURRENCY_SYMBOLS
     resend_api_key = os.getenv("RESEND_API_KEY")
     frontend_url   = os.getenv("FRONTEND_URL", "https://app.sumnohow.com")
@@ -1821,6 +1822,69 @@ async def admin_trigger_digest(
             sent_count += 1
 
     return {"message": f"Digest sent to {sent_count} companies", "sent": sent_count, "results": results}
+
+
+class SendDigestRequest(BaseModel):
+    company_id: Optional[int] = None
+
+
+@app.post("/api/admin/send-digest")
+async def send_digest(
+    body: SendDigestRequest = SendDigestRequest(),
+    payload: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Manually fire the FX digest for one company or all companies.
+    Requires admin JWT. No weekend suppression — usable any day for testing.
+    Reuses _send_company_digest — identical path to the scheduled 07:00 UTC cron job.
+
+    Body (optional): { "company_id": 3 }  — omit to send to all companies.
+    Returns: { "sent": N, "failed": N, "recipients": ["email@..."] }
+    """
+    from sqlalchemy import text
+
+    triggered_by = f"admin:{payload.get('email', 'unknown')}"
+
+    if body.company_id is not None:
+        row = db.execute(text("""
+            SELECT id, name, alert_email, base_currency
+            FROM companies
+            WHERE id = :cid AND alert_email IS NOT NULL AND alert_email != ''
+        """), {"cid": body.company_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Company not found or has no alert email configured")
+        companies = [row]
+    else:
+        companies = db.execute(text("""
+            SELECT id, name, alert_email, base_currency
+            FROM companies
+            WHERE alert_email IS NOT NULL AND alert_email != ''
+        """)).fetchall()
+        if not companies:
+            raise HTTPException(status_code=404, detail="No companies have an alert email configured")
+
+    sent_count   = 0
+    failed_count = 0
+    recipients   = []
+
+    for company_row in companies:
+        c = company_row._mapping
+        result = await _send_company_digest(
+            company_id    = c["id"],
+            company_name  = c["name"],
+            alert_email   = c["alert_email"],
+            base_currency = c.get("base_currency") or "EUR",
+            db            = db,
+            triggered_by  = triggered_by,
+        )
+        if result.get("status") == "sent":
+            sent_count += 1
+            recipients.append(c["alert_email"])
+        elif result.get("status") in ("failed", "error"):
+            failed_count += 1
+
+    return {"sent": sent_count, "failed": failed_count, "recipients": recipients}
 
 
 @app.get("/api/admin/email-log")

@@ -790,21 +790,33 @@ function EmailNotificationsTab({ authUser, toast }) {
     setSending(true)
     setConfirmOpen(false)
     setSendResult(null)
+    let data = null
     try {
-      const r    = await fetch(`${API_BASE}/api/admin/trigger-digest`, { method: 'POST', headers: authHeaders() })
-      const data = await r.json()
+      const r = await fetch(`${API_BASE}/api/admin/send-digest`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({}),
+      })
+      // Parse JSON before checking r.ok so we always get the server's error detail
+      try { data = await r.json() } catch { data = null }
       if (r.ok) {
-        const time = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-        const sentTo = (data.results || []).filter(x => x.status === 'sent').map(x => x.email).join(', ') || '—'
+        const time   = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+        const sentTo = (data.recipients || []).join(', ') || '—'
         setSendResult({ ok: true, message: `Digest sent to ${sentTo} at ${time}` })
         toast.show('success', `Digest sent to ${data.sent} company(s)`)
         loadData()
       } else {
-        setSendResult({ ok: false, message: data.detail || 'Failed to send digest' })
-        toast.show('error', 'Digest failed — check error below')
+        const reason = data?.detail || `Server error ${r.status}`
+        setSendResult({ ok: false, message: reason })
+        toast.show('error', reason)
       }
     } catch (e) {
-      setSendResult({ ok: false, message: e.message })
+      // Network-level failure (server unreachable, CORS, timeout)
+      const reason = e.message === 'Failed to fetch'
+        ? 'Could not reach the backend — check that the API is running'
+        : e.message
+      setSendResult({ ok: false, message: reason })
+      toast.show('error', reason)
     } finally {
       setSending(false)
     }
