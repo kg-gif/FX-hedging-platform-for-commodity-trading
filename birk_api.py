@@ -1365,13 +1365,28 @@ async def send_daily_alerts(
 
         # Get exposures with P&L data
         exposures = db.execute(text("""
-            SELECT from_currency, to_currency, amount, budget_rate,
+            SELECT id, from_currency, to_currency, amount, budget_rate,
                    hedge_ratio_policy, description, exposure_type
             FROM exposures
             WHERE company_id = :cid
             AND (is_active IS NULL OR is_active = true)
             AND budget_rate IS NOT NULL
         """), {"cid": company_id}).fetchall()
+
+        # Executed/confirmed tranches — used to compute locked P&L for combined figure
+        tranche_rows = db.execute(text("""
+            SELECT ht.exposure_id, ht.amount, ht.rate
+            FROM hedge_tranches ht
+            JOIN exposures e ON e.id = ht.exposure_id
+            WHERE e.company_id = :cid
+              AND (e.is_active IS NULL OR e.is_active = true)
+              AND ht.status IN ('executed', 'confirmed')
+              AND ht.rate IS NOT NULL AND ht.amount IS NOT NULL
+        """), {"cid": company_id}).fetchall()
+        tranches_by_exposure = {}
+        for t in tranche_rows:
+            tp = t._mapping
+            tranches_by_exposure.setdefault(tp["exposure_id"], []).append(tp)
 
         # Upcoming maturities — next 30 days of executed/confirmed forward tranches
         upcoming_maturities = db.execute(text("""
@@ -1402,7 +1417,17 @@ async def send_daily_alerts(
         # Calculate P&L for each exposure, converted to base_currency
         # Classified by zone: defensive = breach, opportunistic = opportunity, base = healthy
         defensive_rows, opportunistic_rows, base_rows = [], [], []
-        total_pnl = 0
+        total_pnl    = 0  # Full notional vs spot (as if unhedged) — used for label clarity
+        combined_pnl = 0  # Locked (hedged tranches) + floating (open amount) — matches dashboard
+
+        def truncate_desc(text, max_len=60):
+            """Truncate at a word boundary — never mid-word."""
+            if not text:
+                return '—'
+            if len(text) <= max_len:
+                return text
+            cut = text[:max_len].rfind(' ')
+            return (text[:cut] if cut > 0 else text[:max_len]) + '...'
 
         for row in exposures:
             r = row._mapping
@@ -1422,10 +1447,22 @@ async def send_daily_alerts(
             # Convert to base_currency
             if to_ccy == base_currency:
                 pnl_base = pnl_native
+                conv = 1.0
             else:
                 conv = await get_rate_async(to_ccy, base_currency)
                 pnl_base = pnl_native * conv
             total_pnl += pnl_base
+
+            # Combined P&L = locked (from hedged tranches) + floating (on open amount)
+            exp_tranches  = tranches_by_exposure.get(r["id"], [])
+            hedged_amt    = sum(float(t["amount"]) for t in exp_tranches)
+            open_amt      = max(float(r["amount"]) - hedged_amt, 0)
+            locked_native = sum(
+                sign * (float(t["rate"]) - budget_rate) * float(t["amount"])
+                for t in exp_tranches
+            )
+            float_native  = sign * (current_rate - budget_rate) * open_amt
+            combined_pnl += (locked_native + float_native) * conv
 
             # Classify by zone using 3% default thresholds (same logic as app)
             zone = calculate_zone(current_rate, budget_rate, 3.0, 3.0, exp_type)
@@ -1459,7 +1496,7 @@ async def send_daily_alerts(
             return f"""
             <tr style="background:{bg};">
               <td style="padding:10px 12px;font-weight:600;color:#1A2744;">{e['pair']}</td>
-              <td style="padding:10px 12px;color:#555;">{e['description'][:40] if e['description'] else '—'}</td>
+              <td style="padding:10px 12px;color:#555;">{truncate_desc(e['description'])}</td>
               <td style="padding:10px 12px;text-align:right;font-family:monospace;color:#1A2744;">
                 {e['from_currency']} {int(e['amount']):,}
               </td>
@@ -1512,7 +1549,7 @@ async def send_daily_alerts(
                 row_bg = "#FEF2F2" if days <= 7 else "#F9FAFB"
                 days_color = "#E74C3C" if days <= 7 else "#F59E0B" if days <= 30 else "#27AE60"
                 rate_str = f"{float(mp['rate']):.4f}" if mp["rate"] else "—"
-                desc_str = (mp["description"] or mp["reference"] or "—")[:35]
+                desc_str = truncate_desc(mp["description"] or mp["reference"] or "")
                 mat_rows += (
                     f'<tr style="background:{row_bg};">'
                     f'<td style="padding:8px 12px;font-weight:600;color:#1A2744;">{mp["from_currency"]}/{mp["to_currency"]}</td>'
@@ -1573,13 +1610,23 @@ async def send_daily_alerts(
                  style="background:#F4F6FA;border-radius:10px;margin-bottom:24px;">
             <tr>
               <td style="padding:16px 20px;width:50%;vertical-align:top;">
-                <p style="margin:0;font-size:13px;color:#888;">Total Portfolio P&amp;L
+                <p style="margin:0;font-size:13px;color:#888;">Open exposure P&amp;L
                   <span style="font-size:11px;color:#aaa;font-style:italic;">
-                    &nbsp;({base_currency}, base currency)
+                    &nbsp;({base_currency})
                   </span>
                 </p>
                 <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:{pnl_color(total_pnl)};">
                   {fmt_pnl(total_pnl)}
+                </p>
+                <p style="margin:4px 0 0;font-size:11px;color:#aaa;font-style:italic;">
+                  Full notional vs budget (unhedged view)
+                </p>
+                <p style="margin:8px 0 0;font-size:12px;color:#555;border-top:1px solid #E5E7EB;padding-top:8px;">
+                  Combined portfolio P&amp;L<br>
+                  <span style="font-size:11px;color:#aaa;">(locked hedges + open positions)</span>
+                </p>
+                <p style="margin:2px 0 0;font-size:16px;font-weight:700;color:{pnl_color(combined_pnl)};">
+                  {fmt_pnl(combined_pnl)}
                 </p>
               </td>
               <td style="padding:16px 20px;width:50%;vertical-align:top;text-align:right;">

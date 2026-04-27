@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useCompany } from '../contexts/CompanyContext'
 import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, TrendingUp, Filter, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
@@ -95,16 +96,26 @@ function MtmReport({ rows, loading, filterPair, setFilterPair, filterStatus, set
   // Unique pairs for filter dropdown
   const allPairs = useMemo(() => [...new Set(rows.map(r => r.currencyPair))].sort(), [rows])
 
+  // at_risk tranche IDs from margin call data
+  const atRiskIds = useMemo(() => {
+    const ids = new Set((mcRiskData?.tranches || []).map(t => t.tranche_id))
+    return ids
+  }, [mcRiskData])
+
   // Apply filters
   const filtered = useMemo(() => {
     return rows.filter(r => {
-      if (filterPair   && r.currencyPair !== filterPair)   return false
-      if (filterStatus && r.status       !== filterStatus) return false
-      if (filterFrom   && r.valueDate    && r.valueDate < filterFrom) return false
-      if (filterTo     && r.valueDate    && r.valueDate > filterTo)   return false
+      if (filterPair && r.currencyPair !== filterPair) return false
+      if (filterStatus === 'at_risk') {
+        if (!atRiskIds.has(r.trancheId)) return false
+      } else if (filterStatus && r.status !== filterStatus) {
+        return false
+      }
+      if (filterFrom && r.valueDate && r.valueDate < filterFrom) return false
+      if (filterTo   && r.valueDate && r.valueDate > filterTo)   return false
       return true
     })
-  }, [rows, filterPair, filterStatus, filterFrom, filterTo])
+  }, [rows, filterPair, filterStatus, filterFrom, filterTo, atRiskIds])
 
   // Apply sort
   const sorted = useMemo(() => {
@@ -200,10 +211,12 @@ function MtmReport({ rows, loading, filterPair, setFilterPair, filterStatus, set
             </select>
 
             <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }}
-              className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs">
+              className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs"
+              style={filterStatus === 'at_risk' ? { borderColor: '#EF4444', color: '#EF4444' } : {}}>
               <option value="">All Statuses</option>
               <option value="executed">Executed</option>
               <option value="confirmed">Confirmed</option>
+              {atRiskIds.size > 0 && <option value="at_risk">⚠ At Risk ({atRiskIds.size})</option>}
             </select>
 
             <div className="flex items-center gap-1.5">
@@ -359,6 +372,8 @@ function MtmReport({ rows, loading, filterPair, setFilterPair, filterStatus, set
 export default function Reports() {
   const { selectedCompanyId } = useCompany()
   const companyId = selectedCompanyId
+  const location  = useLocation()
+  const navigate  = useNavigate()
 
   const [downloading, setDownloading]         = useState(false)
   const [csvLoading, setCsvLoading]           = useState(false)
@@ -471,6 +486,18 @@ export default function Reports() {
       loadMaturity()
     }
   }, [companyId, filterPair, filterFromDate, filterToDate, showDeleted])
+
+  // Deep-link from Dashboard "Review affected tranches" button:
+  // navigate('/reports', { state: { mtmFilter: 'at_risk' } })
+  useEffect(() => {
+    if (location.state?.mtmFilter === 'at_risk') {
+      setMtmFilterStatus('at_risk')
+      // Clear state so a page refresh doesn't re-apply the filter
+      navigate(location.pathname, { replace: true, state: {} })
+      // Allow the DOM to render before scrolling
+      setTimeout(() => scrollToSection('mtm-report'), 150)
+    }
+  }, [location.state])
 
   const loadMaturity = async () => {
     setMaturityLoading(true)
