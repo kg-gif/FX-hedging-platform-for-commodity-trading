@@ -9,6 +9,7 @@ import { CurrencyPairFlags } from './CurrencyFlag'
 import LoadingAnimation from './LoadingAnimation'
 import JumpNav from './JumpNav'
 import ScrollToTop from './ScrollToTop'
+import FXReportVisuals from './FXReportVisuals'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const authHeaders = () => ({
@@ -855,6 +856,94 @@ export default function Reports() {
     ? activeItems.reduce((s, e) => s + (e.hedge_pct ?? 0), 0) / activeItems.length
     : 0
 
+  // ── FX Report Visuals — derive all 5 chart datasets from already-loaded state ──
+  // Depends on: marketReport (rate_history), mtmRows (P&L), activeItems (coverage),
+  // maturity (upcoming tranches). No extra API calls required.
+  const visData = useMemo(() => {
+    if (!marketReport) return null
+    const c              = marketReport.content || {}
+    const pairCommentary = c.pair_commentary || []
+
+    // P1: P&L by pair — aggregate mtmVsBudget from all executed forward tranches
+    const pnlMap = {}
+    mtmRows.forEach(r => {
+      if (!r.currencyPair) return
+      pnlMap[r.currencyPair] = (pnlMap[r.currencyPair] || 0) + (Number(r.mtmVsBudget) || 0)
+    })
+    const plData = Object.entries(pnlMap)
+      .map(([pair, pl]) => ({ pair, pl }))
+      .sort((a, b) => Math.abs(b.pl) - Math.abs(a.pl))
+
+    // P2: Overall hedge coverage gauge — EUR-weighted across all active exposures
+    let totalEur = 0, hedgedEur = 0, targetSum = 0, targetCount = 0
+    activeItems.forEach(e => {
+      const eur = e.total_amount_eur
+      if (!eur) return
+      totalEur  += eur
+      hedgedEur += eur * ((e.hedge_pct || 0) / 100)
+      targetSum += (e.zone_target_ratio || 0.75)
+      targetCount++
+    })
+    const coverageValue = totalEur > 0 ? Math.round((hedgedEur / totalEur) * 100) : 0
+    const policyTarget  = targetCount > 0 ? Math.round((targetSum / targetCount) * 100) : 75
+    const hedgeData     = { value: coverageValue, policyMin: 40, policyTarget }
+
+    // P3: Sparklines — 30-day ECB spot vs company budget rate, from market report
+    const sparklineData = pairCommentary
+      .filter(pc => Array.isArray(pc.rate_history) && pc.rate_history.length >= 5)
+      .map(pc => {
+        const exp = activeItems.find(e => e.currency_pair === pc.pair)
+        return {
+          pair:      pc.pair,
+          budget:    exp?.budget_rate || pc.rate_history[0]?.rate || 1,
+          favorable: pc.favourable !== false,
+          rates:     pc.rate_history.map(h => h.rate),
+        }
+      })
+
+    // P4: Week-on-week indicative P&L delta — (7-day rate change) × open EUR notional
+    // This is an approximation for display purposes; direction from market report favourable flag.
+    const wowData = pairCommentary
+      .filter(pc => Array.isArray(pc.rate_history) && pc.rate_history.length >= 8)
+      .map(pc => {
+        const h        = pc.rate_history
+        const rateNow  = h[h.length - 1]?.rate
+        const rate7d   = h[Math.max(0, h.length - 8)]?.rate
+        const exp      = activeItems.find(e => e.currency_pair === pc.pair)
+        const openEur  = exp ? ((exp.total_amount_eur || 0) * (1 - (exp.hedge_pct || 0) / 100)) : 0
+        const rateDiff = (rateNow && rate7d) ? rateNow - rate7d : 0
+        const delta    = rateDiff * openEur * (pc.favourable !== false ? 1 : -1)
+        return { pair: pc.pair, delta: Math.round(delta) }
+      })
+
+    // P5: Coverage heatmap — per-pair EUR-weighted average hedge %
+    const hmTotal = {}, hmHedged = {}
+    activeItems.forEach(e => {
+      const p   = e.currency_pair
+      const eur = e.total_amount_eur || 0
+      hmTotal[p]  = (hmTotal[p]  || 0) + eur
+      hmHedged[p] = (hmHedged[p] || 0) + eur * ((e.hedge_pct || 0) / 100)
+    })
+    const heatmapData = Object.entries(hmTotal)
+      .filter(([, tot]) => tot > 0)
+      .map(([pair, tot]) => ({ pair, coverage: Math.round((hmHedged[pair] || 0) / tot * 100) }))
+
+    // P6: Maturity timeline — first 5 upcoming tranches (already sorted ascending by API)
+    const maturities = (maturity?.tranches || [])
+      .filter(t => t.value_date)
+      .slice(0, 5)
+      .map(t => {
+        let dateLabel = t.value_date
+        try {
+          const d = new Date(t.value_date)
+          if (!isNaN(d)) dateLabel = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+        } catch (_) {}
+        return { pair: t.currency_pair, notional: t.notional_base || 0, date: dateLabel }
+      })
+
+    return { plData, hedgeData, sparklineData, wowData, heatmapData, maturities }
+  }, [marketReport, mtmRows, activeItems, maturity])
+
   return (
     <div className="space-y-5">
 
@@ -980,6 +1069,29 @@ export default function Reports() {
                             {formatReportText(c.risk_alert)}
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* ── FX Report Visuals ─────────────────────────────── */}
+                    {/* Loading skeleton while enriched / MTM / maturity settle */}
+                    {(enrichedLoading || mtmLoading || maturityLoading) ? (
+                      <div className="mb-4 rounded-xl border border-gray-100 overflow-hidden animate-pulse"
+                        style={{ height: 380, background: '#F9FAFB' }}>
+                        <div className="h-full flex items-center justify-center">
+                          <LoadingAnimation text="Loading portfolio visuals…" size="medium" />
+                        </div>
+                      </div>
+                    ) : visData && visData.plData.length > 0 && (
+                      <div className="mb-4 rounded-xl border border-gray-100 overflow-hidden"
+                        style={{ background: '#fff' }}>
+                        <FXReportVisuals
+                          plData        ={visData.plData}
+                          hedgeData     ={visData.hedgeData}
+                          sparklineData ={visData.sparklineData}
+                          wowData       ={visData.wowData}
+                          heatmapData   ={visData.heatmapData}
+                          maturities    ={visData.maturities}
+                        />
                       </div>
                     )}
 
