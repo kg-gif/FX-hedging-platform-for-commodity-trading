@@ -931,6 +931,10 @@ async def get_enriched_exposures(
             "archived_at":        exp["archived_at"].isoformat() if exp.get("archived_at") else None,
             "archive_reason":     exp.get("archive_reason") or "",
 
+            # Exposure direction — used by frontend to determine sparkline favorable flag
+            # receivable/sell/receive = rate rising is good; payable (default) = rate falling is good
+            "exposure_type":      exp.get("exposure_type") or "payable",
+
             # Forecasting — Phase 1
             "confidence":         exp.get("confidence") or "COMMITTED",
             "data_source":        exp.get("data_source") or "manual",

@@ -888,7 +888,13 @@ export default function Reports() {
     const policyTarget  = targetCount > 0 ? Math.round((targetSum / targetCount) * 100) : 75
     const hedgeData     = { value: coverageValue, policyMin: 40, policyTarget }
 
-    // P3: Sparklines — 30-day ECB spot vs company budget rate, from market report
+    // P3: Sparklines — 30-day ECB spot vs company budget rate, from market report.
+    // favorable is derived from exposure_type in the DB (not from the AI report).
+    // receivable/sell/receive = higher rate is good; payable (default) = lower rate is good.
+    const RECEIVABLE_TYPES = ['receivable', 'sell', 'receive']
+    const isFavorable = (exp) =>
+      RECEIVABLE_TYPES.includes((exp?.exposure_type || 'payable').toLowerCase())
+
     const sparklineData = pairCommentary
       .filter(pc => Array.isArray(pc.rate_history) && pc.rate_history.length >= 5)
       .map(pc => {
@@ -896,13 +902,13 @@ export default function Reports() {
         return {
           pair:      pc.pair,
           budget:    exp?.budget_rate || pc.rate_history[0]?.rate || 1,
-          favorable: pc.favourable !== false,
+          favorable: isFavorable(exp),
           rates:     pc.rate_history.map(h => h.rate),
         }
       })
 
-    // P4: Week-on-week indicative P&L delta — (7-day rate change) × open EUR notional
-    // This is an approximation for display purposes; direction from market report favourable flag.
+    // P4: Week-on-week indicative P&L delta — (7-day rate change) × open EUR notional.
+    // Direction derived from exposure_type, same as sparklines.
     const wowData = pairCommentary
       .filter(pc => Array.isArray(pc.rate_history) && pc.rate_history.length >= 8)
       .map(pc => {
@@ -912,7 +918,7 @@ export default function Reports() {
         const exp      = activeItems.find(e => e.currency_pair === pc.pair)
         const openEur  = exp ? ((exp.total_amount_eur || 0) * (1 - (exp.hedge_pct || 0) / 100)) : 0
         const rateDiff = (rateNow && rate7d) ? rateNow - rate7d : 0
-        const delta    = rateDiff * openEur * (pc.favourable !== false ? 1 : -1)
+        const delta    = rateDiff * openEur * (isFavorable(exp) ? 1 : -1)
         return { pair: pc.pair, delta: Math.round(delta) }
       })
 

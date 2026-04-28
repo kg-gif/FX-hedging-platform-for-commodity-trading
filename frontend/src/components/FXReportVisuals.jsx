@@ -89,42 +89,75 @@ const PLBarChart = ({ data }) => {
 
 // ── P2: Hedge coverage gauge ───────────────────────────────────────────────
 // Props: value (0–100), policyMin (default 40), policyTarget (default 75)
+// Uses stroke-dasharray on overlapping circles (more reliable than arc paths).
+// Circumference = 2π×68 ≈ 427.26; semicircle arc = 213.63.
+// Each zone dash = (zone_pct / 100) × 213.63.
+// Rotating -180° on each circle moves the stroke start to 9 o'clock (left).
 const HedgeGauge = ({ value, policyMin = 40, policyTarget = 75 }) => {
-  const W = 200, H = 116, cx = 100, cy = 108, r = 68, ro = 79;
+  const W = 200, H = 116, cx = 100, cy = 108, r = 68, sw = 11;
+  const circ = 2 * Math.PI * r;        // ≈ 427.26 — full circumference
+  const semi  = circ / 2;              // ≈ 213.63 — semicircle arc length
+  const cl    = (v) => Math.max(0, Math.min(100, v));
 
-  const pt = (pct, rad) => {
-    const a = Math.PI * (1 - pct / 100);
-    return [cx + rad * Math.cos(a), cy - rad * Math.sin(a)];
-  };
+  // Arc dash lengths for each coloured zone
+  const redLen   = cl(policyMin)                       / 100 * semi;
+  const amberLen = (cl(policyTarget) - cl(policyMin))  / 100 * semi;
+  const greenLen = (100 - cl(policyTarget))            / 100 * semi;
 
-  const sector = (s, e, fill) => {
-    if (s === e) return null;
-    const la = (e - s) > 50 ? 1 : 0;
-    const [ox1, oy1] = pt(s, ro), [ox2, oy2] = pt(e, ro);
-    const [ix2, iy2] = pt(e, r),  [ix1, iy1] = pt(s, r);
-    return <path key={`${s}-${e}`} d={`M${ox1} ${oy1}A${ro} ${ro} 0 ${la} 0 ${ox2} ${oy2}L${ix2} ${iy2}A${r} ${r} 0 ${la} 1 ${ix1} ${iy1}Z`} fill={fill} />;
-  };
+  // Starting rotation for amber and green zones.
+  // -180° = 9 o'clock (0%), each additional 1% = +1.8°
+  const amberRot = -180 + cl(policyMin)    / 100 * 180;
+  const greenRot = -180 + cl(policyTarget) / 100 * 180;
 
-  const na = Math.PI * (1 - value / 100);
-  const [nx, ny] = [cx + (r - 8) * Math.cos(na), cy - (r - 8) * Math.sin(na)];
-  const [t1x, t1y] = pt(policyTarget, r - 1);
-  const [t2x, t2y] = pt(policyTarget, ro + 2);
+  // Needle tip — same polar formula, independent of arc implementation
+  const na = Math.PI * (1 - cl(value) / 100);
+  const nx = cx + (r - 8) * Math.cos(na);
+  const ny = cy - (r - 8) * Math.sin(na);
+
+  // Policy target tick — white hairline crossing the arc at the target boundary
+  const tA  = Math.PI * (1 - cl(policyTarget) / 100);
+  const t1x = cx + (r - 2)      * Math.cos(tA);
+  const t1y = cy - (r - 2)      * Math.sin(tA);
+  const t2x = cx + (r + sw + 2) * Math.cos(tA);
+  const t2y = cy - (r + sw + 2) * Math.sin(tA);
+
+  const arc = (len, color, rotDeg) => (
+    <circle
+      cx={cx} cy={cy} r={r}
+      fill="none"
+      stroke={color}
+      strokeWidth={sw}
+      strokeDasharray={`${len} ${circ - len}`}
+      strokeLinecap="butt"
+      transform={`rotate(${rotDeg} ${cx} ${cy})`}
+    />
+  );
 
   return (
     <div style={{ textAlign: 'center' }}>
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}
         role="img" aria-label={`Hedge coverage gauge: ${value}%, policy minimum ${policyMin}%, target ${policyTarget}%`}
         style={{ overflow: 'visible' }}>
-        {sector(0, 100, 'rgba(26,39,68,.1)')}
-        {sector(0, policyMin, C.danger)}
-        {sector(policyMin, policyTarget, C.warning)}
-        {sector(policyTarget, 100, C.success)}
+
+        {/* Track — full semicircle, light navy */}
+        {arc(semi, 'rgba(26,39,68,.1)', -180)}
+
+        {/* Coloured zone arcs — layered on top of track */}
+        {redLen   > 0 && arc(redLen,   C.danger,  -180)}
+        {amberLen > 0 && arc(amberLen, C.warning, amberRot)}
+        {greenLen > 0 && arc(greenLen, C.success, greenRot)}
+
+        {/* Policy target tick */}
         <line x1={t1x} y1={t1y} x2={t2x} y2={t2y} stroke="#fff" strokeWidth="2.5" />
+
+        {/* Needle */}
         <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={C.navy} strokeWidth="2.5" strokeLinecap="round" />
         <circle cx={cx} cy={cy} r="5" fill={C.navy} />
         <circle cx={cx} cy={cy} r="2.5" style={{ fill: 'var(--color-background-primary, #fff)' }} />
+
+        {/* Value + label */}
         <text x={cx} y={cy - 19} textAnchor="middle" fontSize="24" fontWeight="600" fill={C.navy} fontFamily={MONO}>{value}%</text>
-        <text x={cx} y={cy - 5} textAnchor="middle" fontSize="10" fill={C.slate} letterSpacing=".08em">COVERAGE</text>
+        <text x={cx} y={cy - 5}  textAnchor="middle" fontSize="10"  fill={C.slate} letterSpacing=".08em">COVERAGE</text>
       </svg>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 6px 0', color: C.slate }}>
         <span style={{ color: C.danger }}>▪ &lt;{policyMin}%</span>
