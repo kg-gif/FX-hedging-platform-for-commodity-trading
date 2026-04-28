@@ -474,7 +474,7 @@ export default function Reports() {
   const [filterEventType,   setFilterEventType]   = useState('trading')
   const [filterFromDate,    setFilterFromDate]     = useState('')
   const [filterToDate,      setFilterToDate]       = useState('')
-  const [showDeleted,       setShowDeleted]        = useState(true)
+  const [showDeleted,       setShowDeleted]        = useState(false)
 
   useEffect(() => {
     if (companyId) {
@@ -750,7 +750,7 @@ export default function Reports() {
 
   const clearFilters = () => {
     setFilterPair(''); setFilterEventType('trading'); setFilterFromDate(''); setFilterToDate('')
-    setShowDeleted(true); setAuditPage(1)
+    setShowDeleted(false); setAuditPage(1)
   }
 
   const displayed = filterEventType === 'trading'
@@ -762,7 +762,7 @@ export default function Reports() {
   const auditPages   = Math.max(1, Math.ceil(displayed.length / auditPageSize))
   const auditPaged   = displayed.slice((auditPage - 1) * auditPageSize, auditPage * auditPageSize)
 
-  const hasFilters = filterPair || filterEventType !== 'trading' || filterFromDate || filterToDate || !showDeleted
+  const hasFilters = filterPair || filterEventType !== 'trading' || filterFromDate || filterToDate || showDeleted
 
   const auditSummary = (() => {
     const tradingEvts = displayed.filter(e => e.event_type === 'tranche')
@@ -1188,15 +1188,19 @@ export default function Reports() {
             </div>
             <div className="px-5 py-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Avg Rate vs Budget</p>
-              <p className="text-base font-bold" style={{ color: NAVY }}>
-                {auditSummary.avgRate != null ? auditSummary.avgRate.toFixed(4) : '—'}
-                {auditSummary.avgBudget != null && (
-                  <span className="text-sm font-normal text-gray-400 ml-2">
-                    vs {auditSummary.avgBudget.toFixed(4)}
-                  </span>
-                )}
-              </p>
-              <p className="text-xs text-gray-400">Execution vs budget rate</p>
+              {filterPair ? (
+                <p className="text-base font-bold" style={{ color: NAVY }}>
+                  {auditSummary.avgRate != null ? auditSummary.avgRate.toFixed(4) : '—'}
+                  {auditSummary.avgBudget != null && (
+                    <span className="text-sm font-normal text-gray-400 ml-2">
+                      vs {auditSummary.avgBudget.toFixed(4)}
+                    </span>
+                  )}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400 italic">Multiple pairs — filter to view avg rate</p>
+              )}
+              <p className="text-xs text-gray-400">{filterPair ? `${filterPair} execution vs budget` : 'Execution vs budget rate'}</p>
             </div>
           </div>
         )}
@@ -1221,42 +1225,81 @@ export default function Reports() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {auditPaged.map((ev, i) => (
-                    <tr key={i} className={`hover:bg-gray-50 ${ev.is_active === false ? 'opacity-60' : ''}`}>
-                      <td className="px-3 py-2 whitespace-nowrap text-gray-500">{fmtDate(ev.event_at)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <EventBadge type={ev.event_type} />
-                          {ev.is_active === false && (
-                            <span className="px-1.5 py-0.5 rounded text-xs bg-red-50 text-red-400">deleted</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{ev.currency_pair || '—'}</td>
-                      <td className="px-3 py-2 text-gray-500 max-w-xs">
-                        <div className="truncate">{ev.description || '—'}</div>
-                        {ev.reference && <div className="text-gray-400">{ev.reference}</div>}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-right whitespace-nowrap">
-                        {ev.amount ? fmt(ev.amount) : '—'}
-                        {ev.amount_currency && <div className="text-gray-400">{ev.amount_currency}</div>}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-right whitespace-nowrap">
-                        <div>{ev.execution_rate ? ev.execution_rate.toFixed(4) : '—'}</div>
-                        {ev.budget_rate && <div className="text-gray-400">Budget: {Number(ev.budget_rate).toFixed(4)}</div>}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-gray-600">{ev.instrument || '—'}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDateOnly(ev.value_date)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={ev.tranche_status} /></td>
-                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{ev.created_by || '—'}</td>
-                      <td className="px-3 py-2 text-gray-400 max-w-xs">
-                        <div className="truncate cursor-help" title={ev.reason || ev.notes || undefined}>
-                          {ev.reason || ev.notes || '—'}
-                        </div>
-                        {ev.limit_rate && <div>TP: {Number(ev.limit_rate).toFixed(4)} / SL: {Number(ev.stop_rate).toFixed(4)}</div>}
-                      </td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    // Build flat list of date-header + row items for visual grouping
+                    const items = []
+                    let lastDate = null
+                    auditPaged.forEach((ev, i) => {
+                      const dateLabel = ev.event_at
+                        ? new Date(ev.event_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+                        : 'Unknown Date'
+                      if (dateLabel !== lastDate) {
+                        lastDate = dateLabel
+                        items.push({ type: 'header', date: dateLabel, key: `hdr-${dateLabel}-${i}` })
+                      }
+                      items.push({ type: 'row', ev, key: `row-${i}` })
+                    })
+
+                    const naCell = <span className="text-gray-300 text-xs">N/A</span>
+
+                    return items.map(item => {
+                      if (item.type === 'header') {
+                        return (
+                          <tr key={item.key}>
+                            <td colSpan={11} className="px-3 py-1.5 text-xs font-semibold tracking-wider text-gray-400 uppercase border-t border-b border-gray-200"
+                              style={{ background: '#F4F6FA' }}>
+                              {item.date}
+                            </td>
+                          </tr>
+                        )
+                      }
+
+                      const { ev } = item
+                      const isOrder = ev.event_type === 'order'
+                      // Derive a readable notes string for orders: action text, with order_type as fallback
+                      const orderNotes = ev.notes || (ev.order_type ? `${ev.order_type} order` : null)
+
+                      return (
+                        <tr key={item.key} className={`hover:bg-gray-50 ${ev.is_active === false ? 'opacity-60' : ''}`}>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-500">{fmtDate(ev.event_at)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <EventBadge type={ev.event_type} />
+                              {ev.is_active === false && (
+                                <span className="px-1.5 py-0.5 rounded text-xs bg-red-50 text-red-400">deleted</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 font-semibold whitespace-nowrap" style={{ color: NAVY }}>{ev.currency_pair || '—'}</td>
+                          <td className="px-3 py-2 text-gray-500 max-w-xs">
+                            <div className="truncate">{ev.description || '—'}</div>
+                            {ev.reference && <div className="text-gray-400">{ev.reference}</div>}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right whitespace-nowrap">
+                            {isOrder ? naCell : ev.amount ? <>{fmt(ev.amount)}{ev.amount_currency && <div className="text-gray-400">{ev.amount_currency}</div>}</> : '—'}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-right whitespace-nowrap">
+                            {isOrder ? naCell : (
+                              <>
+                                <div>{ev.execution_rate ? ev.execution_rate.toFixed(4) : '—'}</div>
+                                {ev.budget_rate && <div className="text-gray-400">Budget: {Number(ev.budget_rate).toFixed(4)}</div>}
+                              </>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-600">{ev.instrument || '—'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtDateOnly(ev.value_date)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={ev.tranche_status} /></td>
+                          <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{ev.created_by || '—'}</td>
+                          <td className="px-3 py-2 text-gray-400 max-w-xs">
+                            <div className="truncate cursor-help" title={isOrder ? orderNotes || undefined : ev.reason || ev.notes || undefined}>
+                              {isOrder ? (orderNotes || '—') : (ev.reason || ev.notes || '—')}
+                            </div>
+                            {ev.limit_rate && <div>TP: {Number(ev.limit_rate).toFixed(4)} / SL: {Number(ev.stop_rate).toFixed(4)}</div>}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  })()}
                 </tbody>
               </table>
             </div>
