@@ -29,6 +29,17 @@ const fmtDateOnly = (s) => {
   return `${parts[2]}/${parts[1]}/${parts[0]}`
 }
 
+// Cleans AI report text: strips em dashes and wraps into max-2-sentence paragraphs.
+function formatReportText(text, className = 'text-sm text-gray-700 leading-relaxed') {
+  if (!text) return null
+  const cleaned = text.replace(/\s*—\s*/g, ', ').replace(/,\s*,/g, ',')
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(Boolean)
+  if (sentences.length <= 2) return <p className={className}>{cleaned}</p>
+  const paras = []
+  for (let i = 0; i < sentences.length; i += 2) paras.push(sentences.slice(i, i + 2).join(' ').trim())
+  return paras.map((p, i) => <p key={i} className={`${className}${i > 0 ? ' mt-2' : ''}`}>{p}</p>)
+}
+
 const EVENT_LABELS = {
   tranche:           { label: 'Tranche',           bg: 'bg-blue-100',   text: 'text-blue-700'   },
   order:             { label: 'Order Sent',         bg: 'bg-purple-100', text: 'text-purple-700' },
@@ -440,6 +451,8 @@ export default function Reports() {
   const [marketGenerating,    setMarketGenerating]    = useState(false)
   const [marketGenMsg,        setMarketGenMsg]        = useState(null)
   const [marketExpandedId,    setMarketExpandedId]    = useState(null)
+  const [reportExpanded,      setReportExpanded]      = useState(true)
+  const [sectionOpen,         setSectionOpen]         = useState({ portfolio: true, risk: true, pairs: true })
 
   const authUser = (() => { try { return JSON.parse(localStorage.getItem('auth_user') || 'null') } catch { return null } })()
   const isSuperAdmin = ['superadmin', 'admin'].includes(authUser?.role)
@@ -881,6 +894,12 @@ export default function Reports() {
             <h3 className="font-semibold text-white text-sm">Weekly FX Market Report</h3>
             <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
               style={{ background: 'rgba(201,168,108,0.2)', color: GOLD }}>AI-generated</span>
+            <button onClick={() => setReportExpanded(e => !e)}
+              className="p-1 rounded opacity-60 hover:opacity-100 transition-opacity"
+              title={reportExpanded ? 'Collapse report' : 'Expand report'}>
+              <ChevronDown size={14} color="white"
+                style={{ transform: reportExpanded ? 'none' : 'rotate(-90deg)', transition: 'transform 0.15s' }} />
+            </button>
           </div>
           <div className="flex items-center gap-2">
             {marketReport && (
@@ -921,153 +940,172 @@ export default function Reports() {
             const c = marketReport.content || {}
             return (
               <div>
-                {/* Headline */}
+                {/* Headline + date — always visible regardless of collapse state */}
                 <p className="text-base font-semibold mb-1" style={{ color: NAVY }}>{c.headline}</p>
                 <p className="text-xs text-gray-400 mb-4">
                   Generated {marketReport.generated_at ? new Date(marketReport.generated_at).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' }) : ''}
                 </p>
 
-                {/* Portfolio impact */}
-                <div className="mb-4 p-4 rounded-lg" style={{ background: '#F4F6FA' }}>
-                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: GOLD }}>Portfolio Impact</p>
-                  <p className="text-sm text-gray-700 leading-relaxed">{c.portfolio_impact}</p>
-                </div>
-
-                {/* Risk alert */}
-                {c.risk_alert && (
-                  <div className="mb-4 p-4 rounded-lg flex gap-3"
-                    style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)' }}>
-                    <AlertTriangle size={16} color="#EF4444" className="shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-semibold mb-1" style={{ color: '#EF4444' }}>Risk Alert</p>
-                      <p className="text-sm text-gray-700">{c.risk_alert}</p>
+                {reportExpanded && (
+                  <>
+                    {/* Portfolio impact — collapsible */}
+                    <div className="mb-4 rounded-lg overflow-hidden" style={{ border: '1px solid #E8EBF0' }}>
+                      <button className="w-full flex items-center justify-between px-4 py-2.5 text-left"
+                        style={{ background: '#F4F6FA' }}
+                        onClick={() => setSectionOpen(s => ({ ...s, portfolio: !s.portfolio }))}>
+                        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: GOLD }}>Portfolio Impact</span>
+                        <ChevronDown size={12} style={{ color: GOLD, transform: sectionOpen.portfolio ? 'none' : 'rotate(-90deg)', transition: 'transform 0.15s' }} />
+                      </button>
+                      {sectionOpen.portfolio && (
+                        <div className="px-4 py-3">
+                          {formatReportText(c.portfolio_impact)}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
 
-                {/* Per-pair commentary with sparklines */}
-                {(c.pair_commentary || []).length > 0 && (
-                  <div className="mb-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD }}>
-                      Your Currency Pairs This Week
-                    </p>
-                    <div className="space-y-3">
-                      {c.pair_commentary.map((pc, i) => {
-                        const sparkColor = pc.favourable === false ? DANGER : SUCCESS
-                        const hasHistory = Array.isArray(pc.rate_history) && pc.rate_history.length >= 2
-                        const histStart  = hasHistory ? pc.rate_history[0].rate : null
-                        const histEnd    = hasHistory ? pc.rate_history[pc.rate_history.length - 1].rate : null
-                        return (
-                          <div key={i} className="rounded-lg border border-gray-100 overflow-hidden"
-                            style={{ background: '#FAFBFC' }}>
-                            {/* Pair header */}
-                            <div className="px-4 pt-4 pb-2 flex items-center justify-between">
-                              <span className="font-semibold text-sm" style={{ color: NAVY }}>{pc.pair}</span>
-                              <span className="text-xs font-bold"
-                                style={{ color: pc.favourable === false ? DANGER : SUCCESS }}>
-                                {pc.movement}
-                              </span>
-                            </div>
-                            {/* Sparkline */}
-                            {hasHistory && (
-                              <div className="relative px-0" style={{ height: 80 }}>
-                                {/* Start rate label */}
-                                <span className="absolute left-2 bottom-1 text-[10px] text-gray-400 z-10 font-mono">
-                                  {histStart?.toFixed(4)}
-                                </span>
-                                {/* End rate label */}
-                                <span className="absolute right-2 bottom-1 text-[10px] font-mono z-10"
-                                  style={{ color: sparkColor }}>
-                                  {histEnd?.toFixed(4)}
-                                </span>
-                                <ResponsiveContainer width="100%" height={80}>
-                                  <LineChart data={pc.rate_history} margin={{ top: 4, right: 0, left: 0, bottom: 4 }}>
-                                    <Line
-                                      type="monotone"
-                                      dataKey="rate"
-                                      stroke={sparkColor}
-                                      strokeWidth={2}
-                                      dot={false}
-                                      isAnimationActive={false}
-                                    />
-                                  </LineChart>
-                                </ResponsiveContainer>
-                              </div>
-                            )}
-                            {/* Text content */}
-                            <div className="px-4 pb-4 pt-2">
-                              <p className="text-sm text-gray-600 mb-1">{pc.client_impact}</p>
-                              <p className="text-xs text-gray-400">{pc.outlook}</p>
-                              {pc.action && (
-                                <div className="mt-2 px-3 py-2 rounded text-xs font-semibold"
-                                  style={{ background: 'rgba(201,168,108,0.1)', color: '#92711A', borderLeft: `3px solid ${GOLD}` }}>
-                                  Action: {pc.action}
+                    {/* Risk alert — collapsible */}
+                    {c.risk_alert && (
+                      <div className="mb-4 rounded-lg overflow-hidden" style={{ border: '1px solid rgba(239,68,68,0.3)' }}>
+                        <button className="w-full flex items-center justify-between px-4 py-2.5 text-left"
+                          style={{ background: 'rgba(239,68,68,0.06)' }}
+                          onClick={() => setSectionOpen(s => ({ ...s, risk: !s.risk }))}>
+                          <div className="flex items-center gap-2">
+                            <AlertTriangle size={13} color="#EF4444" className="shrink-0" />
+                            <span className="text-xs font-semibold" style={{ color: '#EF4444' }}>Risk Alert</span>
+                          </div>
+                          <ChevronDown size={12} style={{ color: '#EF4444', transform: sectionOpen.risk ? 'none' : 'rotate(-90deg)', transition: 'transform 0.15s' }} />
+                        </button>
+                        {sectionOpen.risk && (
+                          <div className="px-4 py-3">
+                            {formatReportText(c.risk_alert)}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Per-pair commentary — collapsible */}
+                    {(c.pair_commentary || []).length > 0 && (
+                      <div className="mb-4">
+                        <button className="w-full flex items-center justify-between mb-3 text-left"
+                          onClick={() => setSectionOpen(s => ({ ...s, pairs: !s.pairs }))}>
+                          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: GOLD }}>
+                            Your Currency Pairs This Week
+                          </span>
+                          <ChevronDown size={12} style={{ color: GOLD, transform: sectionOpen.pairs ? 'none' : 'rotate(-90deg)', transition: 'transform 0.15s' }} />
+                        </button>
+                        {sectionOpen.pairs && (
+                          <div className="space-y-3">
+                            {c.pair_commentary.map((pc, i) => {
+                              const sparkColor = pc.favourable === false ? DANGER : SUCCESS
+                              const hasHistory = Array.isArray(pc.rate_history) && pc.rate_history.length >= 2
+                              const histStart  = hasHistory ? pc.rate_history[0].rate : null
+                              const histEnd    = hasHistory ? pc.rate_history[pc.rate_history.length - 1].rate : null
+                              return (
+                                <div key={i} className="rounded-lg border border-gray-100 overflow-hidden"
+                                  style={{ background: '#FAFBFC' }}>
+                                  {/* Pair header */}
+                                  <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+                                    <span className="font-semibold text-sm" style={{ color: NAVY }}>{pc.pair}</span>
+                                    <span className="text-xs font-bold"
+                                      style={{ color: pc.favourable === false ? DANGER : SUCCESS }}>
+                                      {pc.movement}
+                                    </span>
+                                  </div>
+                                  {/* Sparkline */}
+                                  {hasHistory && (
+                                    <div className="relative px-0" style={{ height: 80 }}>
+                                      <span className="absolute left-2 bottom-1 text-[10px] text-gray-400 z-10 font-mono">
+                                        {histStart?.toFixed(4)}
+                                      </span>
+                                      <span className="absolute right-2 bottom-1 text-[10px] font-mono z-10"
+                                        style={{ color: sparkColor }}>
+                                        {histEnd?.toFixed(4)}
+                                      </span>
+                                      <ResponsiveContainer width="100%" height={80}>
+                                        <LineChart data={pc.rate_history} margin={{ top: 4, right: 0, left: 0, bottom: 4 }}>
+                                          <Line type="monotone" dataKey="rate" stroke={sparkColor}
+                                            strokeWidth={2} dot={false} isAnimationActive={false} />
+                                        </LineChart>
+                                      </ResponsiveContainer>
+                                    </div>
+                                  )}
+                                  {/* Text content */}
+                                  <div className="px-4 pb-4 pt-2">
+                                    {formatReportText(pc.client_impact, 'text-sm text-gray-600 leading-relaxed')}
+                                    <div className="mt-1">
+                                      {formatReportText(pc.outlook, 'text-xs text-gray-400 leading-relaxed')}
+                                    </div>
+                                    {pc.action && (
+                                      <div className="mt-2 px-3 py-2 rounded text-xs font-semibold"
+                                        style={{ background: 'rgba(201,168,108,0.1)', color: '#92711A', borderLeft: `3px solid ${GOLD}` }}>
+                                        Action: {pc.action.replace(/\s*—\s*/g, ', ')}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
-                            </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
+                        )}
+                      </div>
+                    )}
 
-                {/* Economic calendar */}
-                {(c.key_events || []).length > 0 && (
-                  <div className="mb-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD }}>
-                      Key Events This Week
-                    </p>
-                    <div className="rounded-lg border border-gray-100 overflow-hidden">
-                      {c.key_events.map((ev, i) => {
-                        const impactColor = ev.impact === 'High' ? DANGER
-                          : ev.impact === 'Medium' ? WARNING : '#9CA3AF'
-                        const flag = CURRENCY_FLAGS[ev.currency] || '🌐'
-                        let dateLabel = ev.date || ''
-                        try {
-                          dateLabel = new Date(ev.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
-                        } catch (_) {}
-                        return (
-                          <div key={i} className={`flex gap-3 px-4 py-3 ${i > 0 ? 'border-t border-gray-50' : ''}`}
-                            style={{ background: i % 2 === 0 ? 'white' : '#FAFBFC' }}>
-                            {/* Date */}
-                            <div className="w-24 shrink-0">
-                              <p className="text-xs font-semibold text-gray-700">{dateLabel}</p>
-                            </div>
-                            {/* Flag + event */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-0.5">
-                                <span className="text-base leading-none">{flag}</span>
-                                <span className="text-xs font-semibold text-gray-800">{ev.event}</span>
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
-                                  style={{ background: `${impactColor}18`, color: impactColor }}>
-                                  {ev.impact}
-                                </span>
+                    {/* Economic calendar */}
+                    {(c.key_events || []).length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: GOLD }}>
+                          Key Events This Week
+                        </p>
+                        <div className="rounded-lg border border-gray-100 overflow-hidden">
+                          {c.key_events.map((ev, i) => {
+                            const impactColor = ev.impact === 'High' ? DANGER
+                              : ev.impact === 'Medium' ? WARNING : '#9CA3AF'
+                            const flag = CURRENCY_FLAGS[ev.currency] || '🌐'
+                            let dateLabel = ev.date || ''
+                            try {
+                              dateLabel = new Date(ev.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+                            } catch (_) {}
+                            return (
+                              <div key={i} className={`flex gap-3 px-4 py-3 ${i > 0 ? 'border-t border-gray-50' : ''}`}
+                                style={{ background: i % 2 === 0 ? 'white' : '#FAFBFC' }}>
+                                <div className="w-24 shrink-0">
+                                  <p className="text-xs font-semibold text-gray-700">{dateLabel}</p>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-0.5">
+                                    <span className="text-base leading-none">{flag}</span>
+                                    <span className="text-xs font-semibold text-gray-800">{ev.event}</span>
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase"
+                                      style={{ background: `${impactColor}18`, color: impactColor }}>
+                                      {ev.impact}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-gray-400">{ev.description}</p>
+                                </div>
                               </div>
-                              <p className="text-xs text-gray-400">{ev.description}</p>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
 
-                {/* Week ahead */}
-                {c.week_ahead && (
-                  <div className="mb-4 p-4 rounded-lg" style={{ background: '#F4F6FA' }}>
-                    <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: GOLD }}>The Week Ahead</p>
-                    <p className="text-sm text-gray-700 leading-relaxed">{c.week_ahead}</p>
-                  </div>
-                )}
+                    {/* Week ahead */}
+                    {c.week_ahead && (
+                      <div className="mb-4 p-4 rounded-lg" style={{ background: '#F4F6FA' }}>
+                        <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: GOLD }}>The Week Ahead</p>
+                        {formatReportText(c.week_ahead)}
+                      </div>
+                    )}
 
-                {/* Disclaimer */}
-                <p className="text-xs text-gray-400 leading-relaxed border-t border-gray-100 pt-4 mt-4">
-                  This report is generated by the Sumnohow AI engine for informational purposes only.
-                  It does not constitute financial advice or a recommendation to execute any transaction.
-                  All hedging decisions should be made in consultation with your treasury team and banking
-                  partners. Rates shown are indicative only.
-                </p>
+                    {/* Disclaimer */}
+                    <p className="text-xs text-gray-400 leading-relaxed border-t border-gray-100 pt-4 mt-4">
+                      This report is generated by the Sumnohow AI engine for informational purposes only.
+                      It does not constitute financial advice or a recommendation to execute any transaction.
+                      All hedging decisions should be made in consultation with your treasury team and banking
+                      partners. Rates shown are indicative only.
+                    </p>
+                  </>
+                )}
               </div>
             )
           })()}
