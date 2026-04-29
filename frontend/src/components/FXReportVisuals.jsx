@@ -170,38 +170,142 @@ const HedgeGauge = ({ value, policyMin = 40, policyTarget = 75 }) => {
 
 // ── P3: Sparkline grid ─────────────────────────────────────────────────────
 // Props: data = [{ pair, budget, rates: number[], favorable: bool }]
-// favorable = true means rate above budget is good (e.g. selling foreign CCY)
+// favorable — derived by API: sell-direction → (spot < budget); buy-direction → (spot > budget)
 const SparklineGrid = ({ data }) => {
   if (!data || data.length === 0) return null;
-  const W = 158, H = 44, pd = 1;
+
+  // viewBox 280×80, padding L52 R52 T14 B20 per spec
+  const W = 280, H = 80;
+  const PL = 52, PR = 52, PT = 14, PB = 20;
+  const CW = W - PL - PR;  // 176 — chart width
+  const CH = H - PT - PB;  // 46  — chart height
+
+  // Rate formatter: 2dp if ≥100, 3dp if ≥10, 4dp otherwise
+  const fmt = (v) => v >= 100 ? v.toFixed(2) : v >= 10 ? v.toFixed(3) : v.toFixed(4);
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 12px' }}>
       {data.map((s, i) => {
+        const n = s.rates.length;
+        if (n < 2) return null;
+
+        const spot = s.rates[n - 1];
         const allV = [...s.rates, s.budget];
-        const mn = Math.min(...allV), mx = Math.max(...allV), rng = mx - mn || 1;
-        const X = (idx) => (pd + (idx / (s.rates.length - 1)) * (W - pd * 2)).toFixed(1);
-        const Y = (v)   => (H - pd - ((v - mn) / rng) * (H - pd * 2)).toFixed(1);
+        const mn   = Math.min(...allV);
+        const mx   = Math.max(...allV);
+        const rng  = mx - mn || 0.0001;
+
+        // Chart coordinate helpers (return numbers for arithmetic in SVG attrs)
+        const Y = (v)   => PT + CH - ((v - mn) / rng) * CH;
+        const X = (idx) => PL + (idx / (n - 1)) * CW;
+
         const bY = Y(s.budget);
+        const tx = X(n - 1);
+        const ty = Y(spot);
+        const yBot = PT + CH;
+
         const col = s.favorable ? C.success : C.danger;
-        const fillCol = s.favorable ? 'rgba(16,185,129,.18)' : 'rgba(239,68,68,.18)';
-        const dev = ((s.rates[s.rates.length - 1] - s.budget) / s.budget * 100);
-        const devStr = `${dev > 0 ? '+' : ''}${dev.toFixed(1)}%`;
-        const pts = s.rates.map((v, idx) => `${X(idx)},${Y(v)}`).join(' ');
-        const areaD = `M${X(0)},${Y(s.rates[0])} ${s.rates.slice(1).map((v, idx) => `L${X(idx + 1)},${Y(v)}`).join(' ')} L${X(s.rates.length - 1)},${bY} L${X(0)},${bY}Z`;
+
+        const pts = s.rates
+          .map((v, idx) => `${X(idx).toFixed(1)},${Y(v).toFixed(1)}`)
+          .join(' ');
 
         return (
           <div key={i} style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-              <span style={{ color: C.navy, fontSize: 11, fontWeight: 500, fontFamily: MONO }}>{s.pair}</span>
-              <span style={{ color: col, fontSize: 11, fontFamily: MONO }}>{devStr}</span>
+
+            {/* Sub-header: pair name left, budget + timespan right */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between',
+              alignItems: 'flex-start', marginBottom: 3,
+            }}>
+              <span style={{ color: C.navy, fontSize: 11, fontWeight: 600, fontFamily: MONO }}>
+                {s.pair}
+              </span>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color: C.gold, fontSize: 9, fontFamily: MONO, fontWeight: 500 }}>
+                  Budget: {fmt(s.budget)}
+                </div>
+                <div style={{ color: C.slate, fontSize: 9 }}>30 days</div>
+              </div>
             </div>
+
+            {/* SVG chart — viewBox 280×80 */}
             <svg width="100%" viewBox={`0 0 ${W} ${H}`}
-              role="img" aria-label={`${s.pair} 30-day spot rate vs budget, ${devStr}`}
-              style={{ display: 'block' }}>
-              <path d={areaD} fill={fillCol} />
-              <polyline points={pts} fill="none" stroke={col} strokeWidth="1.5" />
-              <line x1={pd} y1={bY} x2={W - pd} y2={bY} stroke={C.gold} strokeWidth="1.5" />
+              role="img"
+              aria-label={`${s.pair} 30-day spot rate vs budget`}
+              style={{ display: 'block', overflow: 'visible' }}>
+
+              {/* Y-axis max tick — slate */}
+              <line x1={PL - 4} y1={Y(mx)} x2={PL} y2={Y(mx)}
+                stroke={C.slate} strokeWidth="0.5" />
+              <text x={PL - 6} y={Y(mx) + 3} textAnchor="end"
+                fontSize="8" fontFamily={MONO} fill={C.slate} fontWeight="400">
+                {fmt(mx)}
+              </text>
+
+              {/* Y-axis budget tick — gold */}
+              <line x1={PL - 4} y1={bY} x2={PL} y2={bY}
+                stroke={C.gold} strokeWidth="0.8" />
+              <text x={PL - 6} y={bY + 3} textAnchor="end"
+                fontSize="8" fontFamily={MONO} fill={C.gold} fontWeight="500">
+                {fmt(s.budget)}
+              </text>
+
+              {/* Y-axis min tick — slate */}
+              <line x1={PL - 4} y1={Y(mn)} x2={PL} y2={Y(mn)}
+                stroke={C.slate} strokeWidth="0.5" />
+              <text x={PL - 6} y={Y(mn) + 3} textAnchor="end"
+                fontSize="8" fontFamily={MONO} fill={C.slate} fontWeight="400">
+                {fmt(mn)}
+              </text>
+
+              {/* Budget dashed reference line — gold */}
+              <line x1={PL} y1={bY} x2={PL + CW} y2={bY}
+                stroke={C.gold} strokeWidth="1.5" strokeDasharray="4 3" />
+
+              {/* Spot polyline */}
+              <polyline points={pts} fill="none" stroke={col}
+                strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+
+              {/* Terminal dot at current rate */}
+              <circle cx={tx} cy={ty} r="3" fill={col} />
+
+              {/* Current rate label — right of terminal dot, within 52px right padding */}
+              <text x={tx + 5} y={ty + 3} fontSize="8" fontFamily={MONO} fill={col}>
+                {fmt(spot)}
+              </text>
+
+              {/* X-axis ticks */}
+              <line x1={PL}          y1={yBot} x2={PL}          y2={yBot + 4} stroke={C.slate} strokeWidth="0.5" />
+              <line x1={PL + CW / 2} y1={yBot} x2={PL + CW / 2} y2={yBot + 4} stroke={C.slate} strokeWidth="0.5" />
+              <line x1={PL + CW}     y1={yBot} x2={PL + CW}     y2={yBot + 4} stroke={C.slate} strokeWidth="0.5" />
+
+              {/* X-axis date labels */}
+              <text x={PL}          y={yBot + 13} textAnchor="middle" fontSize="8" fill={C.slate}>30d ago</text>
+              <text x={PL + CW / 2} y={yBot + 13} textAnchor="middle" fontSize="8" fill={C.slate}>15d ago</text>
+              <text x={PL + CW}     y={yBot + 13} textAnchor="middle" fontSize="8" fill={C.slate}>Today</text>
             </svg>
+
+            {/* Legend — inline SVG line symbols */}
+            <div style={{
+              display: 'flex', gap: 12, marginTop: 5, alignItems: 'center',
+              fontSize: 9, color: C.slate, fontFamily: MONO,
+            }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <svg width="16" height="8" style={{ display: 'inline-block' }}>
+                  <line x1="0" y1="4" x2="16" y2="4" stroke={col} strokeWidth="1.8" />
+                </svg>
+                Spot rate
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <svg width="16" height="8" style={{ display: 'inline-block' }}>
+                  <line x1="0" y1="4" x2="16" y2="4"
+                    stroke={C.gold} strokeWidth="1.5" strokeDasharray="4 3" />
+                </svg>
+                Budget rate
+              </span>
+            </div>
+
           </div>
         );
       })}

@@ -889,8 +889,9 @@ export default function Reports() {
     const hedgeData     = { value: coverageValue, policyMin: 40, policyTarget }
 
     // P3: Sparklines — 30-day ECB spot vs company budget rate, from market report.
-    // favorable is derived from exposure_type in the DB (not from the AI report).
-    // receivable/sell/receive = higher rate is good; payable (default) = lower rate is good.
+    // favorable is now derived by the API (market_report_service.py) and injected into
+    // pc.favorable: sell-direction → spot < budget; buy-direction → spot > budget.
+    // isFavorable kept as a fallback for reports generated before this change.
     const RECEIVABLE_TYPES = ['receivable', 'sell', 'receive']
     const isFavorable = (exp) =>
       RECEIVABLE_TYPES.includes((exp?.exposure_type || 'payable').toLowerCase())
@@ -902,7 +903,7 @@ export default function Reports() {
         return {
           pair:      pc.pair,
           budget:    exp?.budget_rate || pc.rate_history[0]?.rate || 1,
-          favorable: isFavorable(exp),
+          favorable: pc.favorable ?? isFavorable(exp),
           rates:     pc.rate_history.map(h => h.rate),
         }
       })

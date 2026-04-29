@@ -60,6 +60,7 @@ async def generate_market_report(company_id: int, db) -> dict:
         SELECT
             e.id, e.from_currency, e.to_currency, e.amount,
             e.budget_rate, e.description, e.end_date,
+            COALESCE(e.direction, 'Buy') AS direction,
             COALESCE(SUM(
                 CASE WHEN ht.status IN ('executed','confirmed') THEN ht.amount ELSE 0 END
             ), 0) AS hedged_amount
@@ -68,7 +69,7 @@ async def generate_market_report(company_id: int, db) -> dict:
         WHERE e.company_id = :cid
           AND (e.is_active IS NULL OR e.is_active = true)
           AND (e.archived  IS NULL OR e.archived  = false)
-        GROUP BY e.id, e.from_currency, e.to_currency, e.amount, e.budget_rate, e.description, e.end_date
+        GROUP BY e.id, e.from_currency, e.to_currency, e.amount, e.budget_rate, e.description, e.end_date, e.direction
         ORDER BY e.amount DESC
     """), {"cid": company_id}).fetchall()
 
@@ -122,6 +123,7 @@ async def generate_market_report(company_id: int, db) -> dict:
 
     exposure_data    = []
     rate_history_map = {}  # {pair_str: [{date, rate}]} — injected into Claude's output
+    favorable_map    = {}  # {pair_str: bool} — whether current spot favors the company
 
     for row in rows:
         e = row._mapping
@@ -157,6 +159,12 @@ async def generate_market_report(company_id: int, db) -> dict:
         hedged_amount = float(e["hedged_amount"] or 0)
         open_amount   = max(total_amount - hedged_amount, 0)
         budget_rate   = float(e["budget_rate"] or 0)
+        # Favorable: sell-direction → spot < budget is good; buy-direction → spot > budget is good.
+        # First occurrence of each pair wins (rows ordered by amount DESC, largest exposure wins).
+        if pair not in favorable_map and spot_today is not None and budget_rate > 0:
+            direction = (e.get('direction') or 'Buy').strip()
+            favorable_map[pair] = (spot_today < budget_rate) if direction.lower() == 'sell' \
+                                  else (spot_today > budget_rate)
         hedge_pct     = (hedged_amount / total_amount * 100) if total_amount > 0 else 0
 
         floating_pnl_base = None
@@ -285,6 +293,8 @@ Rules:
         pair_key = pc.get("pair", "")
         if pair_key in rate_history_map:
             pc["rate_history"] = rate_history_map[pair_key]
+        if pair_key in favorable_map:
+            pc["favorable"] = favorable_map[pair_key]
 
     # ── Store in DB ───────────────────────────────────────────────────────────
     result_row = db.execute(text("""
