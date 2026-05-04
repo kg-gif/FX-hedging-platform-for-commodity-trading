@@ -17,7 +17,8 @@
       "Bash(git add:*)",
       "Bash(grep -n \"audit/orders\\\\|audit/value\" birk_api.py routes/*.py)",
       "Bash(grep -n \"manual\\\\|/manual\" birk_api.py routes/*.py)",
-      "Bash(grep -n \"resolve_company_id\\\\|payload.*role.*admin\\\\|role.*==.*admin\" routes/*.py birk_api.py)"
+      "Bash(grep -n \"resolve_company_id\\\\|payload.*role.*admin\\\\|role.*==.*admin\" routes/*.py birk_api.py)",
+      "Bash(xargs grep *)"
     ]
   }
 }
