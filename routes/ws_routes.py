@@ -27,6 +27,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
+from sqlalchemy import text
 
 from database import SessionLocal, get_rate, get_rate_async, _rate_cache
 from models import Exposure
@@ -133,16 +134,29 @@ def _decode_token(token: str) -> Optional[dict]:
 
 
 def _get_company_pairs(company_id: int) -> list[str]:
-    """Return distinct currency pairs from the company's active exposures."""
+    """
+    Return distinct currency pairs for the company's active exposures.
+
+    Exposure has separate from_currency / to_currency columns (no currency_pair
+    field).  is_active is a nullable DB column not mapped in the ORM model, so
+    we use raw SQL — matching the pattern in birk_api.py line 358.
+    """
     db = SessionLocal()
     try:
         rows = (
-            db.query(Exposure.currency_pair)
-            .filter(Exposure.company_id == company_id, Exposure.is_active.is_(True))
+            db.query(Exposure.from_currency, Exposure.to_currency)
+            .filter(
+                Exposure.company_id == company_id,
+                text("(is_active IS NULL OR is_active = true)"),
+            )
             .distinct()
             .all()
         )
-        return [r.currency_pair for r in rows if r.currency_pair]
+        return [
+            f"{r.from_currency}/{r.to_currency}"
+            for r in rows
+            if r.from_currency and r.to_currency
+        ]
     finally:
         db.close()
 
@@ -213,8 +227,14 @@ async def ws_rates(
         await websocket.close(code=4001)
         return
 
-    pairs = _get_company_pairs(resolved_id)
-    conn  = _Conn(websocket, resolved_id, pairs)
+    try:
+        pairs = _get_company_pairs(resolved_id)
+    except Exception as e:
+        logger.error("[rate-ticker] DB error fetching pairs for company %s: %s", resolved_id, e)
+        await websocket.close(code=1011)
+        return
+
+    conn = _Conn(websocket, resolved_id, pairs)
     manager.add(conn)
 
     try:
