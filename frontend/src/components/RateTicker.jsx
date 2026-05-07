@@ -26,8 +26,8 @@ const GREEN   = '#10B981'
 const RED     = '#EF4444'
 const GREY    = '#8DA4C4'
 
-// Always scroll; minimum 12 s so pairs don't fly past with a short list
-const MIN_MARQUEE_DURATION_S = 12
+// Always scroll; minimum 16 s so pairs don't fly past with a short list
+const MIN_MARQUEE_DURATION_S = 16
 const FLASH_DURATION_MS = 300
 
 /* ── CSS injected once ─────────────────────────────────────────────────────── */
@@ -184,7 +184,7 @@ export default function RateTicker({ companyId }) {
   /* Duplicate so the second copy seamlessly follows the first */
   const marqueeContent = [...cells, ...cells]
   /* ~2 s per pair, floored at MIN_MARQUEE_DURATION_S for short lists */
-  const marqueeDuration = `${Math.max(pairs.length * 2, MIN_MARQUEE_DURATION_S)}s`
+  const marqueeDuration = `${Math.max(pairs.length * 2.6, MIN_MARQUEE_DURATION_S)}s`
 
   return (
     <div
