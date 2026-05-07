@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 
-from database import SessionLocal, get_rate
+from database import SessionLocal, get_rate, _rate_cache
 from models import Exposure
 
 logger = logging.getLogger(__name__)
@@ -150,14 +150,21 @@ def _get_company_pairs(company_id: int) -> list[str]:
 async def rate_broadcast_loop() -> None:
     """
     Started once at app startup via birk_api.py.
-    Wakes every 5 s and broadcasts current rates to all connected clients.
+    Checks every 15 s whether the upstream rate cache has refreshed.
+    Only broadcasts when fetched_at changes — so clients receive exactly
+    one push per cache refresh (~once per 5 minutes) rather than 60 identical
+    pushes per cache cycle.
     """
+    last_cache_ts = None
     while True:
         try:
-            await manager.broadcast()
+            cache_ts = _rate_cache.get("fetched_at")
+            if cache_ts != last_cache_ts:
+                await manager.broadcast()
+                last_cache_ts = cache_ts
         except Exception as e:
             logger.error("[rate-ticker] broadcast error: %s", e)
-        await asyncio.sleep(5)
+        await asyncio.sleep(15)
 
 
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
