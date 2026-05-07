@@ -26,7 +26,8 @@ const GREEN   = '#10B981'
 const RED     = '#EF4444'
 const GREY    = '#8DA4C4'
 
-const MARQUEE_THRESHOLD = 20
+// Always scroll; minimum 12 s so pairs don't fly past with a short list
+const MIN_MARQUEE_DURATION_S = 12
 const FLASH_DURATION_MS = 300
 
 /* ── CSS injected once ─────────────────────────────────────────────────────── */
@@ -155,17 +156,16 @@ export default function RateTicker({ companyId }) {
 
   const { rates, connected, fallback } = useRateTicker(companyId)
   const pairs                          = Object.keys(rates)
-  const useMarquee                     = pairs.length > MARQUEE_THRESHOLD
 
   if (pairs.length === 0) {
     return (
       <div
         style={{
-          background:  NAVY,
-          height:      40,
-          width:       '100%',
-          display:     'flex',
-          alignItems:  'center',
+          background:   NAVY,
+          height:       40,
+          width:        '100%',
+          display:      'flex',
+          alignItems:   'center',
           borderBottom: '1px solid rgba(201,168,108,0.15)',
         }}
       >
@@ -181,10 +181,10 @@ export default function RateTicker({ companyId }) {
     <PairCell key={pair} pair={pair} info={rates[pair]} />
   ))
 
-  /* Marquee: duplicate cells so the loop is seamless */
-  const marqueeContent = useMarquee ? [...cells, ...cells] : null
-  /* Scroll duration scales with pair count: ~1.5 s per pair */
-  const marqueeDuration = `${pairs.length * 1.5}s`
+  /* Duplicate so the second copy seamlessly follows the first */
+  const marqueeContent = [...cells, ...cells]
+  /* ~2 s per pair, floored at MIN_MARQUEE_DURATION_S for short lists */
+  const marqueeDuration = `${Math.max(pairs.length * 2, MIN_MARQUEE_DURATION_S)}s`
 
   return (
     <div
@@ -200,36 +200,17 @@ export default function RateTicker({ companyId }) {
     >
       <StatusDot connected={connected} fallback={fallback} />
 
-      {useMarquee ? (
-        /* ── Auto-scrolling marquee for 21+ pairs ───────────────────── */
-        <div style={{ flex: 1, overflow: 'hidden', height: 40 }}>
-          <div
-            style={{
-              display:   'flex',
-              width:     '200%',
-              animation: `tickerMarquee ${marqueeDuration} linear infinite`,
-            }}
-          >
-            {marqueeContent}
-          </div>
-        </div>
-      ) : (
-        /* ── Static scrollable strip for ≤20 pairs ──────────────────── */
+      <div style={{ flex: 1, overflow: 'hidden', height: 40 }}>
         <div
-          className="ticker-track-scroll"
           style={{
-            flex:       1,
-            display:    'flex',
-            alignItems: 'center',
-            overflowX:  'auto',
-            height:     40,
-            padding:    '0 8px',
-            gap:        0,
+            display:   'flex',
+            width:     '200%',
+            animation: `tickerMarquee ${marqueeDuration} linear infinite`,
           }}
         >
-          {cells}
+          {marqueeContent}
         </div>
-      )}
+      </div>
     </div>
   )
 }
