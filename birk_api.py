@@ -52,6 +52,7 @@ from routes.margin_call_routes import router as margin_call_router
 from routes.facility_routes import router as facility_router
 from routes.market_report_routes import router as market_report_router
 from routes.forecasting_routes import router as forecasting_router
+from routes.ws_routes import router as ws_router, rate_broadcast_loop
 
 Base.metadata.create_all(bind=engine)
 print("✅ Database ready")
@@ -87,6 +88,12 @@ app.include_router(margin_call_router)
 app.include_router(facility_router)
 app.include_router(market_report_router)
 app.include_router(forecasting_router)
+app.include_router(ws_router)
+
+
+@app.on_event("startup")
+async def start_rate_ticker():
+    asyncio.create_task(rate_broadcast_loop())
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 import logging

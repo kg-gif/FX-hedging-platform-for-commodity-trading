@@ -11,6 +11,7 @@ import {
 } from 'react-router-dom'
 import { CompanyProvider } from './contexts/CompanyContext'
 import CompanySelector from './components/CompanySelector'
+import RateTicker from './components/RateTicker'
 import Dashboard from './components/Dashboard.jsx'
 import HedgingPage from './components/HedgingPage'
 import RiskEngine from './components/RiskEngine'
@@ -65,6 +66,8 @@ function AppShell({ authUser, onLogout, children }) {
     <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
       {/* ── Sticky header ──────────────────────────────────────────────── */}
       <div style={{ background: NAVY }} className="shadow-xl sticky top-0 z-50">
+        {/* Live rate ticker */}
+        <RateTicker companyId={selectedCompanyId} />
         {/* Logo + user row */}
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">

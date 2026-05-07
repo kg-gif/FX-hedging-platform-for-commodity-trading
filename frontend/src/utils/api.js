@@ -12,6 +12,12 @@
 const BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 export { BASE as API_BASE }
 
+// Derive WebSocket base from HTTP base: https → wss, http → ws
+export const WS_BASE = BASE.replace(/^http/, 'ws')
+
+export const wsRates = () => `${WS_BASE}/ws/rates`
+export const fxRatesTicker = (cid) => `${BASE}/api/fx-rates/ticker?company_id=${cid}`
+
 const h = () => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
