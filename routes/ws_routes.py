@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 
-from database import SessionLocal, get_rate, _rate_cache
+from database import SessionLocal, get_rate, get_rate_async, _rate_cache
 from models import Exposure
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class RateTickerManager:
 
     async def send_snapshot(self, conn: _Conn) -> None:
         """Immediate snapshot for a newly connected client."""
-        payload = _build_rates(conn)
+        payload = await _build_rates(conn)
         if payload:
             await conn.ws.send_text(json.dumps({"type": "rates", "data": payload}))
 
@@ -80,7 +80,7 @@ class RateTickerManager:
         dead: list[WebSocket] = []
         for conn in list(self._conns):
             try:
-                payload = _build_rates(conn)
+                payload = await _build_rates(conn)
                 if payload:
                     await conn.ws.send_text(json.dumps({"type": "rates", "data": payload}))
             except Exception:
@@ -94,17 +94,19 @@ manager = RateTickerManager()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _build_rates(conn: _Conn) -> dict:
+async def _build_rates(conn: _Conn) -> dict:
     """
     Fetch current cached rate for every subscribed pair.
-    Computes percent-change vs the previous broadcast and
-    updates conn.prev_rates in place.
+    Uses get_rate_async (run_in_executor) so a cold-cache HTTP refresh
+    does not block the event loop and stall the WebSocket handshake.
+    Computes percent-change vs the previous broadcast and updates
+    conn.prev_rates in place.
     """
     updates: dict[str, dict] = {}
     for pair in conn.pairs:
         try:
             from_ccy, to_ccy = pair.split("/", 1)
-            rate = get_rate(from_ccy, to_ccy)
+            rate = await get_rate_async(from_ccy, to_ccy)
             prev = conn.prev_rates.get(pair)
             if prev and prev != 0:
                 change_pct = round(((rate - prev) / prev) * 100, 4)
@@ -245,7 +247,7 @@ async def http_rate_ticker(
     for pair in pairs:
         try:
             from_ccy, to_ccy = pair.split("/", 1)
-            rate = get_rate(from_ccy, to_ccy)
+            rate = await get_rate_async(from_ccy, to_ccy)
             rates[pair] = {"rate": round(rate, 5), "change_pct": 0.0, "direction": "flat"}
         except Exception:
             pass
