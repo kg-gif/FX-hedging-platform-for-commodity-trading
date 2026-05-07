@@ -43,6 +43,7 @@ function clearAuth() {
 
 function AppShell({ authUser, onLogout, children }) {
   const location = useLocation()
+  const { selectedCompanyId } = useCompany()
   const isAdmin = ['superadmin', 'company_admin', 'admin'].includes(authUser?.role)
 
   const navItems = [
