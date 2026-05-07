@@ -15,7 +15,7 @@ export { BASE as API_BASE }
 // Derive WebSocket base from HTTP base: https → wss, http → ws
 export const WS_BASE = BASE.replace(/^http/, 'ws')
 
-export const wsRates = () => `${WS_BASE}/ws/rates`
+export const wsRates = () => `${WS_BASE}/ws/rates`  // append ?token=...&company_id=... at call site
 export const fxRatesTicker = (cid) => `${BASE}/api/fx-rates/ticker?company_id=${cid}`
 
 const h = () => ({

@@ -107,7 +107,7 @@ export function useRateTicker(companyId) {
       if (!token) { startPoll(); return }
 
       console.log('[rate-ticker] connecting, company:', companyId)
-      const ws = new WebSocket(`${wsRates()}?token=${encodeURIComponent(token)}`)
+      const ws = new WebSocket(`${wsRates()}?token=${encodeURIComponent(token)}&company_id=${companyId}`)
       wsRef.current = ws
 
       ws.onopen = () => {

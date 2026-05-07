@@ -172,13 +172,22 @@ async def rate_broadcast_loop() -> None:
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
 
 @router.websocket("/ws/rates")
-async def ws_rates(websocket: WebSocket, token: str = Query(default="")):
+async def ws_rates(
+    websocket: WebSocket,
+    token:      str            = Query(default=""),
+    company_id: Optional[int]  = Query(default=None),
+):
     """
     Live rate ticker stream.
 
     Query params
     ------------
-    token  JWT bearer token (required)
+    token       JWT bearer token (required)
+    company_id  Company to subscribe to.  Superadmins/admins may pass any
+                company_id; non-admins are always locked to their own.
+                Mirrors the resolve_company_id() pattern used by all other
+                endpoints so superadmins viewing a client company see that
+                company's pairs rather than their own (which has none).
 
     Protocol (server → client only)
     --------------------------------
@@ -192,13 +201,20 @@ async def ws_rates(websocket: WebSocket, token: str = Query(default="")):
         await websocket.close(code=4001)
         return
 
-    company_id = payload.get("company_id")
-    if not company_id:
+    token_company_id = payload.get("company_id")
+    role             = payload.get("role", "")
+
+    # Admins may view any company; everyone else is locked to their own
+    if role in ("superadmin", "admin") and company_id:
+        resolved_id = company_id
+    elif token_company_id:
+        resolved_id = int(token_company_id)
+    else:
         await websocket.close(code=4001)
         return
 
-    pairs = _get_company_pairs(int(company_id))
-    conn  = _Conn(websocket, int(company_id), pairs)
+    pairs = _get_company_pairs(resolved_id)
+    conn  = _Conn(websocket, resolved_id, pairs)
     manager.add(conn)
 
     try:
