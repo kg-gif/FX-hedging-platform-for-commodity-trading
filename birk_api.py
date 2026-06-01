@@ -75,6 +75,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    Adds security headers to every response.
+    Cipher · Tech DD finding — resolved 01/06/2026.
+    These headers defend against clickjacking, MIME sniffing, and XSS.
+    DO NOT remove without Cipher and Lex sign-off.
+    """
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; object-src 'none'"
+        )
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # ── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(hedging_router)
 app.include_router(tranche_router)
