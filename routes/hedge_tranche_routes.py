@@ -256,6 +256,7 @@ def create_tranche(
 
     exp = exposure._mapping
     safe_company_id = resolve_company_id(exp["company_id"], payload)
+    currency_pair = f"{exp.get('from_currency', '')}/{exp.get('to_currency', '')}"
 
     # Validate amount doesn't exceed open portion
     existing_hedged = db.execute(text("""
@@ -296,6 +297,19 @@ def create_tranche(
         "executed_by":  payload.get("email"),
         "notes":        body.get("notes"),
         "facility_id":  body.get("facility_id"),   # optional — NULL if not assigned
+    })
+
+    db.execute(text("""
+        INSERT INTO order_audit_log
+            (company_id, exposure_id, currency_pair, action, sent_by, sent_at, status)
+        VALUES
+            (:company_id, :exposure_id, :pair, :action, :by, NOW(), 'executed')
+    """), {
+        "company_id":  safe_company_id,
+        "exposure_id": exposure_id,
+        "pair":        currency_pair,
+        "action":      f"Tranche created — exposure {exposure_id}, amount {new_amount:,.0f}, rate {body.get('rate')}, ref {body.get('order_ref') or 'none'}",
+        "by":          payload.get("email"),
     })
     db.commit()
 
