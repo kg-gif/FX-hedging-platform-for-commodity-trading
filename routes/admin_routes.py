@@ -665,11 +665,15 @@ def delete_user(user_id: int, admin: dict = Depends(require_admin), db: Session 
 @router.get("/reconciliation/orphaned-tranches")
 def get_orphaned_tranches(admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
     """
-    Compliance reconciliation query — Axel · CTO / Lex · Legal.
-    Returns all executed/confirmed tranches with no matching order_audit_log entry
-    within ±5 seconds of execution time.
-    These represent hedge executions with no audit trail — a regulatory gap.
-    Superadmin only. Read-only.
+    Compliance reconciliation — returns all executed/confirmed hedge tranches
+    with no matching order_audit_log entry within ±5 seconds of execution.
+
+    Background: prior to 01/06/2026, create_tranche() committed hedge_tranches
+    rows without writing a corresponding audit record. This endpoint identifies
+    any remaining orphans after the fix was deployed.
+
+    Superadmin only. Read-only — nothing is modified.
+    Used by: Axel · CTO, Lex · Legal.
     """
     _require_superadmin(admin)
 
@@ -705,9 +709,13 @@ def get_orphaned_tranches(admin: dict = Depends(require_admin), db: Session = De
 @router.post("/reconciliation/backfill-audit-records")
 def backfill_orphaned_audit_records(admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
     """
-    One-time back-fill of missing order_audit_log entries for tranches 118 and 106.
-    Approved by Lex · Legal 01/06/2026.
-    Records are marked as retrospective back-fills.
+    One-time retrospective back-fill of missing order_audit_log entries.
+    Currently hardcoded to tranches 118 and 106 — the two real user executions
+    identified by the reconciliation query on 01/06/2026.
+
+    Approved by: Lex · Legal, 01/06/2026.
+    Executed by: Axel · CTO, 01/06/2026.
+    Do not run again — records already inserted. Idempotency not guaranteed.
     Superadmin only.
     """
     _require_superadmin(admin)
