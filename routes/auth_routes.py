@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
 from datetime import datetime, timedelta
+from typing import Optional
 import os
 import logging
 
@@ -74,15 +75,28 @@ def decode_token(token: str) -> dict:
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Dependency — use this on any endpoint you want to protect."""
-    return decode_token(credentials.credentials)
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    access_token: Optional[str] = Cookie(default=None)
+):
+    """
+    Validates the caller — checks HttpOnly cookie first, then Bearer header.
+    Both paths are valid during the transition window (BF-002).
+    Cookie path is preferred — it is not accessible to JavaScript (XSS safe).
+    Bearer header path kept live until frontend completes cookie migration.
+    DO NOT remove Bearer fallback until BF-002 is resolved.
+    """
+    if access_token:
+        return decode_token(access_token)
+    if credentials:
+        return decode_token(credentials.credentials)
+    raise HTTPException(status_code=401, detail="Not authenticated")
 
 
 # ── Routes ───────────────────────────────────────────────────────
 
 @router.post("/login", response_model=TokenResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
+def login(request: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """CFO login — returns JWT token valid for 8 hours."""
     # Look up user by email
     result = db.execute(
@@ -106,6 +120,19 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
         "company_id": user["company_id"],
         "role": user["role"]
     })
+
+    # Set HttpOnly cookie — Cipher security finding, resolved 01/06/2026.
+    # Cookie runs alongside the response-body token during the transition window.
+    # Once frontend ports Login screen (BF-002), the response body token is removed.
+    # DO NOT remove the cookie without Cipher and Lex sign-off.
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=8 * 60 * 60,  # 8 hours — matches ACCESS_TOKEN_EXPIRE_HOURS
+    )
 
     logger.info(f"Login: {user['email']} (company_id={user['company_id']})")
 
@@ -352,3 +379,14 @@ def reset_password(token: str, new_password: str, db: Session = Depends(get_db))
 
     logger.info(f"Password reset successful for user {u['id']}")
     return {"message": "Password updated successfully. You can now log in."}
+
+
+@router.post("/logout")
+def logout(response: Response):
+    """
+    Clears the HttpOnly access_token cookie server-side.
+    Frontend must call this on logout once cookie model is fully adopted (BF-002).
+    Clearing the cookie server-side is the only safe way — JS cannot access HttpOnly cookies.
+    """
+    response.delete_cookie(key="access_token", httponly=True, secure=True, samesite="strict")
+    return {"message": "Logged out"}
