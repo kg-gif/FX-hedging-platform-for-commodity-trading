@@ -660,3 +660,43 @@ def delete_user(user_id: int, admin: dict = Depends(require_admin), db: Session 
     db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
     db.commit()
     return {"message": f"User {user_id} deleted"}
+
+
+@router.get("/reconciliation/orphaned-tranches")
+def get_orphaned_tranches(admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
+    """
+    Compliance reconciliation query — Axel · CTO / Lex · Legal.
+    Returns all executed/confirmed tranches with no matching order_audit_log entry
+    within ±5 seconds of execution time.
+    These represent hedge executions with no audit trail — a regulatory gap.
+    Superadmin only. Read-only.
+    """
+    _require_superadmin(admin)
+
+    rows = db.execute(text("""
+        SELECT
+            ht.id             AS tranche_id,
+            ht.exposure_id,
+            ht.created_by,
+            ht.executed_at,
+            ht.amount,
+            ht.rate,
+            ht.status,
+            ht.order_ref
+        FROM hedge_tranches ht
+        LEFT JOIN order_audit_log oal
+            ON oal.exposure_id = ht.exposure_id
+            AND oal.sent_at BETWEEN ht.executed_at - INTERVAL '5 seconds'
+                                AND ht.executed_at + INTERVAL '5 seconds'
+        WHERE ht.status IN ('executed', 'confirmed')
+          AND oal.id IS NULL
+        ORDER BY ht.executed_at DESC
+    """)).fetchall()
+
+    orphans = [dict(r._mapping) for r in rows]
+
+    return {
+        "orphaned_tranche_count": len(orphans),
+        "note": "These tranches have no matching order_audit_log entry. Review required before regulatory sign-off.",
+        "orphaned_tranches": orphans
+    }
