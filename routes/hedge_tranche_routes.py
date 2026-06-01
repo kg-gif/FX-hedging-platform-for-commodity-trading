@@ -299,6 +299,8 @@ def create_tranche(
         "facility_id":  body.get("facility_id"),   # optional — NULL if not assigned
     })
 
+    # Audit log — every execution must have a traceable record.
+    # Both INSERTs share the same implicit transaction: if either fails, both roll back.
     db.execute(text("""
         INSERT INTO order_audit_log
             (company_id, exposure_id, currency_pair, action, sent_by, sent_at, status)
