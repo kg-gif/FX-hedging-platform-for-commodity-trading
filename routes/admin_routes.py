@@ -700,3 +700,58 @@ def get_orphaned_tranches(admin: dict = Depends(require_admin), db: Session = De
         "note": "These tranches have no matching order_audit_log entry. Review required before regulatory sign-off.",
         "orphaned_tranches": orphans
     }
+
+
+@router.post("/reconciliation/backfill-audit-records")
+def backfill_orphaned_audit_records(admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
+    """
+    One-time back-fill of missing order_audit_log entries for tranches 118 and 106.
+    Approved by Lex · Legal 01/06/2026.
+    Records are marked as retrospective back-fills.
+    Superadmin only.
+    """
+    _require_superadmin(admin)
+
+    tranches_to_backfill = [118, 106]
+    backfilled = []
+
+    for tranche_id in tranches_to_backfill:
+        row = db.execute(text("""
+            SELECT ht.id, ht.exposure_id, ht.company_id, ht.amount, ht.rate,
+                   ht.executed_at, ht.created_by,
+                   e.from_currency, e.to_currency
+            FROM hedge_tranches ht
+            JOIN exposures e ON e.id = ht.exposure_id
+            WHERE ht.id = :id
+        """), {"id": tranche_id}).fetchone()
+
+        if not row:
+            continue
+
+        r = row._mapping
+        currency_pair = f"{r['from_currency']}/{r['to_currency']}"
+        action = (
+            f"[RETROSPECTIVE BACK-FILL 01/06/2026 — approved Lex Legal] "
+            f"Tranche {tranche_id} executed — exposure {r['exposure_id']}, "
+            f"amount {float(r['amount']):,.0f}, rate {r['rate']}, "
+            f"original execution {r['executed_at'].strftime('%d/%m/%Y %H:%M')}"
+        )
+
+        db.execute(text("""
+            INSERT INTO order_audit_log
+                (company_id, exposure_id, currency_pair, action, sent_by, sent_at, status)
+            VALUES
+                (:company_id, :exposure_id, :pair, :action, :by, :sent_at, 'executed')
+        """), {
+            "company_id":  r["company_id"],
+            "exposure_id": r["exposure_id"],
+            "pair":        currency_pair,
+            "action":      action,
+            "by":          r["created_by"],
+            "sent_at":     r["executed_at"],
+        })
+
+        backfilled.append(tranche_id)
+
+    db.commit()
+    return {"backfilled_tranche_ids": backfilled, "message": "Back-fill complete. Verify with reconciliation endpoint."}
