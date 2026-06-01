@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
@@ -75,17 +76,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
     Adds security headers to every response.
     Cipher · Tech DD finding — resolved 01/06/2026.
-    These headers defend against clickjacking, MIME sniffing, and XSS.
     DO NOT remove without Cipher and Lex sign-off.
     """
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request, call_next):
         response = await call_next(request)
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
