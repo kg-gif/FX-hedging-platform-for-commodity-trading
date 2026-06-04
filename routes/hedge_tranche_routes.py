@@ -388,6 +388,104 @@ def confirm_tranche(
     return {"message": "Tranche confirmed", "bank_reference": bank_reference}
 
 
+@router.patch("/api/tranches/{tranche_id}/value-date")
+def update_tranche_value_date(
+    tranche_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Updates the value date on an executed/confirmed tranche.
+    Writes to value_date_audit_log in the same transaction as the tranche UPDATE.
+
+    Status stays 'executed' — a value date change is an amendment, not a new execution.
+    Finn · Treasury confirmed 02/06/2026.
+
+    Replaces the frontend fire-and-forget call to POST /api/audit/value-date-change.
+    That endpoint is now deprecated (BF-001 Part 2 — Axel · CTO, 02/06/2026).
+
+    Both writes are atomic — if the audit insert fails, the value date is not updated.
+    DO NOT split these writes into separate transactions. Lex · Legal requirement.
+    """
+    ensure_tables(db)
+
+    new_date = body.get("new_date")
+    reason   = (body.get("reason") or "").strip()
+
+    if not new_date:
+        raise HTTPException(status_code=400, detail="new_date is required")
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required — value date changes must have a documented reason")
+
+    tranche = db.execute(text("""
+        SELECT ht.*, e.company_id AS exp_company_id,
+               e.from_currency, e.to_currency, e.id AS exp_id
+        FROM hedge_tranches ht
+        JOIN exposures e ON e.id = ht.exposure_id
+        WHERE ht.id = :id
+    """), {"id": tranche_id}).fetchone()
+
+    if not tranche:
+        raise HTTPException(status_code=404, detail="Tranche not found")
+
+    t = tranche._mapping
+    safe_company_id = resolve_company_id(t["exp_company_id"], payload)
+    currency_pair   = f"{t['from_currency']}/{t['to_currency']}"
+    original_date   = t["value_date"]
+    changed_by      = payload.get("email")
+
+    if t["status"] not in ("executed", "confirmed"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Value date can only be changed on executed or confirmed tranches (current status: {t['status']})"
+        )
+
+    # Update tranche value date
+    db.execute(text("""
+        UPDATE hedge_tranches
+        SET value_date = :new_date
+        WHERE id = :id
+    """), {"new_date": new_date, "id": tranche_id})
+
+    # --- COMPLIANCE: audit log write ---
+    # Value date changes on regulated financial records must be logged atomically.
+    # MiFID II Article 16(6) — five-year retention rule.
+    # Finn · Treasury: status stays 'executed' — this is an amendment, not a new trade.
+    # DO NOT move this write outside this transaction. Lex · Legal sign-off required to change.
+    db.execute(text("""
+        INSERT INTO value_date_audit_log
+            (company_id, exposure_id, currency_pair,
+             original_date, new_date, reason, changed_by)
+        VALUES
+            (:company_id, :exposure_id, :pair,
+             :original_date, :new_date, :reason, :changed_by)
+    """), {
+        "company_id":    safe_company_id,
+        "exposure_id":   t["exp_id"],
+        "pair":          currency_pair,
+        "original_date": original_date,
+        "new_date":      new_date,
+        "reason":        reason,
+        "changed_by":    changed_by,
+    })
+
+    db.commit()
+
+    logger.info(
+        f"Value date updated: tranche {tranche_id}, "
+        f"{original_date} → {new_date}, reason: {reason}, by {changed_by}"
+    )
+
+    return {
+        "message":       "Value date updated",
+        "tranche_id":    tranche_id,
+        "original_date": str(original_date) if original_date else None,
+        "new_date":      new_date,
+        "reason":        reason,
+    }
+
+
 @router.post("/api/exposures/{exposure_id}/reset-corridor")
 def reset_corridor(
     exposure_id: int,

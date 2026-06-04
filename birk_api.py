@@ -2429,6 +2429,21 @@ async def startup_event():
                 created_at       TIMESTAMP DEFAULT NOW()
             )""",
 
+            # ── Value Date Audit Log ──────────────────────────────────────────
+            # MiFID II Article 16(6) — all value date changes must be logged
+            # BF-001 Part 2 (Axel · CTO, Lex · Legal approved 02/06/2026)
+            """CREATE TABLE IF NOT EXISTS value_date_audit_log (
+                id            SERIAL PRIMARY KEY,
+                company_id    INTEGER REFERENCES companies(id),
+                exposure_id   INTEGER,
+                currency_pair VARCHAR(20),
+                original_date DATE,
+                new_date      DATE,
+                reason        TEXT NOT NULL,
+                changed_by    VARCHAR(255),
+                changed_at    TIMESTAMP DEFAULT NOW()
+            )""",
+
             # ── Three-tier admin roles ─────────────────────────────────────────
             # parent_company_id supports subsidiary / umbrella account relationships
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS parent_company_id INTEGER REFERENCES companies(id)",
@@ -2685,9 +2700,14 @@ def log_value_date_change(
     db: Session = Depends(get_db),
     payload: dict = Depends(get_token_payload)
 ):
+    # DEPRECATED 02/06/2026 — value date audit logging now handled server-side
+    # via PATCH /api/tranches/{tranche_id}/value-date (BF-001 Part 2).
+    # This endpoint will return 410 Gone once frontend confirms migration.
+    # Do not remove until frontend unit confirms BF-001 is fully closed.
     """
     Compliance audit log for value date changes.
     Called automatically when user overrides the value date on an execution order.
+    DEPRECATED — see PATCH /api/tranches/{tranche_id}/value-date instead.
     """
     from sqlalchemy import text as _text
 
