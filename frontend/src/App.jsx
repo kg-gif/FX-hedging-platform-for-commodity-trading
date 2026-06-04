@@ -20,6 +20,9 @@ import Settings from './components/Settings'
 import Glossary from './components/Glossary'
 import Login from './components/Login'
 import ResetPassword from './components/ResetPassword'
+import RebuildShell from './components/screens/RebuildShell'
+import DesignDemo from './components/screens/DesignDemo'
+import Legal from './components/screens/Legal'
 
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
@@ -274,6 +277,11 @@ function App() {
         <Route path="/reset-password" element={
           <ResetPassword onDone={() => window.location.href = '/'} />
         } />
+
+        {/* Rebuild — unlisted; renders its own shell outside legacy nav */}
+        <Route path="/rebuild" element={<CompanyProvider><RebuildShell /></CompanyProvider>} />
+        <Route path="/rebuild-demo" element={<DesignDemo />} />
+        <Route path="/legal" element={<Legal />} />
 
         {/* All other routes — gated by auth */}
         {!authData ? (
