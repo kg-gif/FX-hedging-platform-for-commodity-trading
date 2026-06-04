@@ -137,6 +137,113 @@ def _seed_default_policies(db, company_id: int) -> None:
 
 # ── Endpoints ────────────────────────────────────────────────────
 
+@router.get("/risk")
+def get_risk_settings(
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Returns counterparty utilisation thresholds for the authenticated company.
+    Replaces localStorage read in RiskSettingsContext.jsx (BF-003).
+    Multi-tenancy enforced via resolve_company_id.
+    Defaults: at_risk=80%, warning=60% — applied if column is NULL.
+    """
+    company_id = resolve_company_id(payload.get("company_id"), payload)
+
+    row = db.execute(text("""
+        SELECT counterparty_at_risk_pct, counterparty_warning_pct
+        FROM companies
+        WHERE id = :id
+    """), {"id": company_id}).fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    r = row._mapping
+    return {
+        "counterparty_at_risk_pct":  r["counterparty_at_risk_pct"]  or 80,
+        "counterparty_warning_pct":  r["counterparty_warning_pct"]  or 60,
+    }
+
+
+@router.patch("/risk")
+def update_risk_settings(
+    body: dict,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload)
+):
+    """
+    Updates counterparty utilisation thresholds for the authenticated company.
+    Replaces localStorage write in RiskSettingsContext.jsx (BF-003).
+
+    Validation rules (match frontend enforcement):
+    - Both values must be integers 1–100
+    - counterparty_warning_pct must be strictly less than counterparty_at_risk_pct
+
+    Writes to order_audit_log — this is a policy-level change and must be traceable.
+    Lex · Legal requirement — approved 02/06/2026.
+    """
+    company_id = resolve_company_id(payload.get("company_id"), payload)
+
+    at_risk = body.get("counterparty_at_risk_pct")
+    warning = body.get("counterparty_warning_pct")
+
+    # Fetch current values to fill in any missing fields and for audit record
+    current = db.execute(text("""
+        SELECT counterparty_at_risk_pct, counterparty_warning_pct
+        FROM companies WHERE id = :id
+    """), {"id": company_id}).fetchone()
+
+    if not current:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    c = current._mapping
+    new_at_risk = int(at_risk) if at_risk is not None else (c["counterparty_at_risk_pct"] or 80)
+    new_warning = int(warning) if warning is not None else (c["counterparty_warning_pct"] or 60)
+
+    # Validation
+    if not (1 <= new_at_risk <= 100) or not (1 <= new_warning <= 100):
+        raise HTTPException(status_code=400, detail="Threshold values must be integers between 1 and 100")
+    if new_warning >= new_at_risk:
+        raise HTTPException(
+            status_code=400,
+            detail="counterparty_warning_pct must be strictly less than counterparty_at_risk_pct"
+        )
+
+    db.execute(text("""
+        UPDATE companies
+        SET counterparty_at_risk_pct = :at_risk,
+            counterparty_warning_pct = :warning,
+            updated_at = NOW()
+        WHERE id = :id
+    """), {"at_risk": new_at_risk, "warning": new_warning, "id": company_id})
+
+    # --- COMPLIANCE: audit log write ---
+    # Risk settings are policy-level changes — every change must be traceable.
+    # Lex · Legal requirement, approved 02/06/2026. DO NOT remove without sign-off.
+    db.execute(text("""
+        INSERT INTO order_audit_log
+            (company_id, exposure_id, currency_pair, action, sent_by, sent_at, status)
+        VALUES
+            (:company_id, NULL, NULL, :action, :by, NOW(), 'settings_change')
+    """), {
+        "company_id": company_id,
+        "action": (
+            f"Risk settings updated — "
+            f"at_risk: {c['counterparty_at_risk_pct'] or 80}% → {new_at_risk}%, "
+            f"warning: {c['counterparty_warning_pct'] or 60}% → {new_warning}%"
+        ),
+        "by": payload.get("email"),
+    })
+
+    db.commit()
+
+    return {
+        "counterparty_at_risk_pct": new_at_risk,
+        "counterparty_warning_pct": new_warning,
+    }
+
+
 @router.get("/{company_id}")
 def get_settings(company_id: int, db: Session = Depends(get_db), payload: dict = Depends(get_token_payload)):
     safe_id = resolve_company_id(company_id, payload)
@@ -585,110 +692,3 @@ def get_approved_pairs():
     exotics = sorted(["USD/MXN","USD/CNY","USD/BRL","USD/ZAR","USD/INR","USD/TRY","USD/NOK","USD/SEK"])
     minors = sorted([p for p in APPROVED_PAIRS if p not in majors and p not in nok_sek and p not in exotics])
     return {"majors": majors, "minors": minors, "nok_sek_crosses": nok_sek, "liquid_exotics": exotics, "total": len(APPROVED_PAIRS)}
-
-
-@router.get("/risk")
-def get_risk_settings(
-    db: Session = Depends(get_db),
-    payload: dict = Depends(get_token_payload)
-):
-    """
-    Returns counterparty utilisation thresholds for the authenticated company.
-    Replaces localStorage read in RiskSettingsContext.jsx (BF-003).
-    Multi-tenancy enforced via resolve_company_id.
-    Defaults: at_risk=80%, warning=60% — applied if column is NULL.
-    """
-    company_id = resolve_company_id(payload.get("company_id"), payload)
-
-    row = db.execute(text("""
-        SELECT counterparty_at_risk_pct, counterparty_warning_pct
-        FROM companies
-        WHERE id = :id
-    """), {"id": company_id}).fetchone()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    r = row._mapping
-    return {
-        "counterparty_at_risk_pct":  r["counterparty_at_risk_pct"]  or 80,
-        "counterparty_warning_pct":  r["counterparty_warning_pct"]  or 60,
-    }
-
-
-@router.patch("/risk")
-def update_risk_settings(
-    body: dict,
-    db: Session = Depends(get_db),
-    payload: dict = Depends(get_token_payload)
-):
-    """
-    Updates counterparty utilisation thresholds for the authenticated company.
-    Replaces localStorage write in RiskSettingsContext.jsx (BF-003).
-
-    Validation rules (match frontend enforcement):
-    - Both values must be integers 1–100
-    - counterparty_warning_pct must be strictly less than counterparty_at_risk_pct
-
-    Writes to order_audit_log — this is a policy-level change and must be traceable.
-    Lex · Legal requirement — approved 02/06/2026.
-    """
-    company_id = resolve_company_id(payload.get("company_id"), payload)
-
-    at_risk = body.get("counterparty_at_risk_pct")
-    warning = body.get("counterparty_warning_pct")
-
-    # Fetch current values to fill in any missing fields and for audit record
-    current = db.execute(text("""
-        SELECT counterparty_at_risk_pct, counterparty_warning_pct
-        FROM companies WHERE id = :id
-    """), {"id": company_id}).fetchone()
-
-    if not current:
-        raise HTTPException(status_code=404, detail="Company not found")
-
-    c = current._mapping
-    new_at_risk = int(at_risk) if at_risk is not None else (c["counterparty_at_risk_pct"] or 80)
-    new_warning = int(warning) if warning is not None else (c["counterparty_warning_pct"] or 60)
-
-    # Validation
-    if not (1 <= new_at_risk <= 100) or not (1 <= new_warning <= 100):
-        raise HTTPException(status_code=400, detail="Threshold values must be integers between 1 and 100")
-    if new_warning >= new_at_risk:
-        raise HTTPException(
-            status_code=400,
-            detail="counterparty_warning_pct must be strictly less than counterparty_at_risk_pct"
-        )
-
-    db.execute(text("""
-        UPDATE companies
-        SET counterparty_at_risk_pct = :at_risk,
-            counterparty_warning_pct = :warning,
-            updated_at = NOW()
-        WHERE id = :id
-    """), {"at_risk": new_at_risk, "warning": new_warning, "id": company_id})
-
-    # --- COMPLIANCE: audit log write ---
-    # Risk settings are policy-level changes — every change must be traceable.
-    # Lex · Legal requirement, approved 02/06/2026. DO NOT remove without sign-off.
-    db.execute(text("""
-        INSERT INTO order_audit_log
-            (company_id, exposure_id, currency_pair, action, sent_by, sent_at, status)
-        VALUES
-            (:company_id, NULL, NULL, :action, :by, NOW(), 'settings_change')
-    """), {
-        "company_id": company_id,
-        "action": (
-            f"Risk settings updated — "
-            f"at_risk: {c['counterparty_at_risk_pct'] or 80}% → {new_at_risk}%, "
-            f"warning: {c['counterparty_warning_pct'] or 60}% → {new_warning}%"
-        ),
-        "by": payload.get("email"),
-    })
-
-    db.commit()
-
-    return {
-        "counterparty_at_risk_pct": new_at_risk,
-        "counterparty_warning_pct": new_warning,
-    }
