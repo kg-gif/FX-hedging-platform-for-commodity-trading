@@ -166,7 +166,17 @@ def delete_company(
 
     db.commit()
     logger.info(f"Company soft-deleted: id={company_id} name='{company_name}' by {admin.get('email')}")
-    return {"success": True, "message": f"'{company_name}' deactivated"}
+    return {
+        "success": True,
+        "message": f"'{company_name}' account closed.",
+        "data_retention_notice": (
+            "In accordance with regulatory obligations (MiFID II Article 16(6), AMLD6), "
+            "all transaction records, audit logs, and financial data are retained for a "
+            "minimum of five years. A data export may be requested at any time."
+        ),
+        "closed_company": company_name,
+        "closed_at": datetime.utcnow().isoformat()
+    }
 
 
 @router.put("/companies/{company_id}/rename")
