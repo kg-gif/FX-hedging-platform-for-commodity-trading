@@ -1,0 +1,222 @@
+/* =========================================================================
+   SNH Design System Tokens — subset for the frontend rebuild
+   Source of truth: sum-no-how-design-system/project/colors_and_type.css
+   Brand guide: SNH_BRAND_GUIDE.md v1.2 (12 May 2026)
+   Last sync: 13 May 2026
+   ========================================================================= */
+
+/* -- KaTeX font subset --------------------------------------------------- */
+
+@font-face {
+  font-family: 'KaTeX_Main';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/KaTeX_Main-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'KaTeX_Main';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/KaTeX_Main-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'KaTeX_Main';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/KaTeX_Main-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'KaTeX_SansSerif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/KaTeX_SansSerif-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'KaTeX_SansSerif';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/KaTeX_SansSerif-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'KaTeX_Typewriter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/KaTeX_Typewriter-Regular.woff2') format('woff2');
+}
+
+/* -- SNH brand tokens (scoped to .snh-rebuild) ---------------------------
+   Scoped to a class so the legacy app keeps its existing styles unchanged
+   until each screen is ported. Any element under .snh-rebuild gets the
+   full SNH design-system token surface.
+   ----------------------------------------------------------------------- */
+
+.snh-rebuild {
+  /* Brand colours */
+  --snh-navy:           #1A2744;
+  --snh-navy-light:     #243560;
+  --snh-gold:           #C9A86C;
+  --snh-gold-muted:     rgba(201, 168, 108, 0.15);
+  --snh-slate:          #8DA4C4;
+  --snh-page:           #F0F2F7;
+  --snh-card:           #FFFFFF;
+  --snh-danger:         #EF4444;
+  --snh-danger-dark:    #DC2626;
+  --snh-warning:        #F59E0B;
+  --snh-success:        #10B981;
+
+  /* Ink scale */
+  --snh-ink:            #0E1A33;
+  --snh-ink-3:          #4A5A7A;
+  --snh-ink-4:          #8DA4C4;
+  --snh-ink-5:          #C2CCDC;
+  --snh-ink-6:          #E2E7EF;
+  --snh-ink-7:          #F0F2F7;
+
+  /* Semantic mapping */
+  --fg-1:               var(--snh-ink);
+  --fg-2:               var(--snh-ink-3);
+  --fg-3:               var(--snh-ink-4);
+  --fg-on-navy:         #FFFFFF;
+  --fg-on-gold:         var(--snh-navy);
+  --fg-accent:          var(--snh-gold);
+  --bg-page:            var(--snh-page);
+  --bg-surface:         var(--snh-card);
+  --bg-navy:            var(--snh-navy);
+  --bg-navy-hover:      var(--snh-navy-light);
+  --border-1:           var(--snh-ink-6);
+  --border-2:           var(--snh-ink-5);
+  --border-focus:       var(--snh-gold);
+
+  /* Type families */
+  --font-display:       'KaTeX_Main', Georgia, 'Times New Roman', serif;
+  --font-body:          'KaTeX_SansSerif', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:          'KaTeX_Typewriter', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* Type scale */
+  --fs-display-1:       56px;
+  --fs-display-2:       40px;
+  --fs-h1:              32px;
+  --fs-h2:              24px;
+  --fs-h3:              20px;
+  --fs-h4:              17px;
+  --fs-body:            15px;
+  --fs-body-sm:         13px;
+  --fs-caption:         12px;
+  --fs-eyebrow:         11px;
+  --fs-mono:            13px;
+
+  /* Weights — two only */
+  --fw-regular:         400;
+  --fw-bold:            700;
+
+  /* Spacing — 4px base */
+  --space-1:            4px;
+  --space-2:            8px;
+  --space-3:            12px;
+  --space-4:            16px;
+  --space-5:            20px;
+  --space-6:            24px;
+  --space-7:            32px;
+  --space-8:            40px;
+  --space-9:            56px;
+  --space-10:           72px;
+
+  /* Radii */
+  --radius-2:           4px;
+  --radius-3:           6px;
+  --radius-4:           8px;
+  --radius-pill:        999px;
+
+  /* Shadows */
+  --shadow-1:           0 1px 2px rgba(26, 39, 68, 0.06), 0 1px 1px rgba(26, 39, 68, 0.04);
+  --shadow-2:           0 2px 6px rgba(26, 39, 68, 0.08), 0 1px 2px rgba(26, 39, 68, 0.05);
+  --shadow-3:           0 8px 24px rgba(26, 39, 68, 0.10), 0 2px 6px rgba(26, 39, 68, 0.06);
+  --shadow-focus-gold:  0 0 0 3px rgba(201, 168, 108, 0.35);
+
+  /* Motion */
+  --ease-standard:      cubic-bezier(0.2, 0.0, 0.0, 1.0);
+  --dur-fast:           120ms;
+  --dur-base:           180ms;
+  --dur-slow:           260ms;
+
+  /* Base typography on the scoped surface */
+  background: var(--bg-page);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  font-weight: var(--fw-regular);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings — KaTeX_Main serif, 700 only */
+.snh-rebuild h1,
+.snh-rebuild .h1 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-h1);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--snh-navy);
+  margin: 0;
+}
+.snh-rebuild h2,
+.snh-rebuild .h2 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-h2);
+  line-height: 1.20;
+  color: var(--snh-navy);
+  margin: 0;
+}
+.snh-rebuild h3,
+.snh-rebuild .h3 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-h3);
+  line-height: 1.25;
+  color: var(--snh-navy);
+  margin: 0;
+}
+.snh-rebuild h4,
+.snh-rebuild .h4 {
+  font-family: var(--font-body);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-h4);
+  line-height: 1.30;
+  color: var(--snh-navy);
+  margin: 0;
+}
+
+/* Body and supporting text */
+.snh-rebuild p { margin: 0; font-size: var(--fs-body); line-height: 1.55; }
+.snh-rebuild .body-sm { font-size: var(--fs-body-sm); line-height: 1.50; }
+.snh-rebuild .caption {
+  font-size: var(--fs-caption);
+  line-height: 1.40;
+  letter-spacing: 0.01em;
+  color: var(--fg-2);
+}
+
+/* Mono and tabular numerals */
+.snh-rebuild .mono,
+.snh-rebuild .num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+  font-variant-numeric: tabular-nums;
+}
+.snh-rebuild .tabular { font-variant-numeric: tabular-nums; }
+
+/* Focus rings — gold */
+.snh-rebuild *:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus-gold);
+  border-radius: var(--radius-3);
+}
