@@ -10,7 +10,10 @@ from sqlalchemy.orm import Session
 from models import Exposure, SimulationResult
 from database import SessionLocal, get_db
 from services.monte_carlo_service import MonteCarloService
-from datetime import datetime
+from datetime import datetime, date, timedelta
+import httpx
+import os
+import numpy as np
 
 router = APIRouter(prefix="/api/monte-carlo", tags=["Monte Carlo Simulation"])
 
@@ -204,4 +207,129 @@ async def health_check():
         'status': 'healthy',
         'service': 'Monte Carlo Simulation',
         'version': '2.0.0'
+    }
+
+
+@router.get("/simulate/exposure/{exposure_id}")
+async def simulate_exposure_structured(
+    exposure_id: int,
+    horizon_days: int = Query(default=90, ge=1, le=365),
+    history_days: int = Query(default=90, ge=30, le=365),
+    db: Session = Depends(get_db)
+):
+    """
+    GET /api/monte-carlo/simulate/exposure/{exposure_id}
+
+    Returns structured simulation output for RiskEngine.jsx Phase 3.
+    Shape matches BF-005 spec — Axel · CTO / Finn · Treasury, 02/06/2026.
+
+    Output includes:
+    - forward_path: day-by-day P50 (median) path
+    - confidence_bands: day-by-day P10/P25/P75/P90 across all paths
+    - historical_rates: lookback from exchangerate-api
+    - var_95_pct: worst P5 outcome expressed as rate delta
+    - expected_shortfall_95_pct: mean of worst 5% paths
+    - narrative: ai_generated flag carried per Ada contract
+
+    Volatility calibrated from historical daily returns (not static lookup).
+    Finn · Treasury requirement — approved 02/06/2026.
+    """
+    exposure = db.query(Exposure).filter(Exposure.id == exposure_id).first()
+    if not exposure:
+        raise HTTPException(status_code=404, detail=f"Exposure {exposure_id} not found")
+
+    currency_pair = f"{exposure.from_currency}/{exposure.to_currency}"
+    spot = float(exposure.current_rate or 1.0)
+    budget_rate = float(exposure.budget_rate or spot)
+    simulation_date = date.today().isoformat()
+
+    # ── Historical rates ──────────────────────────────────────────
+    fx_api_key = os.getenv("EXCHANGERATE_API_KEY") or os.getenv("FX_API_KEY")
+    historical_rates = []
+    calibrated_vol = None
+
+    if fx_api_key:
+        try:
+            # Fetch last history_days of daily rates
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                url = f"https://v6.exchangerate-api.com/v6/{fx_api_key}/history/{exposure.from_currency}/{exposure.to_currency}"
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    rates_map = data.get("conversion_rates_history", {})
+                    sorted_dates = sorted(rates_map.keys())[-history_days:]
+                    historical_rates = [
+                        {"day": i - len(sorted_dates), "rate": float(rates_map[d])}
+                        for i, d in enumerate(sorted_dates)
+                    ]
+                    # Calibrate vol from actual daily log returns
+                    if len(historical_rates) >= 10:
+                        rate_vals = np.array([r["rate"] for r in historical_rates])
+                        log_returns = np.diff(np.log(rate_vals))
+                        calibrated_vol = float(np.std(log_returns) * np.sqrt(252))
+        except Exception:
+            pass  # Fall back to static vol estimate
+
+    # ── Run simulation ─────────────────────────────────────────────
+    mc = MonteCarloService()
+    num_scenarios = 10000
+    num_steps = horizon_days
+    dt = 1 / 252
+    vol = calibrated_vol or mc.estimate_volatility_from_pair(currency_pair)
+
+    np.random.seed(42)
+    shocks = np.random.normal(0, 1, (num_scenarios, num_steps))
+    paths = np.zeros((num_scenarios, num_steps + 1))
+    paths[:, 0] = spot
+    for t in range(num_steps):
+        paths[:, t + 1] = paths[:, t] * np.exp(
+            (-0.5 * vol**2) * dt + vol * np.sqrt(dt) * shocks[:, t]
+        )
+
+    # ── Forward path (P50 at each step) ───────────────────────────
+    forward_path = [
+        {"day": t, "rate": round(float(np.percentile(paths[:, t], 50)), 6)}
+        for t in range(0, num_steps + 1, max(1, num_steps // 20))
+    ]
+
+    # ── Confidence bands ──────────────────────────────────────────
+    confidence_bands = [
+        {
+            "day": t,
+            "p10": round(float(np.percentile(paths[:, t], 10)), 6),
+            "p25": round(float(np.percentile(paths[:, t], 25)), 6),
+            "p75": round(float(np.percentile(paths[:, t], 75)), 6),
+            "p90": round(float(np.percentile(paths[:, t], 90)), 6),
+        }
+        for t in range(0, num_steps + 1, max(1, num_steps // 20))
+    ]
+
+    # ── VaR and Expected Shortfall ─────────────────────────────────
+    final_rates = paths[:, -1]
+    rate_deltas = final_rates - spot
+    var_95_rate = float(np.percentile(rate_deltas, 5))
+    es_threshold = np.percentile(rate_deltas, 5)
+    worst_paths = rate_deltas[rate_deltas <= es_threshold]
+    expected_shortfall = float(np.mean(worst_paths)) if len(worst_paths) > 0 else var_95_rate
+
+    return {
+        "pair":             currency_pair,
+        "spot":             spot,
+        "budget_rate":      budget_rate,
+        "simulation_date":  simulation_date,
+        "horizon_days":     horizon_days,
+        "volatility_used":  round(vol, 6),
+        "vol_calibrated":   calibrated_vol is not None,
+
+        "forward_path":     forward_path,
+        "confidence_bands": confidence_bands,
+
+        "var_95_pct":              round(var_95_rate, 6),
+        "expected_shortfall_95_pct": round(expected_shortfall, 6),
+
+        "historical_rates": historical_rates,
+
+        "narrative": None,
+        "ai_generated": False,
+        "fallback_used": True,
     }
