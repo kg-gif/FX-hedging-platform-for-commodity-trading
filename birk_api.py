@@ -2588,6 +2588,12 @@ async def startup_event():
                 sent_at      TIMESTAMP DEFAULT NOW(),
                 error_detail TEXT
             )""",
+
+            # ── Risk Settings — Counterparty Utilisation Thresholds ──────────
+            # BF-003: Move from localStorage to database (Lex Legal + Axel CTO approved 02/06/2026)
+            # Defaults: at_risk=80%, warning=60% — applied if column is NULL
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS counterparty_at_risk_pct INTEGER DEFAULT 80",
+            "ALTER TABLE companies ADD COLUMN IF NOT EXISTS counterparty_warning_pct INTEGER DEFAULT 60",
         ]
         for sql in migrations:
             try:
