@@ -13,7 +13,10 @@ from services.monte_carlo_service import MonteCarloService
 from datetime import datetime, date, timedelta
 import httpx
 import os
+import logging
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/monte-carlo", tags=["Monte Carlo Simulation"])
 
