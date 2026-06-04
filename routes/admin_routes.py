@@ -773,3 +773,145 @@ def backfill_orphaned_audit_records(admin: dict = Depends(require_admin), db: Se
 
     db.commit()
     return {"backfilled_tranche_ids": backfilled, "message": "Back-fill complete. Verify with reconciliation endpoint."}
+
+
+@router.post("/fx-history/upload")
+def upload_fx_history(
+    body: dict,
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload historical FX rate data from investing.com CSV format.
+    Shared market data — applies to all tenants. Superadmin only.
+
+    Accepts JSON body:
+    {
+        "currency_pair": "EUR/USD",
+        "rows": [
+            {"date": "Jun 04, 2026", "price": 1.1633},
+            ...
+        ]
+    }
+
+    Rows can also use ISO format: {"date": "2026-06-04", "price": 1.1633}
+    Duplicate dates are ignored (ON CONFLICT DO NOTHING).
+    Source recorded as 'investing.com' for audit purposes.
+    """
+    _require_superadmin(admin)
+
+    currency_pair = (body.get("currency_pair") or "").strip().upper()
+    rows = body.get("rows") or []
+
+    if not currency_pair or "/" not in currency_pair:
+        raise HTTPException(status_code=400, detail="currency_pair required — e.g. 'EUR/USD'")
+    if not rows:
+        raise HTTPException(status_code=400, detail="rows array is required")
+
+    from datetime import datetime as dt
+
+    inserted = 0
+    skipped = 0
+    errors = []
+
+    for row in rows:
+        raw_date = str(row.get("date") or "").strip()
+        price = row.get("price") or row.get("Price")
+
+        if not raw_date or price is None:
+            skipped += 1
+            continue
+
+        # Parse both investing.com format ("Jun 04, 2026") and ISO ("2026-06-04")
+        parsed_date = None
+        for fmt in ("%b %d, %Y", "%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                parsed_date = dt.strptime(raw_date, fmt).date()
+                break
+            except ValueError:
+                continue
+
+        if not parsed_date:
+            errors.append(f"Could not parse date: {raw_date}")
+            skipped += 1
+            continue
+
+        try:
+            db.execute(text("""
+                INSERT INTO fx_rate_history
+                    (currency_pair, rate_date, closing_rate, source)
+                VALUES
+                    (:pair, :date, :rate, 'investing.com')
+                ON CONFLICT (currency_pair, rate_date) DO NOTHING
+            """), {
+                "pair": currency_pair,
+                "date": parsed_date,
+                "rate": float(price)
+            })
+            inserted += 1
+        except Exception as e:
+            errors.append(str(e))
+            skipped += 1
+
+    db.commit()
+
+    return {
+        "currency_pair": currency_pair,
+        "inserted": inserted,
+        "skipped": skipped,
+        "errors": errors[:10] if errors else []
+    }
+
+
+@router.post("/fx-history/snapshot")
+def snapshot_daily_rates(
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Writes today's rates from the live cache to fx_rate_history.
+    Called once daily by cron-job.org.
+    Shared market data — no company_id.
+    Duplicates ignored (ON CONFLICT DO NOTHING).
+
+    Pairs captured: the standard SNH trading pairs.
+    """
+    _require_superadmin(admin)
+
+    from database import get_rate
+    from datetime import date
+
+    PAIRS = [
+        ("EUR", "USD"), ("EUR", "GBP"), ("EUR", "NOK"), ("EUR", "SEK"),
+        ("EUR", "CHF"), ("EUR", "JPY"), ("GBP", "USD"), ("GBP", "NOK"),
+        ("USD", "NOK"), ("USD", "SEK"), ("USD", "JPY"), ("USD", "CHF"),
+        ("GBP", "JPY"), ("USD", "MXN"), ("USD", "CNY"),
+    ]
+
+    today = date.today()
+    inserted = 0
+    failed = []
+
+    for from_ccy, to_ccy in PAIRS:
+        pair = f"{from_ccy}/{to_ccy}"
+        try:
+            rate = get_rate(from_ccy, to_ccy)
+            db.execute(text("""
+                INSERT INTO fx_rate_history
+                    (currency_pair, rate_date, closing_rate, source)
+                VALUES
+                    (:pair, :date, :rate, 'system')
+                ON CONFLICT (currency_pair, rate_date) DO NOTHING
+            """), {"pair": pair, "date": today, "rate": rate})
+            inserted += 1
+        except Exception as e:
+            failed.append(f"{pair}: {e}")
+
+    db.commit()
+    logger.info(f"Daily FX snapshot: {inserted} pairs saved for {today}")
+
+    return {
+        "date": str(today),
+        "inserted": inserted,
+        "failed": failed
+    }

@@ -2609,6 +2609,23 @@ async def startup_event():
             # Defaults: at_risk=80%, warning=60% — applied if column is NULL
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS counterparty_at_risk_pct INTEGER DEFAULT 80",
             "ALTER TABLE companies ADD COLUMN IF NOT EXISTS counterparty_warning_pct INTEGER DEFAULT 60",
+
+            # ── Shared Market Data — FX Rate History ────────────────────────────
+            # One central table, no company_id — all tenants read from same pool.
+            # Populated daily by cron → /api/admin/fx-history/snapshot
+            # and seeded via /api/admin/fx-history/upload (investing.com CSV).
+            # Replaces repeated external API calls to exchangerate-api in Monte Carlo.
+            """CREATE TABLE IF NOT EXISTS fx_rate_history (
+                id           SERIAL PRIMARY KEY,
+                currency_pair VARCHAR(10) NOT NULL,
+                rate_date    DATE NOT NULL,
+                closing_rate NUMERIC(20, 8) NOT NULL,
+                source       VARCHAR(50) DEFAULT 'system',
+                created_at   TIMESTAMP DEFAULT NOW(),
+                UNIQUE (currency_pair, rate_date)
+            )""",
+            """CREATE INDEX IF NOT EXISTS idx_fx_rate_history_pair_date
+                ON fx_rate_history (currency_pair, rate_date DESC)""",
         ]
         for sql in migrations:
             try:

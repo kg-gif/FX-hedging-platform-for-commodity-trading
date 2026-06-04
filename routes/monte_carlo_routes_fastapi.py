@@ -243,32 +243,37 @@ async def simulate_exposure_structured(
     budget_rate = float(exposure.budget_rate or spot)
     simulation_date = date.today().isoformat()
 
-    # ── Historical rates ──────────────────────────────────────────
-    fx_api_key = os.getenv("EXCHANGERATE_API_KEY") or os.getenv("FX_API_KEY")
+    # ── Historical rates from internal table ──────────────────────
+    # Shared market data — no API calls, no quota, no paid plan needed.
+    # fx_rate_history populated daily by /api/admin/fx-history/snapshot
+    # and seeded via /api/admin/fx-history/upload (investing.com CSV).
     historical_rates = []
     calibrated_vol = None
 
-    if fx_api_key:
-        try:
-            # Fetch last history_days of daily rates
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                url = f"https://v6.exchangerate-api.com/v6/{fx_api_key}/history/{exposure.from_currency}/{exposure.to_currency}"
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    rates_map = data.get("conversion_rates_history", {})
-                    sorted_dates = sorted(rates_map.keys())[-history_days:]
-                    historical_rates = [
-                        {"day": i - len(sorted_dates), "rate": float(rates_map[d])}
-                        for i, d in enumerate(sorted_dates)
-                    ]
-                    # Calibrate vol from actual daily log returns
-                    if len(historical_rates) >= 10:
-                        rate_vals = np.array([r["rate"] for r in historical_rates])
-                        log_returns = np.diff(np.log(rate_vals))
-                        calibrated_vol = float(np.std(log_returns) * np.sqrt(252))
-        except Exception:
-            pass  # Fall back to static vol estimate
+    try:
+        hist_rows = db.execute(text("""
+            SELECT rate_date, closing_rate
+            FROM fx_rate_history
+            WHERE currency_pair = :pair
+              AND rate_date < CURRENT_DATE
+            ORDER BY rate_date DESC
+            LIMIT :days
+        """), {"pair": currency_pair, "days": history_days}).fetchall()
+
+        if hist_rows:
+            # Reverse to chronological order for the chart
+            hist_rows = list(reversed(hist_rows))
+            historical_rates = [
+                {"day": i - len(hist_rows), "rate": float(r.closing_rate)}
+                for i, r in enumerate(hist_rows)
+            ]
+            # Calibrate vol from actual daily log returns
+            if len(historical_rates) >= 10:
+                rate_vals = np.array([r["rate"] for r in historical_rates])
+                log_returns = np.diff(np.log(rate_vals))
+                calibrated_vol = float(np.std(log_returns) * np.sqrt(252))
+    except Exception as e:
+        logger.warning(f"Historical rates fetch failed: {e}")
 
     # ── Run simulation ─────────────────────────────────────────────
     mc = MonteCarloService()
