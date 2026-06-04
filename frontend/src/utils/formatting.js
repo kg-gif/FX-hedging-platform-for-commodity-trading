@@ -13,39 +13,39 @@ export const CURRENCY_SYMBOLS = {
   NZD: 'NZ$', SGD: 'S$',
 }
 
-// "+£1,234,567" / "-€124,529" — use company.base_currency
-// compact=true → "+€1.2M"
+// "+EUR 1,234,567" / "-GBP 124,529" — ISO code first per brand spec
+// compact=true → "+EUR 1.2M"
 export const formatPnL = (value, baseCurrency = 'EUR', compact = false) => {
   if (value === null || value === undefined) return '—'
-  const symbol = CURRENCY_SYMBOLS[baseCurrency] || baseCurrency + ' '
+  const code = baseCurrency || 'EUR'
   const abs  = Math.abs(value)
   const sign = value >= 0 ? '+' : '-'
   if (compact) {
-    if (abs >= 1_000_000) return `${sign}${symbol}${(abs / 1_000_000).toFixed(1)}M`
-    if (abs >= 1_000)     return `${sign}${symbol}${(abs / 1_000).toFixed(0)}K`
+    if (abs >= 1_000_000) return `${sign}${code} ${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${sign}${code} ${(abs / 1_000).toFixed(0)}K`
   }
-  return `${sign}${symbol}${abs.toLocaleString('de-DE', { maximumFractionDigits: 0 })}`
+  return `${sign}${code} ${abs.toLocaleString('en-GB', { maximumFractionDigits: 0 })}`
 }
 
 // ── Numbers ──────────────────────────────────────────────────
 
-// "+€1,234,567" or "-€1,234,567"
-// compact=true → "+€1.2M" / "+€842K"
+// "+EUR 1,234,567" or "-EUR 1,234,567" — ISO code first per brand spec
+// compact=true → "+EUR 1.2M" / "+EUR 842K"
 export const formatEUR = (value, compact = false) => {
   if (value === null || value === undefined) return '—'
   const abs  = Math.abs(value)
   const sign = value >= 0 ? '+' : '-'
   if (compact) {
-    if (abs >= 1_000_000) return `${sign}€${(abs / 1_000_000).toFixed(1)}M`
-    if (abs >= 1_000)     return `${sign}€${(abs / 1_000).toFixed(0)}K`
+    if (abs >= 1_000_000) return `${sign}EUR ${(abs / 1_000_000).toFixed(1)}M`
+    if (abs >= 1_000)     return `${sign}EUR ${(abs / 1_000).toFixed(0)}K`
   }
-  return `${sign}€${abs.toLocaleString('de-DE', { maximumFractionDigits: 0 })}`
+  return `${sign}EUR ${abs.toLocaleString('en-GB', { maximumFractionDigits: 0 })}`
 }
 
 // "GBP 1,500,000"
 export const formatNotional = (amount, currency) => {
   if (!amount) return '—'
-  return `${currency} ${Math.abs(amount).toLocaleString('de-DE', { maximumFractionDigits: 0 })}`
+  return `${currency} ${Math.abs(amount).toLocaleString('en-GB', { maximumFractionDigits: 0 })}`
 }
 
 // "63.5%"
@@ -76,12 +76,12 @@ export const formatDate = (value) => {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-// "19 Mar 2026"
+// "6 Mar 2026" — no leading zero on day (SNH brand standard per Pixel v1.4)
 export const formatDateMedium = (value) => {
   if (!value) return '—'
   const d = new Date(value)
   if (isNaN(d)) return '—'
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
 // "19 March 2026"
