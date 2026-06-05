@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -865,7 +865,7 @@ def upload_fx_history(
 
 @router.post("/fx-history/snapshot")
 def snapshot_daily_rates(
-    admin: dict = Depends(require_admin),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -876,7 +876,26 @@ def snapshot_daily_rates(
 
     Pairs captured: the standard SNH trading pairs.
     """
-    _require_superadmin(admin)
+    # Accept either CRON_SECRET header (cron-job.org) or superadmin JWT
+    cron_secret = os.getenv("CRON_SECRET")
+    auth_header = request.headers.get("Authorization", "")
+    x_cron = request.headers.get("X-Cron-Secret", "")
+
+    if x_cron and cron_secret and x_cron == cron_secret:
+        pass  # Valid cron call
+    elif auth_header.startswith("Bearer "):
+        # Fall back to JWT validation for manual admin calls
+        token = auth_header.split(" ", 1)[1]
+        from jose import JWTError, jwt as _jwt
+        SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
+        try:
+            payload = _jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            if payload.get("role") not in ("superadmin", "admin"):
+                raise HTTPException(status_code=403, detail="Superadmin required")
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    else:
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
     from database import get_rate
     from datetime import date
