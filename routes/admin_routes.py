@@ -863,6 +863,140 @@ def upload_fx_history(
     }
 
 
+@router.get("/companies/{company_id}/export")
+def export_company_data(company_id: int, admin: dict = Depends(require_admin), db: Session = Depends(get_db)):
+    """
+    GDPR Article 20 — Data portability export.
+    Returns all data belonging to the specified company as structured JSON.
+
+    Access:
+      - superadmin / admin: may export any company
+      - company_admin: may only export their own company
+
+    Excluded per Lex · Legal sign-off (05/06/2026):
+      - password_hash (never portable)
+      - fx_rate_history (market data, not personal data)
+      - other companies' data (enforced below)
+
+    Compliance note: includes soft-deleted exposures (is_active = false).
+    MiFID II Article 16(6) requires these to remain in the regulatory record.
+    """
+    role = admin.get("role")
+
+    # company_admin may only export their own company
+    if role == "company_admin":
+        requester_company_id = admin.get("company_id")
+        if requester_company_id != company_id:
+            raise HTTPException(status_code=403, detail="You may only export your own company's data.")
+
+    # Confirm company exists
+    company_row = db.execute(
+        text("SELECT * FROM companies WHERE id = :id"),
+        {"id": company_id}
+    ).fetchone()
+    if not company_row:
+        raise HTTPException(status_code=404, detail="Company not found.")
+
+    company_data = dict(company_row._mapping)
+
+    # Users — exclude password_hash
+    user_rows = db.execute(
+        text("SELECT id, email, role, created_at, is_active FROM users WHERE company_id = :cid"),
+        {"cid": company_id}
+    ).fetchall()
+    users = [dict(r._mapping) for r in user_rows]
+
+    # Exposures — all rows including soft-deleted (regulatory retention requirement)
+    exposure_rows = db.execute(
+        text("SELECT * FROM exposures WHERE company_id = :cid ORDER BY created_at"),
+        {"cid": company_id}
+    ).fetchall()
+    exposures = [dict(r._mapping) for r in exposure_rows]
+    exposure_ids = [e["id"] for e in exposures]
+
+    # Hedge tranches — all tranches linked to this company's exposures
+    if exposure_ids:
+        tranche_rows = db.execute(
+            text("SELECT * FROM hedge_tranches WHERE exposure_id = ANY(:ids) ORDER BY created_at"),
+            {"ids": exposure_ids}
+        ).fetchall()
+        tranches = [dict(r._mapping) for r in tranche_rows]
+    else:
+        tranches = []
+
+    # Order audit log — all records linked to this company's exposures
+    if exposure_ids:
+        order_audit_rows = db.execute(
+            text("SELECT * FROM order_audit_log WHERE exposure_id = ANY(:ids) ORDER BY sent_at"),
+            {"ids": exposure_ids}
+        ).fetchall()
+        order_audit = [dict(r._mapping) for r in order_audit_rows]
+    else:
+        order_audit = []
+
+    # Value date audit log — linked to this company
+    value_date_rows = db.execute(
+        text("SELECT * FROM value_date_audit_log WHERE company_id = :cid ORDER BY changed_at"),
+        {"cid": company_id}
+    ).fetchall()
+    value_date_audit = [dict(r._mapping) for r in value_date_rows]
+
+    # Hedge corridor log — linked to this company's exposures
+    if exposure_ids:
+        corridor_rows = db.execute(
+            text("SELECT * FROM hedge_corridor_log WHERE exposure_id = ANY(:ids) ORDER BY changed_at"),
+            {"ids": exposure_ids}
+        ).fetchall()
+        corridor_log = [dict(r._mapping) for r in corridor_rows]
+    else:
+        corridor_log = []
+
+    # Hedging policies — company's policy configuration
+    policy_rows = db.execute(
+        text("SELECT * FROM hedging_policies WHERE company_id = :cid ORDER BY created_at"),
+        {"cid": company_id}
+    ).fetchall()
+    policies = [dict(r._mapping) for r in policy_rows]
+
+    # Serialise — convert date/datetime objects to ISO strings for JSON
+    def serialise(records: list) -> list:
+        result = []
+        for rec in records:
+            serialised = {}
+            for k, v in rec.items():
+                if isinstance(v, (datetime, date)):
+                    serialised[k] = v.isoformat()
+                else:
+                    serialised[k] = v
+            result.append(serialised)
+        return result
+
+    # Serialise company_data separately
+    for k, v in company_data.items():
+        if isinstance(v, (datetime, date)):
+            company_data[k] = v.isoformat()
+
+    return {
+        "export_metadata": {
+            "company_id": company_id,
+            "exported_at": datetime.utcnow().isoformat() + "Z",
+            "exported_by": admin.get("sub") or admin.get("email", "unknown"),
+            "gdpr_basis": "Article 20 — Right to data portability",
+            "note": "Includes soft-deleted exposures per MiFID II Article 16(6) five-year retention requirement.",
+            "ai_generated": False,
+            "fallback_used": False
+        },
+        "company": company_data,
+        "users": serialise(users),
+        "exposures": serialise(exposures),
+        "hedge_tranches": serialise(tranches),
+        "order_audit_log": serialise(order_audit),
+        "value_date_audit_log": serialise(value_date_audit),
+        "hedge_corridor_log": serialise(corridor_log),
+        "hedging_policies": serialise(policies)
+    }
+
+
 @router.post("/fx-history/snapshot")
 def snapshot_daily_rates(
     request: Request,
