@@ -27,12 +27,12 @@ class RiskLevel(str, enum.Enum):
 # Database Models
 class Company(Base):
     __tablename__ = "companies"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     base_currency = Column(String, default="USD")
     company_type = Column(Enum(CompanyType))
-    trading_volume_monthly = Column(Float)
+    trading_volume_monthly = Column(Numeric(20, 2))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     bank_name = Column(String(255), nullable=True)
@@ -50,15 +50,15 @@ class Company(Base):
 
 class Exposure(Base):
     __tablename__ = "exposures"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
     from_currency = Column(String, nullable=False)
     to_currency = Column(String, nullable=False)
-    amount = Column(Float, nullable=False)
-    initial_rate = Column(Float, nullable=True)
-    current_rate = Column(Float, nullable=True)
-    current_value_usd = Column(Float, nullable=True)
+    amount = Column(Numeric(20, 6), nullable=False)
+    initial_rate = Column(Numeric(12, 6), nullable=True)
+    current_rate = Column(Numeric(12, 6), nullable=True)
+    current_value_usd = Column(Numeric(20, 6), nullable=True)
     settlement_period = Column(Integer, nullable=False)
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
@@ -67,17 +67,17 @@ class Exposure(Base):
     status = Column(String, default="active")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    budget_rate = Column(Float, nullable=True)
-    max_loss_limit = Column(Float, nullable=True)  # e.g., -500000
-    target_profit = Column(Float, nullable=True)   # e.g., 300000
-    hedge_ratio_policy = Column(Float, nullable=True, default=1.0)  # e.g., 0.60 for 60%
-    current_pnl = Column(Float, nullable=True)
-    hedged_amount = Column(Float, nullable=True)
-    unhedged_amount = Column(Float, nullable=True)
+    budget_rate = Column(Numeric(12, 6), nullable=True)
+    max_loss_limit = Column(Numeric(20, 6), nullable=True)  # e.g., -500000
+    target_profit = Column(Numeric(20, 6), nullable=True)   # e.g., 300000
+    hedge_ratio_policy = Column(Numeric(5, 4), nullable=True, default=1.0)  # e.g., 0.60 for 60%
+    current_pnl = Column(Numeric(20, 6), nullable=True)
+    hedged_amount = Column(Numeric(20, 6), nullable=True)
+    unhedged_amount = Column(Numeric(20, 6), nullable=True)
     instrument_type = Column(String(20), default="Spot")  # Spot, Forward, Option, Swap
     hedge_override = Column(Boolean, default=False)
     amount_currency = Column(String(3), nullable=True)  # Which currency the amount is denominated in (from_currency or to_currency)
-    
+
     # Relationship to SimulationResult
     simulations = relationship("SimulationResult", back_populates="exposure")
 
@@ -87,24 +87,24 @@ class FXRate(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     currency_pair = Column(String(7), nullable=False, index=True)  # e.g., EUR/USD
-    rate = Column(Float, nullable=False)
+    rate = Column(Numeric(12, 6), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
     source = Column(String(50), nullable=True)
 
 
 class SimulationResult(Base):
     __tablename__ = 'simulation_results'
-    
+
     id = Column(Integer, primary_key=True, index=True)
     exposure_id = Column(Integer, ForeignKey('exposures.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Simulation parameters
     horizon_days = Column(Integer, nullable=False)
     num_scenarios = Column(Integer, nullable=False)
     volatility = Column(Numeric(6, 4), nullable=False)
     current_rate = Column(Numeric(10, 6), nullable=False)
-    
+
     # Risk metrics
     var_95 = Column(Numeric(15, 2))
     var_99 = Column(Numeric(15, 2))
@@ -112,11 +112,11 @@ class SimulationResult(Base):
     max_loss = Column(Numeric(15, 2))
     max_gain = Column(Numeric(15, 2))
     probability_of_loss = Column(Numeric(5, 4))
-    
+
     # Distribution data (for charts) - store as JSON
     pnl_distribution = Column(JSON)  # Array of P&L values for histogram
     rate_distribution = Column(JSON)  # Array of final rates
-    
+
     # Relationship
     exposure = relationship("Exposure", back_populates="simulations")
 
