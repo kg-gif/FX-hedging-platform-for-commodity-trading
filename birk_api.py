@@ -2798,13 +2798,14 @@ def log_order_sent(
         )
     """))
 
-    db.execute(_text("""
+    result = db.execute(_text("""
         INSERT INTO order_audit_log
             (company_id, exposure_id, currency_pair, order_type, action,
              value_date, instrument, limit_rate, stop_rate, good_till, sent_by, sent_at)
         VALUES
             (:company_id, :exposure_id, :currency_pair, :order_type, :action,
              :value_date, :instrument, :limit_rate, :stop_rate, :good_till, :sent_by, :sent_at)
+        RETURNING id
     """), {
         "company_id":    payload_body.get("company_id"),
         "exposure_id":   payload_body.get("exposure_id"),
@@ -2819,13 +2820,14 @@ def log_order_sent(
         "sent_by":       payload_body.get("sent_by") or payload.get("email"),
         "sent_at":       payload_body.get("sent_at")
     })
+    row_id = result.fetchone()[0]
     db.commit()
 
     logger.info(
         f"Order sent: {payload_body.get('currency_pair')} "
         f"{payload_body.get('order_type')} by {payload_body.get('sent_by')}"
     )
-    return {"message": "Order logged"}
+    return {"message": "Order logged", "id": row_id}
 
 
 @app.post("/api/audit/mark-executed")
