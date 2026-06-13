@@ -69,8 +69,12 @@ export const API = {
   facilityUtilisation:(cid) => `${BASE}/api/facilities/utilisation/${cid}`,
 
   // Settings
-  companySettings:    (cid) => `${BASE}/api/settings/company/${cid}`,
-  bankDetails:        (cid) => `${BASE}/api/settings/bank/${cid}`,
+  settingsAll:        (cid) => `${BASE}/api/settings/${cid}`,
+  companySettings:    (cid) => `${BASE}/api/settings/${cid}/company`,
+  bankDetails:        (cid) => `${BASE}/api/settings/${cid}/bank`,
+  notificationSettings:(cid)=> `${BASE}/api/settings/${cid}/notifications`,
+  riskSettings:       `${BASE}/api/settings/risk`,
+  closeAccount:       `${BASE}/api/settings/close-account/request`,
 
   // Admin
   adminCompanies:     `${BASE}/api/admin/companies`,
