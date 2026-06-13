@@ -1,7 +1,7 @@
 """Add start_date and end_date to exposures
 
-Revision ID: 001
-Revises: 
+Revision ID: 001_add_exposure_dates
+Revises:
 Create Date: 2025-01-19
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '001'
+revision = '001_add_exposure_dates'
 down_revision = None
 branch_labels = None
 depends_on = None
