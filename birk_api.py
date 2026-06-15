@@ -2533,6 +2533,8 @@ async def startup_event():
             )""",
             # Defensive: add status column if table existed before it was added
             "ALTER TABLE order_audit_log ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'sent'",
+            # Free-text notes field — used for close_account_request reason and other narrative audit entries
+            "ALTER TABLE order_audit_log ADD COLUMN IF NOT EXISTS notes TEXT",
 
             # ── Demo Reset ────────────────────────────────────────────────────
             # is_demo marks the company used for CFO demos.
