@@ -12,6 +12,7 @@ from typing import Optional
 from datetime import datetime
 import asyncio
 import os
+import httpx
 
 from models import Company, Exposure, PolicyAuditLog
 from database import SessionLocal
@@ -94,6 +95,9 @@ class ZoneConfigRequest(BaseModel):
 class AlertPrefsRequest(BaseModel):
     mc_alert_threshold_pct: Optional[float] = None   # e.g. 2.0 = 2% of notional
     mc_alert_recipients:    Optional[str]   = None   # "all" | "admins_only"
+
+class CloseAccountRequest(BaseModel):
+    reason: Optional[str] = None
 
 
 # ── Policy seed helper ───────────────────────────────────────────────────────
@@ -692,3 +696,122 @@ def get_approved_pairs():
     exotics = sorted(["USD/MXN","USD/CNY","USD/BRL","USD/ZAR","USD/INR","USD/TRY","USD/NOK","USD/SEK"])
     minors = sorted([p for p in APPROVED_PAIRS if p not in majors and p not in nok_sek and p not in exotics])
     return {"majors": majors, "minors": minors, "nok_sek_crosses": nok_sek, "liquid_exotics": exotics, "total": len(APPROVED_PAIRS)}
+
+
+@router.post("/close-account/request")
+async def request_account_closure(
+    request: CloseAccountRequest = CloseAccountRequest(),
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_token_payload),
+):
+    """
+    Logs an account closure request and notifies the SNH operations team.
+
+    Does NOT soft-delete or modify any company data — it is a request only.
+    Actual account closure is superadmin-only via DELETE /api/admin/companies/{id}.
+    """
+    company_id = resolve_company_id(payload.get("company_id"), payload)
+    requesting_email = payload.get("email")
+
+    # Fetch company name for the notification email subject line
+    company_row = db.execute(
+        text("SELECT name FROM companies WHERE id = :id"),
+        {"id": company_id},
+    ).fetchone()
+    if not company_row:
+        raise HTTPException(status_code=404, detail="Company not found")
+    company_name = company_row._mapping["name"]
+
+    # ── COMPLIANCE: audit log write ─────────────────────────────────────────────
+    # This INSERT is the compliance anchor for the account closure request.
+    #
+    # Why it exists:
+    #   MiFID II Article 16(6) requires investment firms to retain records of all
+    #   client instructions and account-related actions for a minimum of five years.
+    #   SNH's five-year data retention policy (Legal sign-off 02/06/2026) extends
+    #   this to all platform events that affect a client account lifecycle.
+    #
+    # Transaction requirement:
+    #   This write MUST remain in the same DB transaction as any other writes in
+    #   this handler.  Never move it outside the transaction block or defer it to
+    #   a background task — the audit record is the legal anchor, not the email.
+    # ───────────────────────────────────────────────────────────────────────────
+    db.execute(text("""
+        INSERT INTO order_audit_log
+            (company_id, exposure_id, currency_pair, action, sent_by, sent_at, status, notes)
+        VALUES
+            (:company_id, NULL, NULL, 'close_account_request', :sent_by, NOW(), 'close_account_request', :notes)
+    """), {
+        "company_id": company_id,
+        "sent_by": requesting_email,
+        "notes": request.reason or None,
+    })
+    db.commit()
+
+    # ── Advisory email to SNH operations ────────────────────────────────────────
+    # The email is advisory only — the audit log above is the compliance anchor.
+    # If Resend fails we log and continue; the request is already recorded.
+    resend_key = os.getenv("RESEND_API_KEY")
+    timestamp = datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC")
+    reason_line = f"<li><strong>Reason:</strong> {request.reason}</li>" if request.reason else ""
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px;">
+      <div style="background:#1A2744;padding:24px;border-radius:12px;text-align:center;margin-bottom:24px;">
+        <h1 style="color:#C9A86C;margin:0;font-size:20px;letter-spacing:3px;">SUMNOHOW</h1>
+        <p style="color:#8DA4C4;font-size:12px;margin:4px 0 0;">Account Closure Request</p>
+      </div>
+      <h2 style="color:#1A2744;">Account closure request received</h2>
+      <p style="color:#555;font-size:14px;line-height:1.6;">
+        A user has submitted an account closure request via the platform.
+      </p>
+      <div style="background:#F4F6FA;border-radius:10px;padding:20px;margin-bottom:24px;">
+        <ul style="list-style:none;padding:0;margin:0;font-size:14px;color:#333;line-height:2;">
+          <li><strong>Company:</strong> {company_name}</li>
+          <li><strong>Company ID:</strong> {company_id}</li>
+          <li><strong>Requested by:</strong> {requesting_email}</li>
+          <li><strong>Timestamp:</strong> {timestamp}</li>
+          {reason_line}
+        </ul>
+      </div>
+      <p style="color:#888;font-size:12px;">
+        This request has been recorded in the platform audit log.
+        To complete closure, use the superadmin panel.
+      </p>
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+      <p style="color:#ccc;font-size:11px;text-align:center;">
+        Sumnohow FX Risk Management · Stavanger, Norway
+      </p>
+    </div>
+    """
+
+    if resend_key:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {resend_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "from": "Sumnohow <noreply@updates.sumnohow.com>",
+                        "to": ["kg@sumnohow.com"],
+                        "subject": f"Account closure request — {company_name}",
+                        "html": html,
+                    },
+                )
+            print(f"[close-account] notification email sent | company_id={company_id} | HTTP {resp.status_code}")
+        except Exception as e:
+            # Email is advisory — do not fail the request if Resend is unavailable
+            print(f"[close-account] email FAILED (non-fatal) | company_id={company_id} | {e}")
+    else:
+        print(f"[close-account] RESEND_API_KEY not set — email skipped | company_id={company_id}")
+
+    return {
+        "message": "Your closure request has been received. Our team will be in touch.",
+        "data_retention_notice": (
+            "Your data is retained for a minimum of five years in accordance with our "
+            "regulatory obligations (MiFID II Article 16(6))."
+        ),
+    }
