@@ -533,6 +533,12 @@ async def update_exposure(
     from_currency = payload_body.get("from_currency")
     to_currency   = payload_body.get("to_currency")
 
+    # Fetch old values before overwriting — audit requires before/after
+    old_budget_rate  = row._mapping.get("budget_rate")
+    old_amount       = row._mapping.get("amount")
+    old_from         = row._mapping.get("from_currency")
+    old_to           = row._mapping.get("to_currency")
+
     try:
         db.execute(_text("""
             UPDATE exposures SET
@@ -565,6 +571,23 @@ async def update_exposure(
             "id":               exposure_id,
             "company_id":       safe_id
         })
+
+        # MiFID II Article 16(6) — budget_rate and amount changes affect all P&L calculations and must be auditable
+        audit_from = from_currency or old_from
+        audit_to   = to_currency   or old_to
+        db.execute(_text("""
+            INSERT INTO order_audit_log
+                (company_id, exposure_id, currency_pair, action, sent_by, sent_at, status)
+            VALUES
+                (:company_id, :exposure_id, :pair, :action, :by, NOW(), 'updated')
+        """), {
+            "company_id":  safe_id,
+            "exposure_id": exposure_id,
+            "pair":        f"{audit_from}/{audit_to}",
+            "action":      f"Exposure updated — budget_rate: {old_budget_rate} → {payload_body.get('budget_rate')}, amount: {old_amount} → {payload_body.get('amount')}",
+            "by":          payload.get("email"),
+        })
+
         db.commit()
     except Exception as e:
         db.rollback()
