@@ -70,13 +70,21 @@ export const API = {
 
   // Reports
   marketReport:       (cid) => `${BASE}/api/reports/market/${cid}`,
+  marketReportHistory:(cid) => `${BASE}/api/reports/market/${cid}/history`,
   marketReportPdf:    (cid) => `${BASE}/api/reports/market/${cid}/pdf`,
   generateReport:     (cid) => `${BASE}/api/reports/market/generate/${cid}`,
+  maturityReport:     (cid) => `${BASE}/api/reports/maturity/${cid}`,
   auditLog:           (cid) => `${BASE}/api/reports/audit/${cid}`,
   pnlSummary:         (cid) => `${BASE}/api/reports/pnl/${cid}`,
   mtmLog:             (cid) => `${BASE}/api/reports/mtm/${cid}`,
   zoneLog:            (cid) => `${BASE}/api/reports/zones/${cid}`,
   marginCallLog:      (cid) => `${BASE}/api/reports/margin-calls/${cid}`,
+
+  // Audit trail (separate endpoints — also unified via hedge-trail)
+  auditOrders:        (cid) => `${BASE}/api/audit/orders?company_id=${cid}`,
+  auditValueDates:    (cid) => `${BASE}/api/audit/value-date-changes?company_id=${cid}`,
+  auditHedgeTrail:    (cid) => `${BASE}/api/audit/hedge-trail?company_id=${cid}`,
+  auditHedgeTrailCsv: (cid) => `${BASE}/api/audit/hedge-trail/csv?company_id=${cid}`,
 
   // Facilities
   facilities:         (cid) => `${BASE}/api/facilities/${cid}`,
