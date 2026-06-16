@@ -17,16 +17,31 @@ from routes.auth_routes import router as auth_router
 from models import Base, Company, Exposure, CompanyType, RiskLevel, FXRate
 from database import SessionLocal, get_live_fx_rate, calculate_risk_level, engine, get_rate_async, _rate_cache
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Cookie
 
 _security = HTTPBearer(auto_error=False)
 
-def get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> dict:
+def get_token_payload(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_security),
+    access_token: Optional[str] = Cookie(default=None),
+) -> dict:
+    """
+    BF-002: Accept HttpOnly cookie first, Bearer header as fallback.
+    Cookie path is preferred (XSS-safe). Bearer kept live during transition.
+    Mirrors get_current_user() in auth_routes.py — both must stay in sync.
+    DO NOT remove Bearer fallback until frontend WS auth is resolved.
+    """
     from jose import JWTError, jwt
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Authentication required")
     SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
+    token = None
+    if access_token:
+        token = access_token
+    elif credentials:
+        token = credentials.credentials
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        return jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
+        return jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
