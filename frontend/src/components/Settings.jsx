@@ -1,4 +1,4 @@
-// Settings.jsx
+﻿// Settings.jsx
 // Sidebar-layout settings page. Left nav: Company Profile / Policy & Zones /
 // Bank Details / Notifications / Data Import / Admin Panel (admin-only).
 
@@ -12,10 +12,6 @@ import DataImportDashboard from './DataImportDashboard'
 import Admin from './Admin'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-})
 
 const Field = ({ label, hint, children }) => (
   <div>
@@ -174,10 +170,10 @@ export default function Settings({ authUser }) {
     setLoading(true)
     try {
       const [sRes, pRes, aRes, fRes] = await Promise.all([
-        fetch(`${API_BASE}/api/settings/${companyId}`,         { headers: authHeaders() }).then(r => r.json()),
-        fetch(`${API_BASE}/api/policies?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json()),
-        fetch(`${API_BASE}/api/settings/${companyId}/audit`,   { headers: authHeaders() }).then(r => r.json()),
-        fetch(`${API_BASE}/api/facilities/${companyId}`,       { headers: authHeaders() }).then(r => r.ok ? r.json() : { facilities: [] }),
+        fetch(`${API_BASE}/api/settings/${companyId}`,         { credentials: 'include', headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
+        fetch(`${API_BASE}/api/policies?company_id=${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
+        fetch(`${API_BASE}/api/settings/${companyId}/audit`,   { credentials: 'include', headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
+        fetch(`${API_BASE}/api/facilities/${companyId}`,       { credentials: 'include', headers: { 'Content-Type': 'application/json' } }).then(r => r.ok ? r.json() : { facilities: [] }),
       ])
       setSettings(sRes)
       setCompany({
@@ -234,7 +230,7 @@ export default function Settings({ authUser }) {
     try {
       const r = await fetch(`${API_BASE}/api/settings/${companyId}/${section}`, {
         method: 'PUT',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
       const data = await r.json()
@@ -253,7 +249,7 @@ export default function Settings({ authUser }) {
     try {
       const r = await fetch(`${API_BASE}/api/settings/policy/cascade/preview`, {
         method: 'POST',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ policy_id: policyId, company_id: companyId }),
       })
       const preview = await r.json()
@@ -269,7 +265,7 @@ export default function Settings({ authUser }) {
     try {
       const r = await fetch(`${API_BASE}/api/settings/policy/cascade`, {
         method: 'POST',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ policy_id: pendingPolicyId, company_id: companyId, changed_by: 'admin' }),
       })
       const data = await r.json()
@@ -296,7 +292,7 @@ export default function Settings({ authUser }) {
     }
     try {
       const r = await fetch(`${API_BASE}/api/facilities`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...facilityForm, company_id: companyId, facility_limit_eur: parseFloat(facilityForm.facility_limit_eur) }),
       })
       const data = await r.json()
@@ -311,7 +307,7 @@ export default function Settings({ authUser }) {
   const saveFacilityEdit = async (id) => {
     try {
       const r = await fetch(`${API_BASE}/api/facilities/${id}`, {
-        method: 'PUT', headers: authHeaders(),
+        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...facilityEdit,
           facility_limit_eur: facilityEdit.facility_limit_eur ? parseFloat(facilityEdit.facility_limit_eur) : undefined,
@@ -329,7 +325,7 @@ export default function Settings({ authUser }) {
   const deleteFacility = async (id) => {
     if (!window.confirm('Soft-delete this facility? Existing tranche links are preserved.')) return
     try {
-      const r = await fetch(`${API_BASE}/api/facilities/${id}`, { method: 'DELETE', headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/facilities/${id}`, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       const data = await r.json()
       if (data.success) {
         showMsg('success', 'Facility removed')
@@ -604,7 +600,7 @@ export default function Settings({ authUser }) {
             try {
               const r = await fetch(`${API_BASE}/api/settings/${companyId}/alerts`, {
                 method: 'PUT',
-                headers: authHeaders(),
+                credentials: 'include', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(alertPrefs),
               })
               if (r.ok) showMsg('success', 'Alert preferences saved')

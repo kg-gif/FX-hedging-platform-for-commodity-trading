@@ -1,4 +1,4 @@
-// HedgingPage.jsx
+﻿// HedgingPage.jsx
 // Hedging tab — 6-tab lifecycle view: Requires Action / In Progress / Hedged /
 // Awaiting Settlement / Settled / Forecast
 // P&L strip sits above the tabs; Hedge Recommendations shown inside action tabs.
@@ -20,10 +20,6 @@ import ExposureRegister from './ExposureRegister'
 import ScrollToTop from './ScrollToTop'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-})
 
 // ── Page-level tab definitions (mirrors ExposureRegister TABS + Forecast) ────
 const PAGE_TABS = [
@@ -124,7 +120,7 @@ function ForecastingSection({ companyId }) {
   useEffect(() => {
     if (!companyId) return
     setLoading(true)
-    fetch(`${API_BASE}/api/forecasting/timeline/${companyId}`, { headers: authHeaders() })
+    fetch(`${API_BASE}/api/forecasting/timeline/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       .then(r => r.ok ? r.json() : null)
       .then(d => { setData(d); setLoading(false) })
       .catch(() => setLoading(false))

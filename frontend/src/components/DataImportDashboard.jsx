@@ -1,103 +1,10 @@
-import React, { useState, useEffect, Component } from 'react';
+﻿import React, { useState, useEffect, Component } from 'react';
 import { useCompany } from '../contexts/CompanyContext';
 import { Upload, Plus, Download, AlertCircle, CheckCircle, Edit2, Trash2, X, Save } from 'lucide-react';
 import FileUpload from './FileUpload.jsx';
 import ManualEntry from './ManualEntry.jsx';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com';
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-});
-const NAVY = '#1A2744';
-const GOLD = '#C9A86C';
-
-// Error boundary — prevents a crash in FileUpload/ManualEntry from blanking the whole page
-class UploadErrorBoundary extends Component {
-  constructor(props) { super(props); this.state = { error: null }; }
-  static getDerivedStateFromError(err) { return { error: err }; }
-  componentDidCatch(err) { console.error('[UploadErrorBoundary]', err); }
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="rounded-lg p-5 bg-red-50 border border-red-200 text-sm text-red-800">
-          <strong>Something went wrong in the upload panel.</strong>
-          <p className="mt-1 font-mono text-xs">{this.state.error.message}</p>
-          <button
-            onClick={() => this.setState({ error: null })}
-            className="mt-3 px-3 py-1 rounded bg-red-600 text-white text-xs"
-          >
-            Try again
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-const DataImportDashboard = () => {
-  const [activeTab, setActiveTab] = useState('upload');
-  // Context exposes selectedCompanyId (integer), not selectedCompany (object)
-  const { selectedCompanyId } = useCompany();
-  const [exposures, setExposures] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
-  const [editingExposure, setEditingExposure] = useState(null);
-  const [editForm, setEditForm] = useState({ currency_pair: '', amount: '', start_date: '', end_date: '', description: '' });
-  const [deletingExposure, setDeletingExposure] = useState(null);
-
-  const fetchExposures = async () => {
-    if (!selectedCompanyId) return;
-    try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${selectedCompanyId}`, { headers: authHeaders() });
-      const data = await response.json();
-      if (data.success) setExposures(data.exposures || []);
-    } catch {
-      setMessage({ type: 'error', text: 'Failed to fetch exposures' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchExposures(); }, [selectedCompanyId]);
-
-  const handleSaveSuccess = () => {
-    fetchExposures();
-    setMessage({ type: 'success', text: 'Exposure saved successfully!' });
-    setTimeout(() => setMessage(null), 3000);
-  };
-
-  const handleEdit = (exposure) => {
-    setEditingExposure(exposure);
-    setEditForm({
-      currency_pair: `${exposure.from_currency} / ${exposure.to_currency}`,
-      amount: exposure.amount.toString(),
-      start_date: exposure.start_date || '',
-      end_date: exposure.end_date || '',
-      description: exposure.description || ''
-    });
-  };
-
-  const closeEditModal = () => {
-    setEditingExposure(null);
-    setEditForm({ currency_pair: '', amount: '', start_date: '', end_date: '', description: '' });
-  };
-
-  const handleSaveEdit = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${editingExposure.id}`, {
-        method: 'PUT',
-        headers: authHeaders(),
-        body: JSON.stringify({
-          currency_pair: editForm.currency_pair,
-          amount: parseFloat(editForm.amount),
-          start_date: editForm.start_date,
-          end_date: editForm.end_date,
-          description: editForm.description
-        })
       });
       const data = await response.json();
       if (data.success) {
@@ -118,7 +25,7 @@ const DataImportDashboard = () => {
   const confirmDelete = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, { method: 'DELETE', headers: authHeaders() });
+      const response = await fetch(`${API_BASE}/api/exposure-data/exposures/${deletingExposure.id}`, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
       const data = await response.json();
       if (data.success) {
         setMessage({ type: 'success', text: 'Exposure deleted successfully!' });

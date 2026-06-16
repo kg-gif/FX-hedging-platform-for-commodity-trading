@@ -1,4 +1,4 @@
-// Dashboard.jsx — Executive view only.
+﻿// Dashboard.jsx — Executive view only.
 // No exposure register — that lives in Hedging → Exposure Register.
 // A CFO should understand the full portfolio position in 30 seconds.
 
@@ -15,10 +15,6 @@ import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-})
 
 const CHART_COLORS = [GOLD, '#2E86AB', '#27AE60', '#E74C3C', '#8B5CF6', '#EC4899']
 
@@ -398,14 +394,14 @@ function Dashboard() {
 
   const fetchFacilities = async (cid) => {
     try {
-      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${cid}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${cid}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) setFacilities(await res.json())
     } catch (e) { console.error('[facilities] fetch error:', e) }
   }
 
   const fetchMcRisk = async (cid) => {
     try {
-      const res = await fetch(`${API_BASE}/api/margin-call/status/${cid}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/margin-call/status/${cid}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) setMcRisk(await res.json())
     } catch (e) { console.error('[mc-risk] fetch error:', e) }
   }
@@ -413,7 +409,7 @@ function Dashboard() {
   const fetchSummary = async (cid) => {
     setSummaryLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/dashboard/summary?company_id=${cid}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/dashboard/summary?company_id=${cid}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) setSummary(await res.json())
       else console.error(`[dashboard/summary] HTTP ${res.status}`)
     } catch (e) { console.error('[dashboard/summary] fetch error:', e) }
@@ -422,7 +418,7 @@ function Dashboard() {
 
   const fetchPolicy = async (cid) => {
     try {
-      const r = await fetch(`${API_BASE}/api/policies?company_id=${cid}`, { headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/policies?company_id=${cid}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (r.ok) {
         const data = await r.json()
         const active = (data.policies || []).find(p => p.is_active)
@@ -435,7 +431,7 @@ function Dashboard() {
     setLoading(true)
     setError(null)
     try {
-      const res  = await fetch(`${API_BASE}/exposures?company_id=${cid}`, { headers: authHeaders() })
+      const res  = await fetch(`${API_BASE}/exposures?company_id=${cid}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       const data = await res.json()
       setExposures(Array.isArray(data) ? data : [])
       setLastUpdated(new Date())
@@ -445,7 +441,7 @@ function Dashboard() {
 
   const fetchEnriched = async (cid) => {
     try {
-      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${cid}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${cid}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) {
         const data = await res.json()
         if (Array.isArray(data)) {
@@ -461,7 +457,7 @@ function Dashboard() {
 
   const fetchMarketReport = async (cid) => {
     try {
-      const res = await fetch(`${API_BASE}/api/reports/market/${cid}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/reports/market/${cid}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) setMarketReport(await res.json())
     } catch {}
   }

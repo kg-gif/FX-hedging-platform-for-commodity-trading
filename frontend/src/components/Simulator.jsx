@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Simulator.jsx
  *
  * FX Scenario Simulator — shows P&L impact across 7 rate shock scenarios.
@@ -16,10 +16,6 @@ import LoadingAnimation from './LoadingAnimation'
 const API_BASE        = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
 const CALC_DELAY_MS   = 2500
 
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-})
 
 // ── CSS keyframes injected once ───────────────────────────────────────────────
 const KEYFRAMES = `
@@ -403,7 +399,7 @@ export default function Simulator() {
   async function load() {
     setLoading(true)
     try {
-      const res  = await fetch(`${API_BASE}/api/simulator?company_id=${companyId}`, { headers: authHeaders() })
+      const res  = await fetch(`${API_BASE}/api/simulator?company_id=${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (!res.ok) throw new Error(`Server error ${res.status}`)
       const json = await res.json()
       setData(json)

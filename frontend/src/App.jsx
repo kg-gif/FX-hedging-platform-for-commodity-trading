@@ -30,15 +30,14 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.co
 
 function getStoredAuth() {
   try {
-    const token = localStorage.getItem('auth_token')
     const user = JSON.parse(localStorage.getItem('auth_user') || 'null')
-    if (token && user) return { token, user }
+    if (user) return { user }
   } catch (_) {}
   return null
 }
 
 function clearAuth() {
-  localStorage.removeItem('auth_token')
+  localStorage.removeItem('auth_token')   // BF-002: legacy cleanup
   localStorage.removeItem('auth_user')
 }
 
@@ -219,7 +218,7 @@ function App() {
     const stored = getStoredAuth()
     if (stored) {
       fetch(`${API_URL}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${stored.token}` }
+        credentials: 'include',             // BF-002: cookie replaces Bearer
       })
         .then(r => { if (r.ok) setAuthData(stored); else clearAuth() })
         .catch(() => setAuthData(stored))
@@ -237,7 +236,13 @@ function App() {
 
     const resetTimer = () => {
       clearTimeout(timer)
-      timer = setTimeout(() => {
+      timer = setTimeout(async () => {
+        try {
+          await fetch(`${API_URL}/api/auth/logout`, {
+            method: 'POST',
+            credentials: 'include',
+          })
+        } catch (_) {}
         clearAuth()
         setAuthData(null)
         setInactivityMessage("You've been logged out due to inactivity.")
@@ -257,12 +262,24 @@ function App() {
   const handleLoginSuccess = (data) => {
     setInactivityMessage('')
     setAuthData({
-      token: data.access_token,
+      // token removed — BF-002: auth is now cookie-based
       user: { user_id: data.user_id, email: data.email, company_id: data.company_id, role: data.role }
     })
   }
 
-  const handleLogout = () => { clearAuth(); setAuthData(null); setInactivityMessage('') }
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',             // BF-002: server clears the HttpOnly cookie
+      })
+    } catch (_) {
+      // ignore — clear local state regardless
+    }
+    clearAuth()
+    setAuthData(null)
+    setInactivityMessage('')
+  }
 
   if (checking) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: NAVY }}>

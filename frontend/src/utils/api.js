@@ -18,11 +18,25 @@ export const WS_BASE = BASE.replace(/^http/, 'ws')
 export const wsRates = () => `${WS_BASE}/ws/rates`  // append ?token=...&company_id=... at call site
 export const fxRatesTicker = (cid) => `${BASE}/api/fx-rates/ticker?company_id=${cid}`
 
-const h = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-})
+// BF-002: Cookie auth migration — Authorization header removed.
+// The HttpOnly access_token cookie is sent automatically by the browser.
+// Always call fetch with credentials: 'include' — use fetchAuth() below.
+const h = () => ({ 'Content-Type': 'application/json' })
 export { h as authHeaders }
+
+/**
+ * Drop-in wrapper for fetch() that includes the HttpOnly auth cookie.
+ * Use this everywhere instead of bare fetch() for authenticated requests.
+ * BF-002 — replaces manual Authorization: Bearer headers.
+ */
+export const fetchAuth = (url, options = {}) => {
+  const { headers = {}, ...rest } = options
+  return fetch(url, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    ...rest,
+  })
+}
 
 export const API = {
   // Auth

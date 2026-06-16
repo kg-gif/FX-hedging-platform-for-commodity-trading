@@ -1,4 +1,4 @@
-// Counterparties.jsx — Phase 3 real-data port
+﻿// Counterparties.jsx — Phase 3 real-data port
 //
 // Endpoint: GET /api/facilities/utilisation/{company_id}
 // Response: { facilities: [{id, bank_name, facility_limit_eur, utilised_eur,
@@ -174,7 +174,7 @@ export default function Counterparties() {
     setLoading(true)
     setError(null)
 
-    fetch(API.facilityUtilisation(selectedCompanyId), { headers: authHeaders() })
+    fetch(API.facilityUtilisation(selectedCompanyId), { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()

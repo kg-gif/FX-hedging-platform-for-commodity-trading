@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+﻿import React, { useState, useEffect, useRef } from 'react'
 import { CurrencyPairFlags } from './CurrencyFlag'
 import { useCompany } from '../contexts/CompanyContext'
 import LoadingAnimation from './LoadingAnimation'
@@ -8,10 +8,6 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.c
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
 
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-})
 
 function addBusinessDays(dateStr, days) {
   const d = new Date(dateStr)
@@ -76,7 +72,7 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
     try {
       // 1. Update order_audit_log — non-fatal if this fails (audit only)
       await fetch(`${API_BASE}/api/audit/mark-executed`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id:   companyId,
           exposure_id:  exposureId,
@@ -87,7 +83,7 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
 
       // 2. Create tranche record — this is the critical step
       const trancheRes = await fetch(`${API_BASE}/api/exposures/${exposureId}/tranches`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount:      order.amount,
           rate:        order.currentSpot || null,
@@ -109,7 +105,7 @@ function OrderStatusBanner({ order, exposureId, companyId, onSendAgain, onExecut
       // Resolve facility name for confirmation message
       if (order.facilityId) {
         try {
-          const fRes = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })
+          const fRes = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
           if (fRes.ok) {
             const fData = await fRes.json()
             const fac = (fData.facilities || []).find(f => f.id === order.facilityId)
@@ -223,7 +219,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, facilities = [], 
   const [facilityId,  setFacilityId]          = useState('')   // optional bank facility assignment
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/fx-rates?pairs=${rec.currency_pair}`, { headers: authHeaders() })
+    fetch(`${API_BASE}/api/fx-rates?pairs=${rec.currency_pair}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       .then(r => r.json())
       .then(data => setCurrentSpot(data.rates?.[0]?.rate || null))
       .catch(() => {})
@@ -247,7 +243,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, facilities = [], 
     if (!valueDateChanged || !valueDateReason.trim()) return
     try {
       await fetch(`${API_BASE}/api/audit/value-date-change`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id: companyId, exposure_id: rec.exposure_id,
           currency_pair: rec.currency_pair, original_date: originalValueDate,
@@ -309,7 +305,7 @@ function ExecutionModal({ rec, bankEmail, bankName, companyId, facilities = [], 
 
     try {
       await fetch(`${API_BASE}/api/audit/order-sent`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id: companyId, exposure_id: rec.exposure_id,
           currency_pair: rec.currency_pair, order_type: orderType,
@@ -595,14 +591,14 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
 
   async function loadMcRisk() {
     try {
-      const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) setMcRisk(await res.json())
     } catch (e) { console.error('[mc-risk] fetch error:', e) }
   }
 
   async function loadFacilities() {
     try {
-      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) {
         const data = await res.json()
         setFacilities(data.facilities || [])
@@ -614,8 +610,8 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
     setLoading(true)
     try {
       const [recRes, settingsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/recommendations?company_id=${companyId}`, { headers: authHeaders() }).then(r => r.json()),
-        fetch(`${API_BASE}/api/settings/${companyId}`, { headers: authHeaders() }).then(r => r.json())
+        fetch(`${API_BASE}/api/recommendations?company_id=${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
+        fetch(`${API_BASE}/api/settings/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } }).then(r => r.json())
       ])
       if (recRes.error) setError(recRes.error)
       else { setRecommendations(recRes.recommendations); setPolicy(recRes.policy) }
@@ -626,7 +622,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
 
     // Fetch all enriched exposures separately — silently, doesn't block the main load
     try {
-      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) {
         const data = await res.json()
         setAllExposures(Array.isArray(data) ? data : (data.items || []))
@@ -642,7 +638,7 @@ function HedgingRecommendations({ focusExposure, onFocusConsumed }) {
   const handleDownloadPDF = async () => {
     setDownloading(true)
     try {
-      const response = await fetch(`${API_BASE}/api/reports/currency-plan?company_id=${companyId}`, { headers: authHeaders() })
+      const response = await fetch(`${API_BASE}/api/reports/currency-plan?company_id=${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (!response.ok) throw new Error('Failed')
       const blob = await response.blob()
       const url  = window.URL.createObjectURL(blob)

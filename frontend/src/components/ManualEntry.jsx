@@ -1,13 +1,9 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useCompany } from '../contexts/CompanyContext';
 import { Plus, Save, X, CheckCircle, AlertCircle, AlertTriangle, Calendar, FileText, Hash } from 'lucide-react';
 import { NAVY, GOLD, WARNING } from '../brand';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com';
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-});
 
 const EMPTY_FORM = {
   reference_number: '',
@@ -92,7 +88,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       setMessage(null);
       const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
         method: 'POST',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildPayload(formData))
       });
       const data = await response.json();
@@ -147,7 +143,7 @@ const ManualEntry = ({ companyId, onSaveSuccess }) => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/exposure-data/manual`, {
           method: 'POST',
-          headers: authHeaders(),
+          credentials: 'include', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(buildPayload(entry))
         });
         const data = await response.json();

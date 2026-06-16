@@ -1,4 +1,4 @@
-// ExposureRegister.jsx
+﻿// ExposureRegister.jsx
 // Drop-in replacement for the register table inside Dashboard.jsx
 // Shows: Total | Hedged | Open | Locked P&L | Floating P&L | Combined P&L | Corridor | Status
 
@@ -17,10 +17,6 @@ const SUCCESS = '#10B981'
 const DANGER  = '#EF4444'
 const WARNING = '#F59E0B'
 
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-})
 
 const fmtAmount = (n, ccy = '') =>
   `${ccy} ${Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`.trim()
@@ -177,7 +173,7 @@ function ConfidenceBadge({ exposureId, value, onChange }) {
     try {
       const res = await fetch(`${API_BASE}/api/exposures/${exposureId}/confidence`, {
         method: 'PATCH',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confidence: next }),
       })
       if (res.ok) onChange(next)
@@ -366,7 +362,7 @@ function ConfirmTrancheModal({ tranche, ccy, onClose, onConfirmed }) {
     try {
       const res = await fetch(`${API_BASE}/api/tranches/${tranche.id}/confirm`, {
         method: 'PATCH',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bank_reference: bankRef.trim() })
       })
       const data = await res.json()
@@ -455,7 +451,7 @@ function CorridorResetModal({ exposure, onClose, onReset }) {
     setSaving(true)
     try {
       const res = await fetch(`${API_BASE}/api/exposures/${exposure.id}/reset-corridor`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           current_spot:    spot,
           take_profit_pct: tp,
@@ -558,7 +554,7 @@ function ArchiveModal({ exposure, onClose, onConfirm }) {
     setSaving(true)
     try {
       const res = await fetch(`${API_BASE}/api/exposures/${exposure.id}/archive`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason })
       })
       if (!res.ok) throw new Error('Archive failed')
@@ -623,7 +619,7 @@ function RemainderStatusBadge({ exposure, onUpdate }) {
     setSaving(true)
     try {
       const res = await fetch(`${API_BASE}/api/exposures/${exposure.id}/remainder-status`, {
-        method: 'PATCH', headers: authHeaders(),
+        method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ remainder_status: newStatus }),
       })
       if (res.ok) onUpdate()
@@ -675,7 +671,7 @@ function LogSpotModal({ exposure, onClose, onLogged }) {
     setSaving(true)
     try {
       const res = await fetch(`${API_BASE}/api/exposures/${exposure.id}/tranches`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount:     amt,
           rate:       r,
@@ -834,7 +830,7 @@ export default function ExposureRegister({
       // Fetch enriched exposures (include_archived=true so settled tab is populated)
       const res = await fetch(
         `${API_BASE}/api/exposures/enriched?company_id=${companyId}&include_archived=true`,
-        { headers: authHeaders() }
+        { credentials: 'include', headers: { 'Content-Type': 'application/json' } }
       )
       if (!res.ok) throw new Error('Failed to load')
       const data = await res.json()
@@ -878,7 +874,7 @@ export default function ExposureRegister({
     setExpanded(prev => ({ ...prev, [id]: nowExpanding }))
     // Lazy-load MTM data the first time a row is expanded
     if (nowExpanding && !mtmData[id]) {
-      fetch(`${API_BASE}/api/tranches/mtm/${id}`, { headers: authHeaders() })
+      fetch(`${API_BASE}/api/tranches/mtm/${id}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (!data?.tranches) return
@@ -893,7 +889,7 @@ export default function ExposureRegister({
   async function handleMarkSettled(exp) {
     try {
       const res = await fetch(`${API_BASE}/api/exposures/${exp.id}/archive`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Settlement complete' })
       })
       if (!res.ok) throw new Error('Failed')
@@ -904,7 +900,7 @@ export default function ExposureRegister({
   async function handleUnarchive(exp) {
     try {
       const res = await fetch(`${API_BASE}/api/exposures/${exp.id}/unarchive`, {
-        method: 'POST', headers: authHeaders()
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }
       })
       if (!res.ok) throw new Error('Failed')
       load()

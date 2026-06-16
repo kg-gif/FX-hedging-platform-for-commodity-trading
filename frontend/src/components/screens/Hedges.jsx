@@ -1,4 +1,4 @@
-// Hedges.jsx — Phase 3 real-data port
+﻿// Hedges.jsx — Phase 3 real-data port
 //
 // Data source: GET /api/exposures/enriched?company_id={id}&include_archived=true
 // Tabs driven by the `tab` field returned on each exposure item.
@@ -121,7 +121,7 @@ function useEnrichedExposures() {
     setLoading(true); setError(null)
     fetch(
       `${API_BASE}/api/exposures/enriched?company_id=${selectedCompanyId}&include_archived=true`,
-      { headers: authHeaders() }
+      { credentials: 'include', headers: { 'Content-Type': 'application/json' } }
     )
       .then(res => {
         if (!res.ok) throw new Error(`API error ${res.status}`)

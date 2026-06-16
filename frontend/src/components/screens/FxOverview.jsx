@@ -1,4 +1,4 @@
-// FxOverview.jsx — Phase 3 real-data port
+﻿// FxOverview.jsx — Phase 3 real-data port
 import { useState, useEffect } from 'react'
 import { useCompany } from '../../contexts/CompanyContext'
 import { API_BASE, authHeaders } from '../../utils/api'
@@ -91,7 +91,7 @@ function useEnrichedExposures() {
     if (companyLoading || !selectedCompanyId) return
     let cancelled = false
     setLoading(true); setError(null)
-    fetch(`${API_BASE}/api/exposures/enriched?company_id=${selectedCompanyId}&include_archived=false`, { headers: authHeaders() })
+    fetch(`${API_BASE}/api/exposures/enriched?company_id=${selectedCompanyId}&include_archived=false`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       .then(res => { if (!res.ok) throw new Error(`API error ${res.status}`); return res.json() })
       .then(data => { if (cancelled) return; setExposures(Array.isArray(data) ? data : (data.items||data.exposures||[])); setLastRefresh(new Date()); setLoading(false) })
       .catch(err => { if (cancelled) return; console.error('[FxOverview] fetch failed:', err); setError(err.message); setLoading(false) })

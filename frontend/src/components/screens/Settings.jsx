@@ -1,4 +1,4 @@
-// Settings.jsx — Phase 3 real-data port
+﻿// Settings.jsx — Phase 3 real-data port
 //
 // Data source: GET /api/settings/{company_id}
 // Returns: { company, bank, notifications, active_policy, zone_config, alert_prefs }
@@ -176,7 +176,7 @@ function CompanySection({ data, companyId, onSaved }) {
     try {
       const r = await fetch(API.companySettings(companyId), {
         method: 'PUT',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, base_currency: currency }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -225,7 +225,7 @@ function BankSection({ data, companyId }) {
     try {
       const r = await fetch(API.bankDetails(companyId), {
         method: 'PUT',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bank_name: bankName, bank_contact_name: contactName, bank_email: email }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -276,7 +276,7 @@ function NotificationsSection({ data, companyId }) {
     try {
       const r = await fetch(API.notificationSettings(companyId), {
         method: 'PUT',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alert_email: alertEmail, daily_digest: dailyDigest }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -331,7 +331,7 @@ function CloseAccountSection({ companyId }) {
     try {
       const r = await fetch(API.closeAccount, {
         method: 'POST',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -428,7 +428,7 @@ export default function Settings() {
   const loadSettings = useCallback(() => {
     if (!selectedCompanyId) return
     setLoading(true)
-    fetch(API.settingsAll(selectedCompanyId), { headers: authHeaders() })
+    fetch(API.settingsAll(selectedCompanyId), { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()

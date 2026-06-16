@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useCompany } from '../contexts/CompanyContext'
 import { Download, FileText, Clock, CheckCircle, AlertTriangle, Calendar, TrendingUp, Filter, X, ChevronUp, ChevronDown } from 'lucide-react'
@@ -12,10 +12,6 @@ import ScrollToTop from './ScrollToTop'
 import FXReportVisuals from './FXReportVisuals'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-})
 
 const fmt = (n) => n != null ? new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(n) : '—'
 const fmtDate = (s) => {
@@ -516,7 +512,7 @@ export default function Reports() {
   const loadMaturity = async () => {
     setMaturityLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/reports/maturity/${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/reports/maturity/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) setMaturity(await res.json())
     } catch (e) { console.error('[maturity] fetch error:', e) }
     finally { setMaturityLoading(false) }
@@ -526,8 +522,8 @@ export default function Reports() {
     setMarketLoading(true)
     try {
       const [repRes, histRes] = await Promise.all([
-        fetch(`${API_BASE}/api/reports/market/${companyId}`, { headers: authHeaders() }),
-        fetch(`${API_BASE}/api/reports/market/${companyId}/history`, { headers: authHeaders() }),
+        fetch(`${API_BASE}/api/reports/market/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } }),
+        fetch(`${API_BASE}/api/reports/market/${companyId}/history`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } }),
       ])
       if (repRes.ok)  { const d = await repRes.json();  setMarketReport(d.report || null) }
       if (histRes.ok) { const d = await histRes.json(); setMarketHistory(d.history || []) }
@@ -545,7 +541,7 @@ export default function Reports() {
     }, 2000)
     try {
       const res = await fetch(`${API_BASE}/api/reports/market/generate/${companyId}`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
       })
       if (res.ok) {
         await loadMarketReport()
@@ -566,7 +562,7 @@ export default function Reports() {
 
   const downloadMarketReportPdf = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/reports/market/${companyId}/pdf`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/reports/market/${companyId}/pdf`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (!res.ok) { showToast('PDF generation failed'); return }
       const blob = await res.blob()
       const url  = URL.createObjectURL(blob)
@@ -584,7 +580,7 @@ export default function Reports() {
   const loadFacilities = async () => {
     setFacilityLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/facilities/utilisation/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) setFacilityUtil(await res.json())
     } catch (e) { console.error('[facilities] fetch error:', e) }
     finally { setFacilityLoading(false) }
@@ -592,7 +588,7 @@ export default function Reports() {
 
   const loadMcRisk = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/margin-call/status/${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) {
         const data = await res.json()
         // Build map: tranche_id → { status, acknowledgement }
@@ -611,7 +607,7 @@ export default function Reports() {
   const loadEnriched = async () => {
     setEnrichedLoading(true)
     try {
-      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/exposures/enriched?company_id=${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) {
         const data = await res.json()
         const items = Array.isArray(data) ? data : (data.items || [])
@@ -630,7 +626,7 @@ export default function Reports() {
       // Fetch MTM data for each exposure in parallel; failures are silently skipped
       const results = await Promise.allSettled(
         exposures.map(exp =>
-          fetch(`${API_BASE}/api/tranches/mtm/${exp.id}`, { headers: authHeaders() })
+          fetch(`${API_BASE}/api/tranches/mtm/${exp.id}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
             .then(r => r.ok ? r.json() : null)
         )
       )
@@ -672,7 +668,7 @@ export default function Reports() {
       if (filterFromDate) params.set('from_date', filterFromDate)
       if (filterToDate)   params.set('to_date', filterToDate)
 
-      const res = await fetch(`${API_BASE}/api/audit/hedge-trail?${params}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/audit/hedge-trail?${params}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (res.ok) {
         const data = await res.json()
         setEvents(data.events || [])
@@ -688,7 +684,7 @@ export default function Reports() {
     setDownloading(true)
     showToast('Your export is being prepared. It will download automatically.')
     try {
-      const res = await fetch(`${API_BASE}/api/reports/currency-plan?company_id=${companyId}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/reports/currency-plan?company_id=${companyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (!res.ok) throw new Error('Failed')
       const blob = await res.blob()
       const url  = window.URL.createObjectURL(blob)
@@ -708,7 +704,7 @@ export default function Reports() {
       if (filterPair)     params.set('currency_pair', filterPair)
       if (filterFromDate) params.set('from_date', filterFromDate)
       if (filterToDate)   params.set('to_date', filterToDate)
-      const res = await fetch(`${API_BASE}/api/audit/hedge-trail/csv?${params}`, { headers: authHeaders() })
+      const res = await fetch(`${API_BASE}/api/audit/hedge-trail/csv?${params}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (!res.ok) throw new Error('Failed')
       const blob = await res.blob()
       const url  = window.URL.createObjectURL(blob)

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import {
   UserPlus, Users, Trash2, Edit2, CheckCircle, AlertTriangle,
   Building2, Plus, ChevronDown, ChevronRight, RotateCcw,
@@ -58,10 +58,6 @@ function useToast() {
   return { show, Toast }
 }
 
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('auth_token')}`
-})
 
 function CompaniesTab({ toast, authUser }) {
   const isSuperAdmin = ['superadmin', 'admin'].includes(authUser?.role)
@@ -102,7 +98,7 @@ function CompaniesTab({ toast, authUser }) {
   const loadCompanies = async () => {
     setLoading(true)
     try {
-      const r = await fetch(`${API_BASE}/api/admin/companies`, { headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/admin/companies`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       const data = await r.json()
       setCompanies(data.companies || [])
     } catch { toast.show('error', 'Failed to load companies') }
@@ -111,7 +107,7 @@ function CompaniesTab({ toast, authUser }) {
 
   const loadExposures = async (companyId) => {
     try {
-      const r = await fetch(`${API_BASE}/api/admin/companies/${companyId}/exposures`, { headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/admin/companies/${companyId}/exposures`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       const data = await r.json()
       setExposuresByCompany(prev => ({ ...prev, [companyId]: data.exposures || [] }))
     } catch { toast.show('error', 'Failed to load exposures') }
@@ -147,7 +143,7 @@ function CompaniesTab({ toast, authUser }) {
     setBulkDeleting(true)
     try {
       const r = await fetch(`${API_BASE}/api/admin/exposures/bulk-delete`, {
-        method: 'DELETE', headers: authHeaders(),
+        method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids }),
       })
       const d = await r.json()
@@ -169,7 +165,7 @@ function CompaniesTab({ toast, authUser }) {
     setSaving(true)
     try {
       const r = await fetch(`${API_BASE}/api/admin/companies`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...companyForm, trading_volume_monthly: parseFloat(companyForm.trading_volume_monthly) || 0 })
       })
       const data = await r.json()
@@ -186,7 +182,7 @@ function CompaniesTab({ toast, authUser }) {
     setCompanies(prev => prev.filter(c => c.id !== id))
     setDeleteTarget(null)
     try {
-      const r = await fetch(`${API_BASE}/api/admin/companies/${id}`, { method: 'DELETE', headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/admin/companies/${id}`, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (r.ok) {
         toast.show('success', `"${name}" deactivated`)
         // Refresh the nav dropdown — removes deleted company and auto-switches
@@ -210,7 +206,7 @@ function CompaniesTab({ toast, authUser }) {
     setRenameSaving(true)
     try {
       const r = await fetch(`${API_BASE}/api/admin/companies/${id}/rename`, {
-        method: 'PUT', headers: authHeaders(),
+        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: trimmed }),
       })
       const d = await r.json()
@@ -231,7 +227,7 @@ function CompaniesTab({ toast, authUser }) {
     setResetLoading(true)
     try {
       const r = await fetch(`${API_BASE}/api/admin/companies/${id}/demo-reset`, {
-        method: 'POST', headers: authHeaders()
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }
       })
       const d = await r.json()
       if (r.ok) {
@@ -253,7 +249,7 @@ function CompaniesTab({ toast, authUser }) {
     const [from, to] = expForm.pair.split('/')
     try {
       const r = await fetch(`${API_BASE}/api/admin/exposures`, {
-        method: 'POST', headers: authHeaders(),
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company_id: companyId, from_currency: from, to_currency: to, amount: parseFloat(expForm.amount), instrument_type: expForm.instrument_type, exposure_type: expForm.exposure_type, budget_rate: expForm.budget_rate ? parseFloat(expForm.budget_rate) : null, description: expForm.description, end_date: expForm.end_date || null })
       })
       const data = await r.json()
@@ -282,7 +278,7 @@ function CompaniesTab({ toast, authUser }) {
     const [from, to] = editForm.pair.split('/')
     try {
       const r = await fetch(`${API_BASE}/api/exposure-data/exposures/${editingExp.id}`, {
-        method: 'PUT', headers: authHeaders(),
+        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           from_currency:   from,
           to_currency:     to,
@@ -310,7 +306,7 @@ function CompaniesTab({ toast, authUser }) {
   const deleteExposure = async (exposureId, companyId, pair) => {
     if (!window.confirm(`Delete ${pair} exposure?`)) return
     try {
-      const r = await fetch(`${API_BASE}/api/admin/exposures/${exposureId}`, { method: 'DELETE', headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/admin/exposures/${exposureId}`, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (r.ok) { toast.show('success', `${pair} deleted`); loadExposures(companyId); loadCompanies() }
     } catch { toast.show('error', 'Network error') }
   }
@@ -640,8 +636,8 @@ function UsersTab({ authUser, toast }) {
     setLoading(true)
     try {
       const [uRes, cRes] = await Promise.all([
-        fetch(`${API_BASE}/api/admin/users`, { headers: authHeaders() }).then(r => r.json()),
-        fetch(`${API_BASE}/api/admin/companies`, { headers: authHeaders() }).then(r => r.json())
+        fetch(`${API_BASE}/api/admin/users`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } }).then(r => r.json()),
+        fetch(`${API_BASE}/api/admin/companies`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } }).then(r => r.json())
       ])
       setUsers(uRes.users || [])
       setCompanies(cRes.companies || [])
@@ -654,7 +650,7 @@ function UsersTab({ authUser, toast }) {
     setSaving(true)
     try {
       const r = await fetch(`${API_BASE}/api/admin/users`, {
-        method: 'POST', headers: authHeaders(), body: JSON.stringify(form)
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form)
       })
       const data = await r.json()
       if (r.ok) {
@@ -673,7 +669,7 @@ function UsersTab({ authUser, toast }) {
     if (email === authUser.email) { toast.show('error', "Can't delete your own account"); return }
     if (!window.confirm(`Delete ${email}?`)) return
     try {
-      const r = await fetch(`${API_BASE}/api/admin/users/${userId}`, { method: 'DELETE', headers: authHeaders() })
+      const r = await fetch(`${API_BASE}/api/admin/users/${userId}`, { method: 'DELETE', credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       if (r.ok) { toast.show('success', `${email} deleted`); loadData() }
       else { const d = await r.json(); toast.show('error', d.detail || 'Delete failed') }
     } catch { toast.show('error', 'Network error') }
@@ -775,8 +771,8 @@ function EmailNotificationsTab({ authUser, toast }) {
     setLoading(true)
     try {
       const [logRes, cronRes] = await Promise.all([
-        fetch(`${API_BASE}/api/admin/email-log`,   { headers: authHeaders() }),
-        fetch(`${API_BASE}/api/admin/cron-status`, { headers: authHeaders() }),
+        fetch(`${API_BASE}/api/admin/email-log`,   { credentials: 'include', headers: { 'Content-Type': 'application/json' } }),
+        fetch(`${API_BASE}/api/admin/cron-status`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } }),
       ])
       const logData  = await logRes.json()
       const cronData = await cronRes.json()
@@ -794,7 +790,7 @@ function EmailNotificationsTab({ authUser, toast }) {
     try {
       const r = await fetch(`${API_BASE}/api/admin/send-digest`, {
         method: 'POST',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       })
       // Parse JSON before checking r.ok so we always get the server's error detail

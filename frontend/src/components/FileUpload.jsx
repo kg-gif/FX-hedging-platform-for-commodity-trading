@@ -56,7 +56,7 @@ const FileUpload = ({ companyId: companyIdProp, onUploadSuccess }) => {
       console.log('[FileUpload] FormData company_id:', formData.get('company_id'));
       const response = await fetch(`${API_BASE}/api/exposure-data/upload`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` },
+        credentials: 'include',
         body: formData,
       });
 

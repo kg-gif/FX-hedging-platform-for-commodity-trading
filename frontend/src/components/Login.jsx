@@ -21,6 +21,7 @@ export default function Login({ onLoginSuccess, notice = '' }) {
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password })
       })
@@ -32,8 +33,7 @@ export default function Login({ onLoginSuccess, notice = '' }) {
         return
       }
 
-      // Store token and user info
-      localStorage.setItem('auth_token', data.access_token)
+      // BF-002: auth_token removed — HttpOnly cookie is set by the server on login.
       localStorage.setItem('auth_user', JSON.stringify({
         user_id: data.user_id,
         email: data.email,

@@ -1,4 +1,4 @@
-// Execution.jsx — Phase 3 real-data port
+﻿// Execution.jsx — Phase 3 real-data port
 //
 // Data sources:
 //   GET /api/audit/orders?company_id={id}               — order audit log
@@ -183,7 +183,7 @@ function ExecutionForm({ exposures, facilities, company, user, onExecute, onCanc
     try {
       const res = await fetch(`${API_BASE}/api/audit/order-sent`, {
         method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           company_id:    company?.id,
           exposure_id:   exposureId ? Number(exposureId) : null,
@@ -431,13 +431,13 @@ function useExecutionData() {
     let settled = 0
     const done = () => { if (++settled === 3 && !cancelled) { setLoading(false); setLastRefresh(new Date()) } }
 
-    fetch(`${API_BASE}/api/audit/orders?company_id=${selectedCompanyId}`, { headers: authHeaders() })
+    fetch(`${API_BASE}/api/audit/orders?company_id=${selectedCompanyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json() })
       .then(d => { if (!cancelled) setOrders(d.orders || []) })
       .catch(e => { if (!cancelled) setErrors(prev => ({ ...prev, orders: e.message })) })
       .finally(done)
 
-    fetch(`${API_BASE}/api/facilities/utilisation/${selectedCompanyId}`, { headers: authHeaders() })
+    fetch(`${API_BASE}/api/facilities/utilisation/${selectedCompanyId}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json() })
       .then(d => { if (!cancelled) setFacilities(d.facilities || []) })
       .catch(e => { if (!cancelled) setErrors(prev => ({ ...prev, facilities: e.message })) })
@@ -445,7 +445,7 @@ function useExecutionData() {
 
     fetch(
       `${API_BASE}/api/exposures/enriched?company_id=${selectedCompanyId}&include_archived=false`,
-      { headers: authHeaders() }
+      { credentials: 'include', headers: { 'Content-Type': 'application/json' } }
     )
       .then(r => { if (!r.ok) throw new Error(`API error ${r.status}`); return r.json() })
       .then(d => {

@@ -1,4 +1,4 @@
-// RiskSettingsContext.jsx
+﻿// RiskSettingsContext.jsx
 //
 // Holds company-level risk framework settings that affect the UI.
 // Currently: counterparty utilisation thresholds.
@@ -32,7 +32,7 @@ export function RiskSettingsProvider({ children }) {
   // remains functional with conservative thresholds.
   useEffect(() => {
     setIsLoading(true)
-    fetch(API.riskSettings, { headers: authHeaders() })
+    fetch(API.riskSettings, { credentials: 'include', headers: { 'Content-Type': 'application/json' } })
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
@@ -56,7 +56,7 @@ export function RiskSettingsProvider({ children }) {
 
       fetch(API.riskSettings, {
         method: 'PATCH',
-        headers: authHeaders(),
+        credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           counterparty_at_risk_pct:  next.atRiskPct,
           counterparty_warning_pct:  next.warningPct,

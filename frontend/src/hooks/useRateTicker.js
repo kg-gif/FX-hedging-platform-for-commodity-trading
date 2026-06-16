@@ -77,9 +77,8 @@ export function useRateTicker(companyId) {
       pollRef.current = setInterval(async () => {
         if (!alive) return
         try {
-          const token = localStorage.getItem('auth_token')
           const res   = await fetch(fxRatesTicker(companyId), {
-            headers: { Authorization: `Bearer ${token}` },
+            credentials: 'include',
           })
           if (!res.ok) return
           const body = await res.json()
@@ -103,6 +102,10 @@ export function useRateTicker(companyId) {
 
     function openSocket() {
       if (!alive) return
+      // BF-002 FLAG: WebSocket cannot send cookies or HTTP headers.
+      // The ?token= approach must stay until Axel signs off on a WS ticket solution.
+      // Options: (a) GET /api/auth/ws-ticket short-lived token, (b) token from /api/auth/me in React state.
+      // Do NOT merge a WS auth change without Axel sign-off.
       const token = localStorage.getItem('auth_token')
       if (!token) { startPoll(); return }
 
