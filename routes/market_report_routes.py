@@ -11,16 +11,18 @@ POST /api/reports/market/generate-all          — cron: generate + email all co
 """
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Cookie, HTTPException, Depends
 from fastapi.responses import Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
 router   = APIRouter(prefix="/api/reports/market", tags=["market-reports"])
-security = HTTPBearer()
+# BF-002: auto_error=False so cookie path is tried first
+security = HTTPBearer(auto_error=False)
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -34,9 +36,16 @@ def get_db():
         db.close()
 
 
-def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def require_auth(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    access_token: Optional[str] = Cookie(default=None),
+):
+    """BF-002: accepts HttpOnly cookie first, Bearer header as fallback."""
     from routes.auth_routes import decode_token
-    payload = decode_token(credentials.credentials)
+    token = access_token or (credentials.credentials if credentials else None)
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    payload = decode_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return payload

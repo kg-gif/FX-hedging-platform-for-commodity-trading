@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Cookie
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel, validator
@@ -12,7 +13,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-security = HTTPBearer()
+# BF-002: auto_error=False so cookie path is tried first
+security = HTTPBearer(auto_error=False)
 
 def get_db():
     from database import SessionLocal
@@ -22,15 +24,23 @@ def get_db():
     finally:
         db.close()
 
-def require_admin(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def require_admin(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    access_token: Optional[str] = Cookie(default=None),
+):
     """
     Allow superadmin (platform-level), company_admin (company-level),
     and legacy "admin" role.  Rejects company_user / viewer / unknown.
+
+    BF-002: accepts HttpOnly cookie first, Bearer header as fallback.
     """
     from jose import JWTError, jwt
     SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
+    token = access_token or (credentials.credentials if credentials else None)
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         if payload.get("role") not in ("superadmin", "admin", "company_admin"):
             raise HTTPException(status_code=403, detail="Admin access required")
         return payload

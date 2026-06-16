@@ -10,7 +10,7 @@ frontend can render badges and icons without a second fetch.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+# BF-002: shared cookie-aware auth imported below
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from database import SessionLocal, get_rate
@@ -22,10 +22,9 @@ from services.exposure_utils import calculate_hedge_pct
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 router = APIRouter(prefix="/api/forecasting", tags=["forecasting"])
-security = HTTPBearer(auto_error=False)
+# BF-002: shared cookie-aware auth — cookie first, Bearer fallback
+from services.shared_auth import get_token_payload
 
-
-# ── Inline auth (same pattern as all other routes) ───────────────────────────
 
 def get_db():
     db = SessionLocal()
@@ -33,17 +32,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    from jose import JWTError, jwt
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    secret = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
-    try:
-        return jwt.decode(credentials.credentials, secret, algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 def resolve_company_id(requested_id: int, payload: dict) -> int:

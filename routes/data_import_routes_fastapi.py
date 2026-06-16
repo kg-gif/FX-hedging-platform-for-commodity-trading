@@ -6,7 +6,7 @@ NOW WITH CRUD: Create, Read, Update, Delete
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Depends
 from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+# BF-002: shared cookie-aware auth imported below
 from pydantic import BaseModel, Field, validator
 from typing import Optional, List
 from sqlalchemy.orm import Session
@@ -18,16 +18,8 @@ import os
 from models import Exposure, Company, RiskLevel
 from database import SessionLocal, get_live_fx_rate, calculate_risk_level
 
-# ── Inline auth ───────────────────────────────────────────────────────────────
-_security = HTTPBearer()
-
-def _get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(_security)) -> dict:
-    from jose import JWTError, jwt
-    SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
-    try:
-        return jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+# BF-002: shared cookie-aware auth — cookie first, Bearer fallback
+from services.shared_auth import get_token_payload as _get_token_payload
 
 router = APIRouter(prefix="/api/exposure-data", tags=["Exposure Data"])
 

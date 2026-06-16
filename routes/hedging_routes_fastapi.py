@@ -4,7 +4,7 @@ Auth functions inlined — no external auth_utils dependency.
 """
 
 from fastapi import APIRouter, HTTPException, Query, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+# BF-002: shared cookie-aware auth imported below
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
@@ -15,18 +15,8 @@ from services.hedging_service import HedgingService
 
 router = APIRouter(prefix="/api/hedging", tags=["hedging"])
 hedging_service = HedgingService()
-security = HTTPBearer(auto_error=False)
-
-# ── Inline auth ──────────────────────────────────────────────────
-def get_token_payload(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    from jose import JWTError, jwt
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
-    try:
-        return jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+# BF-002: shared cookie-aware auth — cookie first, Bearer fallback
+from services.shared_auth import get_token_payload
 
 def resolve_company_id(requested_id: int, payload: dict) -> int:
     if payload.get("role") in ("superadmin", "admin"):

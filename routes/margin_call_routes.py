@@ -16,7 +16,7 @@ See BACKLOG.md for Phase 2 (bank credit line + ISDA margin calculation).
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+# BF-002: shared cookie-aware auth imported below
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from database import SessionLocal
@@ -28,10 +28,10 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/margin-call", tags=["Margin Call"])
-_security = HTTPBearer(auto_error=False)
 
+# BF-002: shared cookie-aware auth — cookie first, Bearer fallback
+from services.shared_auth import get_token_payload as _get_token_payload
 
-# ── Inline auth (same pattern as other routes) ───────────────────────────────
 
 def get_db():
     db = SessionLocal()
@@ -39,19 +39,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _get_token_payload(
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
-) -> dict:
-    from jose import JWTError, jwt
-    if not credentials:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-production-use-a-long-random-string")
-    try:
-        return jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 def _resolve_company_id(requested_id: int, payload: dict) -> int:
