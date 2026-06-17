@@ -248,7 +248,7 @@ function MonteCarlo() {
               histDays={histDaysActual}
               forwardPath={sim.forward_path}
               confidenceBands={sim.confidence_bands}
-              height={210}
+              height={160}
               showHeader={false}
             />
             {!hasHistory && (
