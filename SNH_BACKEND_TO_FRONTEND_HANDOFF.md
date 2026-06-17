@@ -18,21 +18,20 @@
 3. **Exception:** If the session is purely frontend sign-off or documentation (no new API calls), the frontend unit can proceed without a backend check first.
 
 **Current open BF items requiring backend action before frontend can proceed:**
-- BF-002 — HttpOnly cookie migration (blocks Login screen port)
+- None — all backend prerequisites deployed.
 
 **Current open BF items requiring frontend action:**
-- BF-009 — Backend deployed 13/06/2026. Frontend to verify `ORD-XXXXX` card displays correctly post-deploy.
-- BF-010 — Confirmed frontend rendering issue (not a backend bug). Fix deploying via `fix/bf-010-hedges-tab` branch (13 Jun 2026).
+- BF-001 — Condition 9 (value-date PATCH) still to be wired into Execution screen.
+- BF-003 — RiskSettingsContext.jsx swap — backend deployed, frontend pending Settings port.
+- BF-005 — Risk Engine real-data port — backend deployed, **frontend building now (16/06/2026)**.
+- BF-007 — Close account UI — backend deployed, frontend pending Settings port.
 
-**Confirmed complete this session — 13 Jun 2026:**
-- Float → Numeric DB migration ✅ live
-- BF-009 backend fix ✅ deployed
-- BF-010 ✅ diagnosed by backend, frontend fix in progress
-- Typography update Inter/Jost ✅ deployed
-- Hedges screen Phase 3 ✅ live (BF-010 fix pending)
-- Execution screen Phase 3 ✅ live
+**Confirmed complete 16 Jun 2026 (session continuation):**
+- BF-002 backend route file fix ✅ — shared_auth.py created, all 9 route files updated, committed and deployed
+- BF-012 ✅ — `/api/settings/risk` confirmed deployed (see routing note below)
+- BF-013 ✅ — `/api/settings/close-account/request` confirmed deployed (see routing note below)
 
-**Next session:** Counterparties screen Phase 3 port. Start with BF-003 (`RiskSettingsContext.jsx` swap). Backend endpoints deployed and ready.
+**Next session:** Backend monitors for 500 on `/exposures` if it recurs. Frontend focuses on BF-005 Risk Engine port. No new backend prerequisites.
 
 ---
 
@@ -323,7 +322,9 @@ Verify login, page refresh (session persistence), and logout all work correctly
 before merging. The Bearer header fallback remains live on the backend during testing.
 ```
 
-**Resolved:** *(pending — awaiting Login screen port)*
+**Resolved: 16 Jun 2026.** Frontend migration complete. 18 files migrated from `localStorage` Bearer tokens to HttpOnly cookie (`credentials: 'include'`). Commits `353c837` (BF-002 migration) + build-fix commit (DataImportDashboard.jsx corruption repaired). `GET /api/auth/me` confirmed live and in use by `App.jsx` for session rehydration. `POST /api/auth/logout` confirmed wired in logout and inactivity timer.
+
+**One item deferred — now resolved:** WebSocket auth. See BF-014 entry below.
 
 ---
 
@@ -786,7 +787,7 @@ All three units — Backend, Frontend, and Legal (Lex) — must stay in step. No
 | GDPR data export endpoint | ✅ Deployed 08/06/2026 | N/A — backend only | ✅ Lex signed off 05/06/2026 | Complete |
 | Float → Numeric DB migration | ✅ Alembic migration applied 13/06/2026 | N/A | N/A | ✅ Complete |
 | File upload feature | ❌ Not scoped | Hold | N/A | Blocked — needs scoping |
-| BF-002 — cookie auth | ✅ Deployed | ⏳ Pending Login screen port | N/A | Frontend action |
+| BF-002 — cookie auth | ✅ Deployed | ✅ Deployed 16/06/2026 | N/A | ✅ Complete (WS auth deferred) |
 | BF-003 — risk settings | ✅ Deployed | ⏳ Pending Settings port | N/A | Frontend action |
 | BF-007 — close account UI | ✅ Deployed | ⏳ Pending Settings port | N/A | Frontend action |
 
@@ -881,6 +882,90 @@ Same issue as BF-012. BF-007 marks this as deployed 02/06/2026, but it is not in
 Please confirm deployment status. If not built, the Claude Code prompt in BF-007 entry above is ready for the backend unit.
 
 **Ball is in: Backend unit (confirmation only — no frontend changes needed either way).**
+
+---
+
+---
+
+## Routing note — 16 Jun 2026 (session continuation)
+
+**To: Frontend unit · Four confirmations**
+
+**1. BF-002 backend route files — all data endpoints now accept cookies**
+
+Post-deploy 401s on data endpoints were caused by 9 route files each having their own Bearer-only auth function. Fixed: `services/shared_auth.py` created as single source of truth (cookie-first, Bearer fallback), all 9 route files updated. Committed and deployed 16/06/2026. All HTTP endpoints now accept HttpOnly cookies correctly.
+
+**2. BF-012 — `/api/settings/risk` confirmed deployed**
+
+Answer is (a): endpoints are live on `birk-fx-api.onrender.com`. The backup codebase was simply behind the live deploy. `RiskSettingsContext.jsx` will work correctly against the live backend. `GET /api/settings/risk` at line 135 and `PATCH /api/settings/risk` at line 164 in `routes/settings_routes.py`.
+
+**3. BF-013 — `/api/settings/close-account/request` confirmed deployed**
+
+Answer is (a): endpoint is live. `POST /api/settings/close-account/request` confirmed present in `routes/settings_routes.py`. The Settings.jsx close-account modal will work correctly.
+
+**4. BF-005 Risk Engine — frontend unblocked, proceed**
+
+Backend deployed 02/06/2026. Endpoint: `GET /api/monte-carlo/simulate/exposure/{exposure_id}?horizon_days=90&history_days=90`. Returns full BF-005 shape including `forward_path`, `confidence_bands`, `historical_rates`, `var_95_pct`, `expected_shortfall_95_pct`. Use `credentials: 'include'` — cookie auth now active.
+
+Empty `historical_rates` (for pairs not yet in `fx_rate_history` table) is valid — hide the historical line gracefully, no error. EUR/USD has 34 days seeded. Other pairs accumulate daily via cron.
+
+**Ball is in: Frontend unit (BF-005 build).**
+
+---
+
+---
+
+### ITEM BF-014 — WebSocket auth migration (localStorage → React state)
+
+**Raised by:** Axel · CTO (deferred from BF-002)
+**Date:** 2026-06-17
+**Priority:** Medium — security improvement; last localStorage token exposure
+**Status:** ✅ Complete — 17/06/2026
+
+**Background**
+
+`useRateTicker.js` was still reading the JWT from `localStorage.getItem('auth_token')` for the WS URL query param — the only remaining `localStorage` token usage after BF-002. WebSocket cannot use HttpOnly cookies or HTTP headers, so a different approach was needed.
+
+**Decision — Option (b) approved by Cipher · Tech DD, 17/06/2026**
+
+- Option (a) short-lived ws-ticket (Redis/in-memory store): more secure, higher complexity — deferred to next Cipher audit
+- Option (b) token from React state: adequate for current risk profile, zero infrastructure cost — approved
+
+**Changes deployed 17/06/2026:**
+
+- `routes/auth_routes.py` — `GET /api/auth/me` now returns `ws_token` (raw JWT from cookie/Bearer). Cookie-first; Bearer fallback during transition.
+- `App.jsx` — `wsToken` React state added. Captured from `me.ws_token` on page load and from `data.access_token` on login. Cleared on logout (both manual and inactivity). Passed to `AuthenticatedApp` → `AppShell` → `RateTicker`.
+- `RateTicker.jsx` — accepts `wsToken` prop, forwards to `useRateTicker`.
+- `useRateTicker.js` — signature updated to `(companyId, wsToken = '')`. Replaces `localStorage.getItem('auth_token')` with `wsToken`. Added `wsToken` to `useEffect` deps — effect re-runs when token arrives after mount, upgrading from HTTP polling to WS. If token is empty, falls back to HTTP polling gracefully.
+
+**Security notes (Cipher):**
+- Token is in JS memory only — not persistent, not accessible via `localStorage.getItem()`
+- Token still appears in WS URL query param — unavoidable for WebSocket; backend logs only `company_id`, never the token
+- XSS that can call `/api/auth/me` with `credentials: 'include'` can get the token — but that XSS already has full cookie-bearing API access, so no new attack surface
+- Revisit Option (a) at next Cipher audit or first external client onboard
+
+**No further action required.**
+
+---
+
+## Pace policy table — updated 17 Jun 2026
+
+| Item | Backend | Frontend | Lex | Status |
+|---|---|---|---|---|
+| Execution screen — Phase 3 port | ✅ | ✅ Deployed | ✅ Signed off | Complete |
+| Execution screen — execute button | ✅ | Hold | ⏳ Condition 8 | Blocked on Lex |
+| Condition 9 — value-date PATCH in execution screen | ✅ | ⏳ Wire in execution screen | N/A | Frontend action |
+| GDPR data export endpoint | ✅ | N/A | ✅ | Complete |
+| Float → Numeric DB migration | ✅ | N/A | N/A | ✅ Complete |
+| BF-002 — cookie auth | ✅ All routes | ✅ 18 files | N/A | ✅ Complete |
+| BF-014 — WS auth (localStorage → React state) | ✅ /api/auth/me ws_token | ✅ App.jsx + RateTicker + useRateTicker | N/A | ✅ Complete 17/06/2026 |
+| BF-003 — risk settings | ✅ | ⏳ Settings port | N/A | Frontend action |
+| BF-005 — risk engine | ✅ | 🔨 Building 16/06/2026 | N/A | In progress |
+| BF-007 — close account UI | ✅ | ⏳ Settings port | N/A | Frontend action |
+| BF-009 — order ID | ✅ | ✅ Verify in prod | N/A | Frontend to verify |
+| BF-010 — Forecast tab | N/A | ✅ Fix deployed | N/A | Verify in prod |
+| BF-012 — risk settings deployment | ✅ Confirmed | ✅ Resolved | N/A | ✅ Closed |
+| BF-013 — close account deployment | ✅ Confirmed | ✅ Resolved | N/A | ✅ Closed |
 
 ---
 

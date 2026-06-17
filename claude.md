@@ -82,7 +82,7 @@ The founder is non-technical. Code must be clean, well-commented, and maintainab
 ## URLs
 
 - **Frontend:** https://birk-dashboard.onrender.com
-- **Backend API:** https://birk-fx-api.onrender.com
+- **Backend API:** https://api.sumnohow.com (canonical) — also at https://birk-fx-api.onrender.com (Render subdomain, kept enabled)
 - **GitHub:** https://github.com/kg-gif/FX-hedging-platform-for-commodity-trading
 
 ---

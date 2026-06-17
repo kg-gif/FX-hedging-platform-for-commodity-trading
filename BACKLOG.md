@@ -48,6 +48,36 @@ Each module requires backend endpoints before frontend build. Sensitivity and CF
 
 ---
 
+## 🤖 EMBEDDED AI PERSONAS — IN-APP ADVISORY (Finn · Atlas)
+**Priority:** Post-pilot
+**Description:** Embed named SNH personas directly into the product as customer-facing AI advisors. The CFO/treasurer gets context-aware guidance from characters with distinct expertise — not a generic chatbot.
+
+**Personas in scope:**
+- **Finn · Treasury** — hedging methodology, policy questions, execution decisions ("Should I hedge this now or wait?", "What does my coverage ratio mean?")
+- **Atlas · Financial Analyst** — market context, rate intelligence, macro commentary ("What's driving EUR/NOK this week?", "Is this a good rate vs historical levels?")
+
+**Key design principles:**
+- Persona-driven: each has a distinct voice and knowledge domain — not a single generic bot
+- Context-aware: knows the user's actual portfolio, exposures, budget rates, and executed hedges
+- Always carries the `ai_generated` disclosure and a "not financial advice" disclaimer (Lex requirement)
+- Server-side rationale uses "your policy mandates X" framing — never "we recommend X" (per Ada contract)
+- Fallback to a Lex-approved static string on model failure
+
+**Relationship to existing items:**
+- Extends Help System Layer 3 (Help Bot) — personas are the Layer 3 implementation, not a generic assistant
+- Requires AI integration patterns already in backend spec (Ada · R&D contract, `ai_generated`/`fallback_used` flags)
+- Atlas persona in-app = subset of what Atlas does internally — scoped to market commentary only, not internal SNH analysis
+
+**Open questions (resolve before scoping):**
+- Which persona appears first? Finn is higher utility for core use cases; Atlas is higher demo value.
+- Single floating button (user chooses persona) or context-driven (Finn on Hedging tab, Atlas on Risk Engine)?
+- Cost: Claude API per-query — needs usage estimate before launch. Validate with pilot customers first.
+- Validate with 2+ pilot customers: do CFOs want a named persona or is that confusing?
+
+**Status:** Backlog — post-pilot. Validate demand with pilot customers before building. Note relationship to Help Bot Layer 3.
+
+---
+
 ## 🤖 AI-GENERATED ZONE TRIGGERS
 **Priority:** Pre-scale (Phase 2 — post pilot)
 **Description:** Instead of manually setting Defensive/Opportunistic trigger percentages, the system suggests optimal triggers based on customer inputs and market data.

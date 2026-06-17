@@ -26,7 +26,7 @@ import Legal from './components/screens/Legal'
 
 const NAVY = '#1A2744'
 const GOLD = '#C9A86C'
-const API_URL = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
+const API_URL = import.meta.env.VITE_API_URL || 'https://api.sumnohow.com'
 
 function getStoredAuth() {
   try {
@@ -43,7 +43,7 @@ function clearAuth() {
 
 // ── Shell: sticky header + tab nav ──────────────────────────────────────────
 
-function AppShell({ authUser, onLogout, children }) {
+function AppShell({ authUser, onLogout, wsToken, children }) {
   const location = useLocation()
   const { selectedCompanyId } = useCompany()
   const isAdmin = ['superadmin', 'company_admin', 'admin'].includes(authUser?.role)
@@ -69,8 +69,8 @@ function AppShell({ authUser, onLogout, children }) {
     <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
       {/* ── Sticky header ──────────────────────────────────────────────── */}
       <div style={{ background: NAVY }} className="shadow-xl sticky top-0 z-50">
-        {/* Live rate ticker */}
-        <RateTicker companyId={selectedCompanyId} />
+        {/* Live rate ticker — wsToken from React state, not localStorage (BF-002) */}
+        <RateTicker companyId={selectedCompanyId} wsToken={wsToken} />
         {/* Logo + user row */}
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -151,7 +151,7 @@ function AppShell({ authUser, onLogout, children }) {
 
 // ── Authenticated route tree ─────────────────────────────────────────────────
 
-function AuthenticatedApp({ authUser, onLogout }) {
+function AuthenticatedApp({ authUser, onLogout, wsToken }) {
   const { companyLoading, selectedCompanyId } = useCompany()
 
   // Block rendering until CompanyContext has resolved from the API.
@@ -170,7 +170,7 @@ function AuthenticatedApp({ authUser, onLogout }) {
   }
 
   return (
-    <AppShell authUser={authUser} onLogout={onLogout}>
+    <AppShell authUser={authUser} onLogout={onLogout} wsToken={wsToken}>
       <Routes>
         {/* Default — redirect / to /dashboard */}
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -213,6 +213,10 @@ function App() {
   const [authData, setAuthData] = useState(null)
   const [checking, setChecking] = useState(true)
   const [inactivityMessage, setInactivityMessage] = useState('')
+  // WS auth — BF-002 / Cipher approval 17/06/2026.
+  // Token lives in React state only; captured from /api/auth/me or login response.
+  // Never written to localStorage. Passed down to RateTicker → useRateTicker.
+  const [wsToken, setWsToken] = useState('')
 
   useEffect(() => {
     const stored = getStoredAuth()
@@ -220,8 +224,16 @@ function App() {
       fetch(`${API_URL}/api/auth/me`, {
         credentials: 'include',             // BF-002: cookie replaces Bearer
       })
-        .then(r => { if (r.ok) setAuthData(stored); else clearAuth() })
-        .catch(() => setAuthData(stored))
+        .then(async r => {
+          if (r.ok) {
+            const me = await r.json()
+            setWsToken(me.ws_token || '')   // capture token for WS connection
+            setAuthData(stored)
+          } else {
+            clearAuth()
+          }
+        })
+        .catch(() => setAuthData(stored))   // network error — still show app; WS will poll
         .finally(() => setChecking(false))
     } else {
       setChecking(false)
@@ -244,6 +256,7 @@ function App() {
           })
         } catch (_) {}
         clearAuth()
+        setWsToken('')
         setAuthData(null)
         setInactivityMessage("You've been logged out due to inactivity.")
       }, INACTIVITY_TIMEOUT_MS)
@@ -261,8 +274,11 @@ function App() {
 
   const handleLoginSuccess = (data) => {
     setInactivityMessage('')
+    // Login response still includes access_token in body (transition window — see auth_routes.py).
+    // Use it as wsToken so the ticker connects immediately without a second /api/auth/me round-trip.
+    setWsToken(data.access_token || '')
     setAuthData({
-      // token removed — BF-002: auth is now cookie-based
+      // token removed from localStorage — BF-002: auth is now cookie-based
       user: { user_id: data.user_id, email: data.email, company_id: data.company_id, role: data.role }
     })
   }
@@ -277,6 +293,7 @@ function App() {
       // ignore — clear local state regardless
     }
     clearAuth()
+    setWsToken('')      // clear WS token on logout — ticker will stop
     setAuthData(null)
     setInactivityMessage('')
   }
@@ -308,7 +325,7 @@ function App() {
         ) : (
           <Route path="*" element={
             <CompanyProvider>
-              <AuthenticatedApp authUser={authData.user} onLogout={handleLogout} />
+              <AuthenticatedApp authUser={authData.user} onLogout={handleLogout} wsToken={wsToken} />
             </CompanyProvider>
           } />
         )}

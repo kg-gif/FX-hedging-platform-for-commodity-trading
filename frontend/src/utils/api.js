@@ -9,7 +9,7 @@
 // call site matches the actual backend route first.
 // ============================================================
 
-const BASE = import.meta.env.VITE_API_URL || 'https://birk-fx-api.onrender.com'
+const BASE = import.meta.env.VITE_API_URL || 'https://api.sumnohow.com'
 export { BASE as API_BASE }
 
 // Derive WebSocket base from HTTP base: https → wss, http → ws

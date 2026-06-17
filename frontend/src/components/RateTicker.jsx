@@ -151,10 +151,12 @@ function StatusDot({ connected, fallback }) {
 }
 
 /* ── Main component ───────────────────────────────────────────────────────── */
-export default function RateTicker({ companyId }) {
+export default function RateTicker({ companyId, wsToken = '' }) {
   useEffect(() => { injectStyles() }, [])
 
-  const { rates, connected, fallback } = useRateTicker(companyId)
+  // wsToken comes from React state in App.jsx (captured from /api/auth/me).
+  // Never from localStorage — BF-002 / Cipher approval 17/06/2026.
+  const { rates, connected, fallback } = useRateTicker(companyId, wsToken)
   const pairs                          = Object.keys(rates)
 
   if (pairs.length === 0) {

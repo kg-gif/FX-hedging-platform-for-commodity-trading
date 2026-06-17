@@ -48,7 +48,13 @@ function reducer(state, action) {
 
 const INITIAL = { rates: {}, connected: false, fallback: false }
 
-export function useRateTicker(companyId) {
+/**
+ * @param {number|string} companyId
+ * @param {string} wsToken  Raw JWT for WS auth. Must come from React state
+ *                          (e.g. captured from /api/auth/me response body) —
+ *                          NOT from localStorage. Cipher approval 17/06/2026.
+ */
+export function useRateTicker(companyId, wsToken = '') {
   const [state, dispatch] = useReducer(reducer, INITIAL)
 
   // Stable refs — survive re-renders without triggering the effect
@@ -58,6 +64,9 @@ export function useRateTicker(companyId) {
 
   useEffect(() => {
     if (!companyId) return
+    // wsToken may arrive slightly after mount (after /api/auth/me resolves).
+    // If it is empty, openSocket falls back to HTTP polling immediately.
+    // When the token arrives the effect re-runs (wsToken dep) and upgrades to WS.
 
     // Local boolean — each effect run owns its own `alive`.
     // onclose/setTimeout callbacks close over this, so an old connection
@@ -102,11 +111,12 @@ export function useRateTicker(companyId) {
 
     function openSocket() {
       if (!alive) return
-      // BF-002 FLAG: WebSocket cannot send cookies or HTTP headers.
-      // The ?token= approach must stay until Axel signs off on a WS ticket solution.
-      // Options: (a) GET /api/auth/ws-ticket short-lived token, (b) token from /api/auth/me in React state.
-      // Do NOT merge a WS auth change without Axel sign-off.
-      const token = localStorage.getItem('auth_token')
+      // BF-002: WS auth resolved — token now comes from React state (/api/auth/me
+      // response body), not localStorage. Cipher-approved Option (b) 17/06/2026.
+      // Token is passed as URL query param — unavoidable for WebSocket.
+      // WS server logs only company_id, never the token. Revisit for Option (a)
+      // (short-lived ws-ticket) at next Cipher audit.
+      const token = wsToken
       if (!token) { startPoll(); return }
 
       console.log('[rate-ticker] connecting, company:', companyId)
@@ -158,7 +168,7 @@ export function useRateTicker(companyId) {
       wsRef.current = null
       stopPoll()
     }
-  }, [companyId]) // only re-run when the viewed company changes
+  }, [companyId, wsToken]) // re-run when company changes OR when token arrives
 
   return state
 }

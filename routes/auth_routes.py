@@ -196,13 +196,29 @@ def create_user(request: CreateUserRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me")
-def get_me(current_user: dict = Depends(get_current_user)):
-    """Verify token is valid — returns user info. Used by frontend on page load."""
+def get_me(
+    current_user: dict = Depends(get_current_user),
+    access_token: Optional[str] = Cookie(default=None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+):
+    """
+    Verify token is valid — returns user info. Used by frontend on page load.
+
+    ws_token: raw JWT returned for WebSocket auth (useRateTicker).
+    Stored in React state only — never in localStorage (BF-002 / Cipher approval).
+    Cookie-first; Bearer fallback for transition window.
+    """
+    # Return the raw token so the frontend can use it for the WS connection.
+    # WS cannot send HttpOnly cookies, so the token must be passed in the URL
+    # query string — this is the lowest-risk option at current risk profile.
+    # Cipher sign-off: 17/06/2026. Revisit Option (a) ws-ticket at next audit.
+    raw_token = access_token or (credentials.credentials if credentials else "")
     return {
         "user_id": current_user["user_id"],
         "email": current_user["email"],
         "company_id": current_user["company_id"],
-        "role": current_user["role"]
+        "role": current_user["role"],
+        "ws_token": raw_token,
     }
 
 
