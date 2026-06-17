@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from models import Exposure, SimulationResult
 from database import SessionLocal, get_db
