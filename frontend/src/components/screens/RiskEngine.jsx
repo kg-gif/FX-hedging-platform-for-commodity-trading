@@ -1,11 +1,24 @@
-// RiskEngine.jsx — Phase 2 rebuild screen
+// RiskEngine.jsx — Phase 3 (real-data port)
 //
-// DRAFT — PENDING PIXEL SIGN-OFF
-// Phase 2 scope: Monte Carlo tab (mock data), placeholder tabs for VaR,
-// Expected shortfall, Stress testing, Hedge effectiveness.
-// Phase 3: swap mock data for real API calls.
+// Monte Carlo tab: wired to GET /api/monte-carlo/simulate/exposure/{id}
+// BF-005 confirmed deployed 02/06/2026 — full response shape verified.
+//
+// Sign-off chain: Pixel → Cipher → Finn · Treasury → Lex → CEO MiniMe → Axel deploys.
+// Finn · Treasury joins for this screen (FX calculations and rate display).
+//
+// Phase 3 scope — Monte Carlo tab:
+//   - Exposure selector (fetches from enriched endpoint)
+//   - Live forward_path and confidence_bands rendered via FanChart (pre-computed props)
+//   - historical_rates rendered as historical line; hidden gracefully when empty ([])
+//   - KPI tiles: spot, budget_rate, VaR 95%, Expected shortfall 95%
+//   - vol_calibrated flag → "calibrated" / "estimated" label on ES tile
+//   - AI narrative with two-tier Lex disclosure
+//
+// VaR, Expected shortfall, Stress testing, Hedge effectiveness:
+//   Remain as Phase 3 draft placeholders — separate backend endpoints not yet built.
+//   Will be wired when backend confirms spec (raise BF item at that point).
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Card from '../ui/Card'
 import Button from '../ui/Button'
 import EyebrowLabel from '../ui/EyebrowLabel'
@@ -13,7 +26,11 @@ import Icon from '../ui/Icon'
 import Tabs from '../ui/Tabs'
 import ThinkingIndicator from '../ui/ThinkingIndicator'
 import FanChart from '../ui/charts/FanChart'
+import { useCompany } from '../../contexts/CompanyContext'
+import { API, authHeaders } from '../../utils/api'
+import { monteCarloService } from '../../services/monteCarloService'
 
+// ── Module definitions ────────────────────────────────────────────────────────
 const MODULES = [
   { id: 'monte-carlo',         label: 'Monte Carlo',         live: true  },
   { id: 'var',                 label: 'VaR',                 live: false },
@@ -22,41 +39,7 @@ const MODULES = [
   { id: 'hedge-effectiveness', label: 'Hedge effectiveness', live: false },
 ]
 
-function generateMockHistory(spot, histDays = 90) {
-  const points = []
-  let rate = spot - 0.030 - (Math.random() * 0.005)
-  for (let day = -histDays; day <= -1; day++) {
-    const drift = (spot - rate) / Math.abs(day) * 0.35
-    const noise = (Math.random() - 0.48) * 0.003
-    rate = Math.max(rate + drift + noise, rate * 0.995)
-    points.push({ day, rate: parseFloat(rate.toFixed(5)) })
-  }
-  return points
-}
-
-const MOCK_HISTORY = generateMockHistory(1.0847, 90)
-
-const MOCK_SIMULATION = {
-  pair:      'EUR/USD',
-  spot:       1.0847,
-  budget:     1.0700,
-  forwardTo:  1.0950,
-  days:       90,
-  histDays:   90,
-  history:    MOCK_HISTORY,
-  p10:        1.0612,
-  p50:        1.0847,
-  p90:        1.1084,
-  var95:     -0.0187,
-  narrative: `Your EUR/USD exposure is currently above your budget rate of 1.0700.
-The simulation projects a 10% probability that spot will fall below 1.0612 over
-the next 90 days, and a 10% probability it will exceed 1.1084. Your current hedge
-cover of 68% reduces the portfolio's downside exposure materially — the unhedged
-portion carries the majority of the rate risk shown in the distribution below.
-Your policy target of 75% cover, if met, would reduce the unhedged tail by a
-further 23% of the open notional.`,
-}
-
+// ── AI disclosure tag — Lex two-tier pattern ──────────────────────────────────
 function AIDisclosure() {
   return (
     <div style={{
@@ -78,73 +61,243 @@ function AIDisclosure() {
   )
 }
 
+// ── Monte Carlo tab — Phase 3 live data ───────────────────────────────────────
 function MonteCarlo() {
-  const sim = MOCK_SIMULATION
+  const { selectedCompanyId } = useCompany()
+
+  // Exposures list for the selector
+  const [exposures, setExposures]     = useState([])
+  const [expLoading, setExpLoading]   = useState(true)
+
+  // Selected exposure and simulation result
+  const [selectedId, setSelectedId]   = useState(null)
+  const [sim, setSim]                 = useState(null)
+  const [simLoading, setSimLoading]   = useState(false)
+  const [simError, setSimError]       = useState(null)
+
+  // ── Fetch active exposures on mount / company change ──────────────────────
+  useEffect(() => {
+    if (!selectedCompanyId) return
+
+    setExpLoading(true)
+    fetch(API.exposuresEnriched(selectedCompanyId), {
+      headers: authHeaders(),
+      credentials: 'include',
+    })
+      .then(r => r.json())
+      .then(data => {
+        // Enriched endpoint returns { items: [...], portfolio: {...} }
+        const items = Array.isArray(data) ? data : (data.items || [])
+        // Only active, non-settled exposures
+        const active = items.filter(e => e.is_active !== false && e.tab !== 'settled')
+        setExposures(active)
+        if (active.length > 0) setSelectedId(active[0].id)
+      })
+      .catch(err => {
+        console.error('RiskEngine: failed to fetch exposures', err)
+        setExposures([])
+      })
+      .finally(() => setExpLoading(false))
+  }, [selectedCompanyId])
+
+  // ── Run simulation when selected exposure changes ─────────────────────────
+  useEffect(() => {
+    if (!selectedId) return
+
+    setSimLoading(true)
+    setSim(null)
+    setSimError(null)
+
+    monteCarloService.runSimulation(selectedId)
+      .then(data => setSim(data))
+      .catch(err => setSimError(err.message || 'Simulation unavailable'))
+      .finally(() => setSimLoading(false))
+  }, [selectedId])
+
+  // ── Derived display values ────────────────────────────────────────────────
+  // historical_rates may be [] for pairs not yet seeded — hide gracefully
+  const hasHistory     = sim && Array.isArray(sim.historical_rates) && sim.historical_rates.length > 0
+  const histDaysActual = hasHistory ? Math.abs(sim.historical_rates[0].day) : 0
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  if (expLoading) {
+    return <ThinkingIndicator />
+  }
+
+  if (exposures.length === 0) {
+    return (
+      <Card>
+        <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+          No active exposures found. Add an exposure to run a simulation.
+        </p>
+      </Card>
+    )
+  }
 
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
-        <Card>
-          <EyebrowLabel style={{ marginBottom: 8 }}>Spot rate</EyebrowLabel>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28, color: 'var(--snh-navy)', fontVariantNumeric: 'tabular-nums' }}>
-            {sim.spot.toFixed(4)}
-          </div>
-          <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>{sim.pair} · live</div>
-        </Card>
-        <Card>
-          <EyebrowLabel style={{ marginBottom: 8 }}>Budget rate</EyebrowLabel>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28, color: 'var(--snh-gold)', fontVariantNumeric: 'tabular-nums' }}>
-            {sim.budget.toFixed(4)}
-          </div>
-          <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>Planning benchmark</div>
-        </Card>
-        <Card>
-          <EyebrowLabel style={{ marginBottom: 8 }}>P10 / P90 range</EyebrowLabel>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28, color: 'var(--snh-navy)', fontVariantNumeric: 'tabular-nums' }}>
-            {sim.p10.toFixed(4)}
-          </div>
-          <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>to {sim.p90.toFixed(4)} · 90-day horizon</div>
-        </Card>
-        <Card>
-          <EyebrowLabel style={{ marginBottom: 8 }}>VaR 95% · 90 day</EyebrowLabel>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28, color: 'var(--snh-danger)', fontVariantNumeric: 'tabular-nums' }}>
-            {sim.var95.toFixed(4)}
-          </div>
-          <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>Adverse rate move</div>
-        </Card>
+      {/* ── Exposure selector ──────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <EyebrowLabel>Exposure</EyebrowLabel>
+        <select
+          value={selectedId || ''}
+          onChange={e => setSelectedId(Number(e.target.value))}
+          style={{
+            fontFamily:  'var(--font-body)',
+            fontSize:    'var(--fs-body-sm)',
+            padding:     '6px 10px',
+            border:      '1px solid var(--border-1)',
+            borderRadius:'var(--radius-2)',
+            background:  'var(--bg-surface)',
+            color:       'var(--fg-1)',
+            cursor:      'pointer',
+          }}
+        >
+          {exposures.map(e => (
+            <option key={e.id} value={e.id}>
+              {e.pair || e.currency_pair || '—'} · {e.description || `Exposure ${e.id}`}
+            </option>
+          ))}
+        </select>
       </div>
 
-      <Card eyebrow="Monte Carlo simulation" title={`${sim.pair} · 90-day history and forward distribution`} style={{ marginBottom: 16 }}>
-        <FanChart
-          pair={sim.pair}
-          spot={sim.spot}
-          budget={sim.budget}
-          forwardTo={sim.forwardTo}
-          days={sim.days}
-          history={sim.history}
-          histDays={sim.histDays}
-        />
-      </Card>
+      {/* ── Loading state ──────────────────────────────────────────────────── */}
+      {simLoading && <ThinkingIndicator />}
 
-      <Card>
-        <EyebrowLabel style={{ marginBottom: 8 }}>Risk narrative</EyebrowLabel>
-        <p style={{ fontSize: 'var(--fs-body)', lineHeight: 1.65, color: 'var(--fg-1)', whiteSpace: 'pre-line' }}>
-          {sim.narrative}
-        </p>
-        <AIDisclosure />
-      </Card>
+      {/* ── Error state ────────────────────────────────────────────────────── */}
+      {simError && !simLoading && (
+        <Card>
+          <p style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--fg-2)' }}>
+            Simulation unavailable — {simError}
+          </p>
+        </Card>
+      )}
+
+      {/* ── Results ────────────────────────────────────────────────────────── */}
+      {sim && !simLoading && (
+        <>
+          {/* KPI row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>Spot rate</EyebrowLabel>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
+                color: 'var(--snh-navy)', fontVariantNumeric: 'tabular-nums',
+              }}>
+                {Number(sim.spot).toFixed(4)}
+              </div>
+              <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
+                {sim.pair} · live
+              </div>
+            </Card>
+
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>Budget rate</EyebrowLabel>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
+                color: 'var(--snh-gold)', fontVariantNumeric: 'tabular-nums',
+              }}>
+                {Number(sim.budget_rate).toFixed(4)}
+              </div>
+              <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
+                Planning benchmark
+              </div>
+            </Card>
+
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>VaR 95% · {sim.horizon_days || 90} day</EyebrowLabel>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
+                color: 'var(--snh-danger)', fontVariantNumeric: 'tabular-nums',
+              }}>
+                {Number(sim.var_95_pct).toFixed(4)}
+              </div>
+              <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
+                Adverse rate move (P5)
+              </div>
+            </Card>
+
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>Expected shortfall 95%</EyebrowLabel>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
+                color: 'var(--snh-danger)', fontVariantNumeric: 'tabular-nums',
+              }}>
+                {Number(sim.expected_shortfall_95_pct).toFixed(4)}
+              </div>
+              <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
+                CVaR · vol {sim.vol_calibrated ? 'calibrated' : 'estimated'}
+              </div>
+            </Card>
+
+          </div>
+
+          {/* Fan chart — uses pre-computed GBM paths from API */}
+          <Card
+            eyebrow="Monte Carlo simulation"
+            title={`${sim.pair} · ${sim.horizon_days || 90}-day forward distribution`}
+            style={{ marginBottom: 16 }}
+          >
+            <FanChart
+              pair={sim.pair}
+              spot={Number(sim.spot)}
+              budget={Number(sim.budget_rate)}
+              days={sim.horizon_days || 90}
+              history={hasHistory ? sim.historical_rates : null}
+              histDays={histDaysActual}
+              forwardPath={sim.forward_path}
+              confidenceBands={sim.confidence_bands}
+              height={210}
+              showHeader={false}
+            />
+            {!hasHistory && (
+              <p style={{
+                marginTop: 12,
+                fontSize: 'var(--fs-eyebrow)',
+                color: 'var(--fg-3)',
+              }}>
+                Historical rate data not yet available for this pair — chart shows forward projection only.
+              </p>
+            )}
+          </Card>
+
+          {/* AI narrative — shown when backend returns one */}
+          {sim.narrative && (
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>Risk narrative</EyebrowLabel>
+              <p style={{
+                fontSize: 'var(--fs-body)',
+                lineHeight: 1.65,
+                color: 'var(--fg-1)',
+                whiteSpace: 'pre-line',
+              }}>
+                {sim.narrative}
+              </p>
+              <AIDisclosure />
+            </Card>
+          )}
+        </>
+      )}
     </>
   )
 }
 
+// ── DRAFT placeholder — Phase 3 modules not yet built ────────────────────────
 function DraftModule({ title, description, phase3Items }) {
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
         <EyebrowLabel>{title}</EyebrowLabel>
-        <span style={{ fontSize: 'var(--fs-eyebrow)', fontWeight: 'var(--fw-bold)', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--snh-warning)' }}>Phase 3</span>
+        <span style={{
+          fontSize: 'var(--fs-eyebrow)', fontWeight: 'var(--fw-bold)',
+          letterSpacing: '0.1em', textTransform: 'uppercase',
+          color: 'var(--snh-warning)',
+        }}>Phase 3</span>
       </div>
-      <p style={{ color: 'var(--fg-2)', fontSize: 'var(--fs-body-sm)', marginBottom: 20 }}>{description}</p>
+      <p style={{ color: 'var(--fg-2)', fontSize: 'var(--fs-body-sm)', marginBottom: 20 }}>
+        {description}
+      </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {phase3Items.map((item, i) => (
           <div key={i} style={{
@@ -163,12 +316,14 @@ function DraftModule({ title, description, phase3Items }) {
   )
 }
 
+// ── Module registry ───────────────────────────────────────────────────────────
 const MODULE_CONTENT = {
   'monte-carlo': <MonteCarlo />,
+
   'var': (
     <DraftModule
       title="Value at Risk"
-      description="Portfolio-level VaR across all open exposures. Configurable confidence interval (95% / 99%) and time horizon."
+      description="Portfolio-level VaR across all open exposures. Configurable confidence interval (95% / 99%) and time horizon. Designed for board reporting and internal risk limits."
       phase3Items={[
         'Historical simulation VaR — rolling 252-day window',
         'Parametric VaR — normal distribution assumption',
@@ -178,10 +333,11 @@ const MODULE_CONTENT = {
       ]}
     />
   ),
+
   'expected-shortfall': (
     <DraftModule
       title="Expected shortfall"
-      description="Conditional Value at Risk — the expected loss given that a loss exceeds the VaR threshold."
+      description="Conditional Value at Risk — the expected loss given that a loss exceeds the VaR threshold. More sensitive to tail risk than VaR alone."
       phase3Items={[
         'ES at 95% and 99% confidence',
         'Tail distribution visualisation',
@@ -190,10 +346,11 @@ const MODULE_CONTENT = {
       ]}
     />
   ),
+
   'stress-testing': (
     <DraftModule
       title="Stress testing"
-      description="Apply named macro scenarios to your exposure portfolio and see the P&L impact."
+      description="Apply named macro scenarios to your exposure portfolio and see the P&L impact. Scenarios sourced from the Settings risk framework — editable by your treasury team."
       phase3Items={[
         'Named scenarios: 2008 GFC, 2015 CHF shock, COVID March 2020, custom',
         'Instantaneous and path-based shock modes',
@@ -203,6 +360,7 @@ const MODULE_CONTENT = {
       ]}
     />
   ),
+
   'hedge-effectiveness': (
     <DraftModule
       title="Hedge effectiveness"
@@ -217,6 +375,11 @@ const MODULE_CONTENT = {
     />
   ),
 }
+
+// ── Main screen ───────────────────────────────────────────────────────────────
+// Note: MODULE_CONTENT is defined at module level so DraftModule instances are
+// stable. MonteCarlo is defined as a component and rendered here so it can use
+// hooks (useCompany, useState, useEffect).
 
 export default function RiskEngine() {
   const [active, setActive] = useState('monte-carlo')
@@ -238,6 +401,7 @@ export default function RiskEngine() {
         </Button>
       </div>
 
+      {/* Module tabs */}
       <div style={{ marginBottom: 24 }}>
         <Tabs
           variant="underline"
@@ -247,7 +411,8 @@ export default function RiskEngine() {
         />
       </div>
 
-      {MODULE_CONTENT[active]}
+      {/* Active module */}
+      {active === 'monte-carlo' ? <MonteCarlo /> : MODULE_CONTENT[active]}
     </>
   )
 }
