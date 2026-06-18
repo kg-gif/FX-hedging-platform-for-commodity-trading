@@ -230,7 +230,7 @@ export default function FanChart({
 
   // ── Tooltip position (percentage of div width) ────────────────────────────
   const tooltipLeft  = hover ? (hover.svgX / width) * 100 : 0
-  const flipToLeft   = hover && hover.svgX > width * 0.62
+  const flipToLeft   = hover && hover.svgX > width * 0.55
 
   return (
     <div style={{ position: 'relative', userSelect: 'none' }}>
@@ -403,20 +403,20 @@ export default function FanChart({
         >
           {hover.isForward ? (
             <>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                +{hover.day}d
-              </div>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>+{hover.day}d</div>
               {hover.p50 != null && (
-                <div>P50 (median) <span style={{ float: 'right', paddingLeft: 16 }}>{hover.p50.toFixed(4)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                  <span>P50 (median)</span><span>{hover.p50.toFixed(4)}</span>
+                </div>
               )}
               {hover.p25 != null && hover.p75 != null && (
-                <div style={{ color: 'var(--fg-2)' }}>
-                  IQR P25–P75 <span style={{ float: 'right', paddingLeft: 16 }}>{hover.p25.toFixed(4)}–{hover.p75.toFixed(4)}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, color: 'var(--fg-2)' }}>
+                  <span>IQR P25–P75</span><span>{hover.p25.toFixed(4)}–{hover.p75.toFixed(4)}</span>
                 </div>
               )}
               {hover.p10 != null && hover.p90 != null && (
-                <div style={{ color: 'var(--fg-3)' }}>
-                  Tail P10–P90 <span style={{ float: 'right', paddingLeft: 16 }}>{hover.p10.toFixed(4)}–{hover.p90.toFixed(4)}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, color: 'var(--fg-3)' }}>
+                  <span>Tail P10–P90</span><span>{hover.p10.toFixed(4)}–{hover.p90.toFixed(4)}</span>
                 </div>
               )}
             </>
@@ -426,7 +426,9 @@ export default function FanChart({
                 {hover.day === 0 ? 'Today' : `${hover.day}d`}
               </div>
               {hover.rate != null && (
-                <div>Rate <span style={{ float: 'right', paddingLeft: 16 }}>{hover.rate.toFixed(4)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
+                  <span>Rate</span><span>{hover.rate.toFixed(4)}</span>
+                </div>
               )}
             </>
           )}
