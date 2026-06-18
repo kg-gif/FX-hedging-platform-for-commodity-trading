@@ -387,18 +387,18 @@ export default function FanChart({
             top:         `${(M.top / height) * 100}%`,
             left:        `${tooltipLeft}%`,
             transform:   flipToLeft ? 'translateX(calc(-100% - 10px))' : 'translateX(10px)',
-            background:  'var(--surface-1, #fff)',
-            border:      '1px solid var(--border-1)',
+            background:   'var(--snh-navy)',
+            border:       '1px solid rgba(255,255,255,0.08)',
             borderRadius: 'var(--radius-2, 6px)',
-            padding:     '8px 12px',
-            boxShadow:   '0 2px 8px rgba(0,0,0,0.10)',
-            fontSize:    'var(--fs-caption, 11px)',
-            fontFamily:  'var(--font-mono)',
-            color:       'var(--snh-navy)',
-            lineHeight:  '1.6',
+            padding:      '10px 14px',
+            boxShadow:    '0 4px 16px rgba(0,0,0,0.22)',
+            fontSize:     'var(--fs-caption, 11px)',
+            fontFamily:   'var(--font-mono)',
+            color:        'rgba(255,255,255,0.9)',
+            lineHeight:   '1.7',
             pointerEvents: 'none',
-            whiteSpace:  'nowrap',
-            zIndex:      10,
+            whiteSpace:   'nowrap',
+            zIndex:       10,
           }}
         >
           {hover.isForward ? (
@@ -410,12 +410,12 @@ export default function FanChart({
                 </div>
               )}
               {hover.p25 != null && hover.p75 != null && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, color: 'var(--fg-2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, color: 'rgba(255,255,255,0.65)' }}>
                   <span>IQR P25–P75</span><span>{hover.p25.toFixed(4)}–{hover.p75.toFixed(4)}</span>
                 </div>
               )}
               {hover.p10 != null && hover.p90 != null && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, color: 'var(--fg-3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, color: 'rgba(255,255,255,0.45)' }}>
                   <span>Tail P10–P90</span><span>{hover.p10.toFixed(4)}–{hover.p90.toFixed(4)}</span>
                 </div>
               )}

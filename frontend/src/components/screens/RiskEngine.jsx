@@ -40,6 +40,48 @@ const MODULES = [
 ]
 
 // ── AI disclosure tag — Lex two-tier pattern ──────────────────────────────────
+// ── InfoTip — inline ⓘ with popover, used on KPI tiles ───────────────────────
+function InfoTip({ children }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 5 }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        aria-label="More information"
+        style={{
+          background: 'none', border: 'none', padding: 0,
+          cursor: 'pointer', color: 'var(--fg-3)',
+          fontSize: '11px', lineHeight: 1, verticalAlign: 'middle',
+        }}
+      >
+        ⓘ
+      </button>
+      {open && (
+        <div style={{
+          position:     'absolute',
+          top:          '20px',
+          left:         '50%',
+          transform:    'translateX(-50%)',
+          width:        '230px',
+          background:   'var(--snh-navy)',
+          borderRadius: 'var(--radius-2, 6px)',
+          padding:      '10px 12px',
+          boxShadow:    '0 4px 16px rgba(0,0,0,0.18)',
+          fontSize:     'var(--fs-caption, 11px)',
+          color:        'rgba(255,255,255,0.85)',
+          lineHeight:   '1.55',
+          zIndex:       40,
+          textAlign:    'left',
+          fontWeight:   400,
+        }}>
+          {children}
+        </div>
+      )}
+    </span>
+  )
+}
+
 function AIDisclosure() {
   return (
     <div style={{
@@ -180,7 +222,13 @@ function MonteCarlo() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
 
             <Card>
-              <EyebrowLabel style={{ marginBottom: 8 }}>Spot rate</EyebrowLabel>
+              <EyebrowLabel style={{ marginBottom: 8 }}>
+                Spot rate
+                <InfoTip>
+                  <strong>Spot rate</strong><br />
+                  The current mid-market exchange rate for {sim.pair}. Sourced from the live rate feed and used as the starting point for the Monte Carlo simulation.
+                </InfoTip>
+              </EyebrowLabel>
               <div style={{
                 fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
                 color: 'var(--snh-navy)', fontVariantNumeric: 'tabular-nums',
@@ -193,7 +241,13 @@ function MonteCarlo() {
             </Card>
 
             <Card>
-              <EyebrowLabel style={{ marginBottom: 8 }}>Budget rate</EyebrowLabel>
+              <EyebrowLabel style={{ marginBottom: 8 }}>
+                Budget rate
+                <InfoTip>
+                  <strong>Budget rate</strong><br />
+                  The exchange rate used when this exposure was originally planned or budgeted. The simulation shows the probability that the rate will remain favourable relative to this level.
+                </InfoTip>
+              </EyebrowLabel>
               <div style={{
                 fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
                 color: 'var(--snh-gold)', fontVariantNumeric: 'tabular-nums',
@@ -206,7 +260,13 @@ function MonteCarlo() {
             </Card>
 
             <Card>
-              <EyebrowLabel style={{ marginBottom: 8 }}>VaR 95% · {sim.horizon_days || 90} day</EyebrowLabel>
+              <EyebrowLabel style={{ marginBottom: 8 }}>
+                VaR 95% · {sim.horizon_days || 90} day
+                <InfoTip>
+                  <strong>Value at Risk (VaR 95%)</strong><br />
+                  The worst adverse rate move expected over the {sim.horizon_days || 90}-day horizon in 95% of simulated scenarios. In the remaining 5% of scenarios, the move could be larger. This is not a maximum loss.
+                </InfoTip>
+              </EyebrowLabel>
               <div style={{
                 fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
                 color: 'var(--snh-danger)', fontVariantNumeric: 'tabular-nums',
@@ -219,7 +279,16 @@ function MonteCarlo() {
             </Card>
 
             <Card>
-              <EyebrowLabel style={{ marginBottom: 8 }}>Expected shortfall 95%</EyebrowLabel>
+              <EyebrowLabel style={{ marginBottom: 8 }}>
+                Expected shortfall 95%
+                <InfoTip>
+                  <strong>Expected Shortfall (CVaR 95%)</strong><br />
+                  The average rate move in the worst 5% of simulated scenarios — more conservative than VaR. Shows what to expect if things do go wrong, not just the threshold.<br /><br />
+                  <em>Vol {sim.vol_calibrated ? 'calibrated' : 'estimated'}:</em> {sim.vol_calibrated
+                    ? 'Volatility was estimated from actual historical price data for this pair.'
+                    : 'Insufficient history — a default volatility assumption was used.'}
+                </InfoTip>
+              </EyebrowLabel>
               <div style={{
                 fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
                 color: 'var(--snh-danger)', fontVariantNumeric: 'tabular-nums',
