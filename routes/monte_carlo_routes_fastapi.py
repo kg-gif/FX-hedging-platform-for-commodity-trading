@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from database import get_rate
 
 from models import Exposure, SimulationResult
 from database import SessionLocal, get_db
@@ -243,7 +244,22 @@ async def simulate_exposure_structured(
         raise HTTPException(status_code=404, detail=f"Exposure {exposure_id} not found")
 
     currency_pair = f"{exposure.from_currency}/{exposure.to_currency}"
-    spot = float(exposure.current_rate or 1.0)
+
+    # BF-017: use live rate cache rather than the stale exposure.current_rate field.
+    # exposure.current_rate is only refreshed when the enriched endpoint runs, so new
+    # or unrefreshed exposures return None → 1.0, producing a meaningless simulation.
+    # get_rate() uses the in-memory 5-min TTL cache — pure dict lookup when warm.
+    try:
+        spot = get_rate(exposure.from_currency, exposure.to_currency)
+    except Exception:
+        spot = float(exposure.current_rate or 1.0)
+        if spot == 1.0:
+            logger.warning(
+                "[monte-carlo] Spot rate fallback to 1.0 for exposure %s (%s) "
+                "— rate cache may be cold",
+                exposure_id, currency_pair
+            )
+
     budget_rate = float(exposure.budget_rate or spot)
     simulation_date = date.today().isoformat()
 
