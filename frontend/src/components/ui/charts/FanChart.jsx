@@ -12,62 +12,85 @@
 //   - Units always inline with the number
 //   - No gridlines except the budget line
 //
-// Usage (forward only — Hedges screen):
-//   <FanChart pair="EUR/USD" spot={1.0847} budget={1.0700} forwardTo={1.0900} days={90} />
-//
-// Usage (with history — Risk engine, spec v0.4):
-//   <FanChart pair="EUR/USD" spot={1.0847} budget={1.0700} forwardTo={1.0900} days={90}
-//             history={[{ day: -90, rate: 1.0650 }, ...]} histDays={90} />
+// Hover: vertical crosshair across full chart. Historical section shows date + rate.
+//        Forward section shows +Nd, P50, P25–P75, P10–P90.
+// Trendline: optional linear regression over historical points (toggle in legend).
+//   Historical section only — NOT extrapolated forward.
+//   Disclosure: descriptive (shows where rate has been drifting), not a forecast.
+//   Lex sign-off required on disclosure copy before production deploy.
 //
 // Usage (Phase 3 — pre-computed paths from Monte Carlo API):
 //   <FanChart pair="EUR/USD" spot={1.0847} budget={1.0700} days={90}
-//             forwardPath={[{ day: 0, rate: 1.0847 }, { day: 10, rate: 1.0862 }, ...]}
+//             forwardPath={[{ day: 0, rate: 1.0847 }, ...]}
 //             confidenceBands={[{ day: 0, p10, p25, p75, p90 }, ...]}
 //             history={[{ day: -90, rate: 1.0650 }, ...]} histDays={90} />
-//
-// When forwardPath + confidenceBands are supplied, the chart renders the actual GBM
-// output from the backend. When omitted, it falls back to the internal √t-scaled
-// approximation (used on the Hedges screen and Phase 2 mock). Both modes are supported
-// simultaneously — no breaking change for existing call sites.
 
+import { useState, useRef, useCallback } from 'react'
 import EyebrowLabel from '../EyebrowLabel'
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function linearRegression(points) {
+  if (!points || points.length < 2) return null
+  const n    = points.length
+  const sumX  = points.reduce((s, p) => s + p.day,  0)
+  const sumY  = points.reduce((s, p) => s + p.rate, 0)
+  const sumXY = points.reduce((s, p) => s + p.day * p.rate, 0)
+  const sumX2 = points.reduce((s, p) => s + p.day * p.day,  0)
+  const denom = n * sumX2 - sumX * sumX
+  if (denom === 0) return null
+  const m = (n * sumXY - sumX * sumY) / denom
+  const b = (sumY - m * sumX) / n
+  return { m, b }
+}
+
+function lerp(arr, day, key) {
+  if (!arr || arr.length === 0) return null
+  const before = arr.filter(p => p.day <= day)
+  const after  = arr.filter(p => p.day >  day)
+  if (before.length === 0) return arr[0][key]
+  if (after.length  === 0) return arr[arr.length - 1][key]
+  const p0 = before[before.length - 1]
+  const p1 = after[0]
+  const t  = (day - p0.day) / (p1.day - p0.day)
+  return p0[key] + t * (p1[key] - p0[key])
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function FanChart({
   pair      = 'EUR/USD',
   spot      = 1.0847,
   budget    = 1.0700,
-  forwardTo = 1.0900,   // used only when forwardPath is not supplied
+  forwardTo = 1.0900,
   days      = 90,
   width     = 640,
   height    = 280,
-  history   = null,     // [{ day: -90, rate: 1.065 }, ...] — optional historical line
-  histDays  = 90,       // span of historical data shown left of Today
-  // Phase 3 pre-computed props — when both are supplied the internal σ-approximation
-  // is bypassed and the actual GBM percentile output is used instead.
-  forwardPath      = null, // [{ day: 0, rate }, { day: 10, rate }, ...] — P50 central path
-  confidenceBands  = null, // [{ day: 0, p10, p25, p75, p90 }, ...] — percentile fan
-  // Set false when the parent card already provides context (e.g. Risk Engine).
-  // Suppresses the internal eyebrow and caption to avoid 4 header lines before the chart.
+  history   = null,
+  histDays  = 90,
+  forwardPath      = null,
+  confidenceBands  = null,
   showHeader       = true,
 }) {
-  // Whether to use pre-computed paths (Phase 3) or internal σ approximation (Phase 2 / Hedges)
+  const [hover,         setHover]         = useState(null)
+  const [showTrend,     setShowTrend]     = useState(false)
+  const [showTrendInfo, setShowTrendInfo] = useState(false)
+  const svgRef = useRef(null)
+
   const usePrecomputed = forwardPath != null && confidenceBands != null
 
-  // Layout
+  // ── Layout ─────────────────────────────────────────────────────────────────
   const M = { top: 20, right: 16, bottom: 28, left: 100 }
-  const W = width - M.left - M.right
-  const H = height - M.top - M.bottom
+  const W = width  - M.left - M.right
+  const H = height - M.top  - M.bottom
 
   // ── Coordinate system ──────────────────────────────────────────────────────
-  // x-axis spans (-histDays → +days) when history is present; (0 → days) otherwise.
-  // "Today" sits at day 0.
   const totalDays = history ? histDays + days : days
   const dayOffset = history ? histDays : 0
 
   const xScaleDay = (day) => M.left + ((day + dayOffset) / totalDays) * W
-  const xScale    = (t)   => xScaleDay(t * days)   // t ∈ [0,1] → day ∈ [0, days]
-
-  const yScale = (v, yMin, yMax) => M.top + (1 - (v - yMin) / (yMax - yMin)) * H
+  const xScale    = (t)   => xScaleDay(t * days)
+  const yScale    = (v, lo, hi) => M.top + (1 - (v - lo) / (hi - lo)) * H
 
   // ── Internal σ approximation — used when forwardPath/confidenceBands not supplied ──
   const sigmaInner = 0.012
@@ -85,43 +108,32 @@ export default function FanChart({
 
   // ── Y-axis range ───────────────────────────────────────────────────────────
   const histRates = history ? history.map(h => h.rate) : []
-
   let yMin, yMax
   if (usePrecomputed) {
-    const fwdRates   = forwardPath.map(p => p.rate)
-    const bandLow    = confidenceBands.map(b => b.p10)
-    const bandHigh   = confidenceBands.map(b => b.p90)
-    yMin = Math.min(budget, ...histRates, ...fwdRates, ...bandLow)  - 0.005
-    yMax = Math.max(budget, ...histRates, ...fwdRates, ...bandHigh) + 0.005
+    yMin = Math.min(budget, ...histRates, ...forwardPath.map(p => p.rate), ...confidenceBands.map(b => b.p10)) - 0.005
+    yMax = Math.max(budget, ...histRates, ...forwardPath.map(p => p.rate), ...confidenceBands.map(b => b.p90)) + 0.005
   } else {
     yMin = Math.min(budget, ...histRates, ...path.map(p => p.central - p.outerHalf)) - 0.005
     yMax = Math.max(budget, ...histRates, ...path.map(p => p.central + p.outerHalf)) + 0.005
   }
-
   const ys = (v) => yScale(v, yMin, yMax)
 
-  // ── Band polygons — three non-overlapping zones ────────────────────────────
-  // Each polygon is a closed shape: traverse top edge L→R, bottom edge R→L.
-  // Rendering order: tail zones first (bottom layer), IQR core on top.
+  // ── Band polygons ──────────────────────────────────────────────────────────
   let upperTailPolygon, iqrPolygon, lowerTailPolygon
   if (usePrecomputed) {
-    // Upper tail P75–P90
     upperTailPolygon = [
       ...confidenceBands.map(b => `${xScaleDay(b.day)},${ys(b.p90)}`),
       ...[...confidenceBands].reverse().map(b => `${xScaleDay(b.day)},${ys(b.p75)}`),
     ].join(' ')
-    // IQR core P25–P75
     iqrPolygon = [
       ...confidenceBands.map(b => `${xScaleDay(b.day)},${ys(b.p75)}`),
       ...[...confidenceBands].reverse().map(b => `${xScaleDay(b.day)},${ys(b.p25)}`),
     ].join(' ')
-    // Lower tail P10–P25
     lowerTailPolygon = [
       ...confidenceBands.map(b => `${xScaleDay(b.day)},${ys(b.p25)}`),
       ...[...confidenceBands].reverse().map(b => `${xScaleDay(b.day)},${ys(b.p10)}`),
     ].join(' ')
   } else {
-    // σ-approximation fallback (Hedges screen) — split into equivalent three zones
     upperTailPolygon = [
       ...path.map(p => `${xScale(p.t)},${ys(p.central + p.outerHalf)}`),
       ...[...path].reverse().map(p => `${xScale(p.t)},${ys(p.central + p.innerHalf)}`),
@@ -137,21 +149,25 @@ export default function FanChart({
   }
 
   // ── Central forward path ───────────────────────────────────────────────────
-  let centralPath
-  if (usePrecomputed) {
-    centralPath = forwardPath
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScaleDay(p.day)} ${ys(p.rate)}`)
-      .join(' ')
-  } else {
-    centralPath = path
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.t)} ${ys(p.central)}`)
-      .join(' ')
-  }
+  const centralPath = usePrecomputed
+    ? forwardPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScaleDay(p.day)} ${ys(p.rate)}`).join(' ')
+    : path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${xScale(p.t)} ${ys(p.central)}`).join(' ')
 
   // ── Historical rate line ───────────────────────────────────────────────────
   const historicalPath = history
     ? history.map((h, i) => `${i === 0 ? 'M' : 'L'} ${xScaleDay(h.day)} ${ys(h.rate)}`).join(' ')
-        + ` L ${xScaleDay(0)} ${ys(spot)}`  // connect final history point to Today's spot
+        + ` L ${xScaleDay(0)} ${ys(spot)}`
+    : null
+
+  // ── Trendline (historical section only) ───────────────────────────────────
+  const trendReg = history ? linearRegression(history) : null
+  const trendLinePath = (showTrend && trendReg && history && history.length >= 2)
+    ? (() => {
+        const x0 = history[0].day
+        const y0 = trendReg.m * x0 + trendReg.b
+        const y1 = trendReg.m * 0  + trendReg.b  // at Today (day 0)
+        return `M ${xScaleDay(x0)} ${ys(y0)} L ${xScaleDay(0)} ${ys(y1)}`
+      })()
     : null
 
   // ── Y-axis ticks ───────────────────────────────────────────────────────────
@@ -160,11 +176,11 @@ export default function FanChart({
   // ── X-axis labels ──────────────────────────────────────────────────────────
   const xLabels = history
     ? [
-        { day: -histDays,                  label: `-${histDays}d`                   },
-        { day: -Math.round(histDays / 2),  label: `-${Math.round(histDays / 2)}d`   },
-        { day: 0,                          label: 'Today'                            },
-        { day: Math.round(days / 2),       label: `+${Math.round(days / 2)}d`       },
-        { day: days,                       label: `+${days}d`                        },
+        { day: -histDays,                 label: `-${histDays}d`                  },
+        { day: -Math.round(histDays / 2), label: `-${Math.round(histDays / 2)}d`  },
+        { day: 0,                         label: 'Today'                           },
+        { day: Math.round(days / 2),      label: `+${Math.round(days / 2)}d`      },
+        { day: days,                      label: `+${days}d`                       },
       ]
     : [
         { day: 0,                    label: 'Today'                      },
@@ -172,8 +188,52 @@ export default function FanChart({
         { day: days,                 label: `+${days}d`                  },
       ]
 
+  // ── Hover handler ──────────────────────────────────────────────────────────
+  const handleMouseMove = useCallback((e) => {
+    if (!svgRef.current) return
+    const rect  = svgRef.current.getBoundingClientRect()
+    const svgX  = ((e.clientX - rect.left) / rect.width) * width
+    const rawDay = ((svgX - M.left) / W) * totalDays - dayOffset
+
+    if (svgX < M.left || svgX > width - M.right) { setHover(null); return }
+
+    const dayInt = Math.round(rawDay)
+    const clampedDay = Math.max(-histDays, Math.min(days, dayInt))
+
+    if (clampedDay <= 0 && history) {
+      // Historical section — snap to nearest point
+      const nearest = history.reduce((best, p) =>
+        Math.abs(p.day - clampedDay) < Math.abs(best.day - clampedDay) ? p : best
+      , history[0])
+      setHover({
+        svgX:      xScaleDay(nearest.day),
+        day:       nearest.day,
+        isForward: false,
+        rate:      nearest.rate,
+      })
+    } else {
+      // Forward section — interpolate
+      setHover({
+        svgX:      xScaleDay(clampedDay),
+        day:       clampedDay,
+        isForward: true,
+        p50: usePrecomputed ? lerp(forwardPath,     clampedDay, 'rate') : null,
+        p10: usePrecomputed ? lerp(confidenceBands, clampedDay, 'p10')  : null,
+        p25: usePrecomputed ? lerp(confidenceBands, clampedDay, 'p25')  : null,
+        p75: usePrecomputed ? lerp(confidenceBands, clampedDay, 'p75')  : null,
+        p90: usePrecomputed ? lerp(confidenceBands, clampedDay, 'p90')  : null,
+      })
+    }
+  }, [history, histDays, days, totalDays, dayOffset, width, W, usePrecomputed, forwardPath, confidenceBands]) // eslint-disable-line
+
+  const handleMouseLeave = useCallback(() => setHover(null), [])
+
+  // ── Tooltip position (percentage of div width) ────────────────────────────
+  const tooltipLeft  = hover ? (hover.svgX / width) * 100 : 0
+  const flipToLeft   = hover && hover.svgX > width * 0.62
+
   return (
-    <div>
+    <div style={{ position: 'relative', userSelect: 'none' }}>
       {showHeader && (
         <>
           <EyebrowLabel style={{ marginBottom: '8px' }}>Forward rate · {pair}</EyebrowLabel>
@@ -182,41 +242,31 @@ export default function FanChart({
           </div>
         </>
       )}
+
+      {/* ── SVG chart ──────────────────────────────────────────────────────── */}
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${width} ${height}`}
         width="100%"
         height="auto"
         preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label={`Fan chart of ${pair} forward rate — three confidence zones: tail (P10–P25), IQR (P25–P75), tail (P75–P90)`}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        style={{ cursor: 'crosshair', display: 'block' }}
       >
-        {/* Lower tail — P10–P25 (or σ lower tail). Drawn first, below IQR. */}
-        <polygon
-          points={lowerTailPolygon}
-          fill="var(--snh-slate)"
-          fillOpacity="0.07"
-        />
-        {/* Upper tail — P75–P90 (or σ upper tail). Drawn first, below IQR. */}
-        <polygon
-          points={upperTailPolygon}
-          fill="var(--snh-slate)"
-          fillOpacity="0.07"
-        />
-        {/* IQR core — P25–P75 (or σ inner). Drawn on top of tail zones. */}
-        <polygon
-          points={iqrPolygon}
-          fill="var(--snh-slate)"
-          fillOpacity="0.16"
-        />
+        {/* Band zones */}
+        <polygon points={lowerTailPolygon} fill="var(--snh-slate)" fillOpacity="0.07" />
+        <polygon points={upperTailPolygon} fill="var(--snh-slate)" fillOpacity="0.07" />
+        <polygon points={iqrPolygon}       fill="var(--snh-slate)" fillOpacity="0.16" />
 
-        {/* Budget reference — dashed gold horizontal */}
+        {/* Budget reference */}
         <line
           x1={M.left} x2={width - M.right}
           y1={ys(budget)} y2={ys(budget)}
-          stroke="var(--snh-gold)"
-          strokeWidth="1.5"
-          strokeDasharray="3 3"
-          strokeLinecap="square"
+          stroke="var(--snh-gold)" strokeWidth="1.5"
+          strokeDasharray="3 3" strokeLinecap="square"
         />
         <text
           x={M.left - 8} y={ys(budget)}
@@ -228,52 +278,56 @@ export default function FanChart({
           Budget {budget.toFixed(4)}
         </text>
 
-        {/* Today divider — subtle vertical when history is shown */}
+        {/* Today divider */}
         {history && (
           <line
             x1={xScaleDay(0)} x2={xScaleDay(0)}
             y1={M.top} y2={height - M.bottom}
-            stroke="var(--border-1)"
-            strokeWidth="1"
-            strokeDasharray="2 3"
+            stroke="var(--border-1)" strokeWidth="1" strokeDasharray="2 3"
           />
         )}
 
-        {/* Historical rate line — slate, drawn under forward path */}
+        {/* Historical rate line */}
         {historicalPath && (
           <path
             d={historicalPath}
-            fill="none"
-            stroke="var(--snh-slate)"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            fill="none" stroke="var(--snh-slate)"
+            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
           />
         )}
 
-        {/* Central forward path — navy */}
+        {/* Trendline — historical section only, not extrapolated */}
+        {trendLinePath && (
+          <path
+            d={trendLinePath}
+            fill="none"
+            stroke="var(--snh-slate)"
+            strokeWidth="1"
+            strokeDasharray="4 3"
+            strokeLinecap="round"
+            opacity="0.55"
+          />
+        )}
+
+        {/* Central forward path */}
         <path
           d={centralPath}
-          fill="none"
-          stroke="var(--snh-navy)"
-          strokeWidth="1.5"
-          strokeLinecap="square"
-          strokeLinejoin="miter"
+          fill="none" stroke="var(--snh-navy)"
+          strokeWidth="1.5" strokeLinecap="square" strokeLinejoin="miter"
         />
 
-        {/* Today's value — gold disc at join point */}
+        {/* Today's spot disc */}
         <circle cx={xScaleDay(0)} cy={ys(spot)} r="4" fill="var(--snh-gold)" />
         <text
           x={xScaleDay(0) + 8} y={ys(spot) - 8}
-          textAnchor="start"
-          fontSize="11" fill="var(--snh-navy)"
-          fontFamily="var(--font-mono)" fontWeight="700"
+          textAnchor="start" fontSize="11"
+          fill="var(--snh-navy)" fontFamily="var(--font-mono)" fontWeight="700"
           style={{ fontVariantNumeric: 'tabular-nums' }}
         >
           {spot.toFixed(4)}
         </text>
 
-        {/* Y-axis tick labels */}
+        {/* Y-axis ticks */}
         {ticks.map((v, i) => {
           if (Math.abs(ys(v) - ys(budget)) < 14) return null
           return (
@@ -295,8 +349,7 @@ export default function FanChart({
           <text
             key={i}
             x={xScaleDay(x.day)} y={height - M.bottom + 18}
-            textAnchor="middle"
-            fontSize="11"
+            textAnchor="middle" fontSize="11"
             fill={x.label === 'Today' ? 'var(--snh-navy)' : 'var(--snh-slate)'}
             fontFamily="var(--font-body)"
             fontWeight={x.label === 'Today' ? '700' : '400'}
@@ -311,20 +364,152 @@ export default function FanChart({
           y1={height - M.bottom} y2={height - M.bottom}
           stroke="var(--border-1)" strokeWidth="1"
         />
+
+        {/* Hover crosshair */}
+        {hover && (
+          <line
+            x1={hover.svgX} x2={hover.svgX}
+            y1={M.top} y2={height - M.bottom}
+            stroke="var(--snh-navy)"
+            strokeWidth="1"
+            strokeDasharray="3 3"
+            opacity="0.4"
+            pointerEvents="none"
+          />
+        )}
       </svg>
 
-      {/* Legend */}
-      <div style={{ display: 'flex', gap: '20px', marginTop: '12px', flexWrap: 'wrap' }}>
-        {history && <Legend swatch="slate-line"  label="Historical rate"          />}
-        <Legend swatch="navy-line"   label="Forward path (P50)"                   />
-        <Legend swatch="slate-fill"  label="IQR (P25–P75)"                        />
-        <Legend swatch="slate-faint" label="Tail zones (P10–P25 · P75–P90)"      />
-        <Legend swatch="gold-dot"    label="Today's spot"                         />
-        <Legend swatch="gold-dash"   label="Budget rate"                          />
+      {/* ── Hover tooltip (DOM, positioned over SVG) ───────────────────────── */}
+      {hover && (
+        <div
+          style={{
+            position:    'absolute',
+            top:         `${(M.top / height) * 100}%`,
+            left:        `${tooltipLeft}%`,
+            transform:   flipToLeft ? 'translateX(calc(-100% - 10px))' : 'translateX(10px)',
+            background:  'var(--surface-1, #fff)',
+            border:      '1px solid var(--border-1)',
+            borderRadius: 'var(--radius-2, 6px)',
+            padding:     '8px 12px',
+            boxShadow:   '0 2px 8px rgba(0,0,0,0.10)',
+            fontSize:    'var(--fs-caption, 11px)',
+            fontFamily:  'var(--font-mono)',
+            color:       'var(--snh-navy)',
+            lineHeight:  '1.6',
+            pointerEvents: 'none',
+            whiteSpace:  'nowrap',
+            zIndex:      10,
+          }}
+        >
+          {hover.isForward ? (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                +{hover.day}d
+              </div>
+              {hover.p50 != null && (
+                <div>P50 (median) <span style={{ float: 'right', paddingLeft: 16 }}>{hover.p50.toFixed(4)}</span></div>
+              )}
+              {hover.p25 != null && hover.p75 != null && (
+                <div style={{ color: 'var(--fg-2)' }}>
+                  IQR P25–P75 <span style={{ float: 'right', paddingLeft: 16 }}>{hover.p25.toFixed(4)}–{hover.p75.toFixed(4)}</span>
+                </div>
+              )}
+              {hover.p10 != null && hover.p90 != null && (
+                <div style={{ color: 'var(--fg-3)' }}>
+                  Tail P10–P90 <span style={{ float: 'right', paddingLeft: 16 }}>{hover.p10.toFixed(4)}–{hover.p90.toFixed(4)}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                {hover.day === 0 ? 'Today' : `${hover.day}d`}
+              </div>
+              {hover.rate != null && (
+                <div>Rate <span style={{ float: 'right', paddingLeft: 16 }}>{hover.rate.toFixed(4)}</span></div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Legend + trendline toggle ──────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: '20px', marginTop: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {history && <Legend swatch="slate-line" label="Historical rate" />}
+        <Legend swatch="navy-line"   label="Forward path (P50)"              />
+        <Legend swatch="slate-fill"  label="IQR (P25–P75)"                   />
+        <Legend swatch="slate-faint" label="Tail zones (P10–P25 · P75–P90)" />
+        <Legend swatch="gold-dot"    label="Today's spot"                    />
+        <Legend swatch="gold-dash"   label="Budget rate"                     />
+
+        {/* Trendline toggle — only shown when history data is available */}
+        {history && trendReg && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', position: 'relative' }}>
+            <label style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              fontSize: 'var(--fs-caption)', color: 'var(--fg-2)', cursor: 'pointer',
+            }}>
+              <input
+                type="checkbox"
+                checked={showTrend}
+                onChange={e => setShowTrend(e.target.checked)}
+                style={{ accentColor: 'var(--snh-slate)', cursor: 'pointer', width: 12, height: 12 }}
+              />
+              {/* Trendline swatch — faint dashed */}
+              <svg width="20" height="6" style={{ opacity: 0.55 }}>
+                <line x1="0" y1="3" x2="20" y2="3" stroke="var(--snh-slate)" strokeWidth="1" strokeDasharray="4 3" />
+              </svg>
+              Historical trend
+            </label>
+
+            {/* Info icon — shows Finn's disclosure */}
+            <button
+              onClick={() => setShowTrendInfo(v => !v)}
+              onBlur={() => setShowTrendInfo(false)}
+              aria-label="About the historical trend line"
+              style={{
+                background: 'none', border: 'none', padding: 0,
+                cursor: 'pointer', color: 'var(--fg-3)',
+                fontSize: '11px', lineHeight: 1,
+              }}
+            >
+              ⓘ
+            </button>
+
+            {/* Disclosure popover — Lex sign-off required on this copy */}
+            {showTrendInfo && (
+              <div style={{
+                position:     'absolute',
+                bottom:       '24px',
+                left:         0,
+                width:        '260px',
+                background:   'var(--surface-1, #fff)',
+                border:       '1px solid var(--border-1)',
+                borderRadius: 'var(--radius-2, 6px)',
+                padding:      '10px 12px',
+                boxShadow:    '0 2px 8px rgba(0,0,0,0.10)',
+                fontSize:     'var(--fs-caption, 11px)',
+                color:        'var(--fg-2)',
+                lineHeight:   '1.5',
+                zIndex:       20,
+              }}>
+                <strong style={{ color: 'var(--snh-navy)', display: 'block', marginBottom: 4 }}>
+                  Historical trend — descriptive only
+                </strong>
+                This line shows the direction the rate has been drifting over the historical period shown.
+                It is a simple linear fit to past closing rates and is{' '}
+                <strong>not a forecast</strong>. Past rate movements are not indicative of future rates.
+                This tool is for information only and does not constitute financial advice.
+              </div>
+            )}
+          </span>
+        )}
       </div>
     </div>
   )
 }
+
+// ── Legend swatch ─────────────────────────────────────────────────────────────
 
 function Legend({ swatch, label }) {
   const renderSwatch = () => {
