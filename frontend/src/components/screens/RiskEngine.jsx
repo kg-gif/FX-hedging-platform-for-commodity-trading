@@ -103,9 +103,128 @@ function AIDisclosure() {
   )
 }
 
+// ── Finn · Treasury analytics — frontend-only derived metrics ────────────────
+// Added 02 Jul 2026 per roadmap. All four derive from the existing Monte Carlo
+// response (forward_path, confidence_bands, var_95_pct, expected_shortfall_95_pct)
+// — no new backend endpoint. These are approximations, not the full simulation
+// output (per-path data isn't returned to the client) — labelled accordingly.
+// Sign-off: Finn · Treasury (methodology) → Pixel → Lex → CEO MiniMe → Axel.
+//
+// NOTE re: project Decimal rule — this file (like the rest of RiskEngine.jsx
+// and Hedges.jsx) uses plain JS numbers, matching the existing screen's
+// convention. No decimal.js dependency is currently installed; adding one is
+// a dependency/architecture decision for Axel, not made here.
+
+// Direction: receivable exposures lose when the rate falls, payable exposures
+// lose when the rate rises (matches birk_api.py direction_sign convention).
+function isReceivable(exposureType) {
+  return (exposureType || 'payable').toLowerCase() === 'receivable'
+}
+
+// Known percentile points of the simulated rate distribution at the horizon day.
+// P10/P25/P75/P90 come from the last confidence_bands entry; P50 from forward_path.
+function horizonPercentiles(sim) {
+  const bands = sim.confidence_bands || []
+  const path  = sim.forward_path || []
+  if (bands.length === 0 || path.length === 0) return null
+  const lastBand = bands[bands.length - 1]
+  const p50      = path[path.length - 1].rate
+  return [
+    { p: 10, rate: lastBand.p10 },
+    { p: 25, rate: lastBand.p25 },
+    { p: 50, rate: p50 },
+    { p: 75, rate: lastBand.p75 },
+    { p: 90, rate: lastBand.p90 },
+  ]
+}
+
+// Piecewise-linear interpolation across the known percentile points to estimate
+// P(rate <= target) at the horizon. Clamps outside P10–P90 rather than
+// extrapolating a false-precision number.
+function probRateBelow(points, target) {
+  const first = points[0], last = points[points.length - 1]
+  if (target <= first.rate) return { pct: first.p, clamped: 'low' }
+  if (target >= last.rate)  return { pct: last.p,  clamped: 'high' }
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1]
+    if (target >= a.rate && target <= b.rate) {
+      const t = (target - a.rate) / (b.rate - a.rate)
+      return { pct: a.p + t * (b.p - a.p), clamped: null }
+    }
+  }
+  return { pct: 50, clamped: null }
+}
+
+// 1. Probability of budget breach — P(the adverse side of budget_rate) at horizon.
+function probabilityOfBudgetBreach(sim, exposureType) {
+  const points = horizonPercentiles(sim)
+  if (!points) return null
+  const { pct, clamped } = probRateBelow(points, sim.budget_rate)
+  const receivable = isReceivable(exposureType)
+  // Receivable adverse = rate below budget → P(breach) = P(rate <= budget).
+  // Payable adverse = rate above budget → P(breach) = 1 - P(rate <= budget).
+  const breachPct = receivable ? pct : 100 - pct
+  // Flip the clamp side to match which tail we ended up reporting.
+  const breachClamped = clamped ? (receivable ? clamped : (clamped === 'low' ? 'high' : 'low')) : null
+  return { pct: breachPct, clamped: breachClamped }
+}
+
+// 2. Cost at risk — Expected Shortfall expressed in money terms, in the
+// company's base currency. This is the standard institutional framing (ES/CVaR
+// in currency terms, not just a rate delta) — matches Finn's original spec
+// (ES × notional), not the earlier probability-weighted rate-delta version.
+//
+// Uses the open (unhedged) amount, not gross notional — the hedged portion's
+// rate is already locked and isn't exposed to this risk, consistent with how
+// floating_pnl is computed server-side (birk_api.py: open_amount only).
+//
+// Currency conversion mirrors the backend's own from_ccy -> base_ccy pivot
+// (routes/hedge_tranche_routes.py get_enriched_exposures, ~L1009-1024) rather
+// than re-deriving a new rate: the enriched exposure already carries both
+// total_amount (native) and total_amount_eur (base-currency), so their ratio
+// *is* the from_ccy -> base rate, applied the same way the backend applies it
+// to raw PnL: base_value = to_ccy_value * (from_base_rate / spot).
+function costAtRiskBase(sim, exposure) {
+  if (sim.expected_shortfall_95_pct == null || !exposure || !sim.spot) return null
+  const { total_amount, total_amount_eur, open_amount } = exposure
+  if (!total_amount || total_amount_eur == null || open_amount == null) return null
+
+  const fromBaseRate  = total_amount_eur / total_amount   // from_ccy -> base_ccy
+  const costToCcy     = Math.abs(sim.expected_shortfall_95_pct) * open_amount  // in to_currency, per (rate x from_ccy amount) convention
+  return costToCcy * (fromBaseRate / sim.spot)
+}
+
+// 3. Days to first breach — first day the median (P50) forward path crosses to
+// the adverse side of budget_rate. Approximate: the true "median day across all
+// simulated paths" needs per-path data the API doesn't return; this uses the
+// single median path instead, labelled as such in the tile caption.
+function daysToFirstBreach(sim, exposureType) {
+  const path = sim.forward_path || []
+  if (path.length === 0) return null
+  const receivable = isReceivable(exposureType)
+  const breaches = (rate) => receivable ? rate < sim.budget_rate : rate > sim.budget_rate
+  const hit = path.find(p => breaches(p.rate))
+  return hit ? hit.day : null // null = median path does not cross budget within horizon
+}
+
+// 4. Optimal hedge ratio — Finn's formula, direction-adjusted. The version
+// circulated as "1 - P50/budget_rate" is correct for receivables (hedge more
+// when the median outcome is expected below budget) but inverts for payables,
+// where the adverse side is P50 above budget — flagged for Finn to confirm.
+function optimalHedgeRatio(sim, exposureType) {
+  const path = sim.forward_path || []
+  if (path.length === 0 || !sim.budget_rate) return null
+  const p50 = path[path.length - 1].rate
+  const raw = isReceivable(exposureType)
+    ? 1 - (p50 / sim.budget_rate)
+    : (p50 / sim.budget_rate) - 1
+  return Math.min(1, Math.max(0, raw)) * 100
+}
+
 // ── Monte Carlo tab — Phase 3 live data ───────────────────────────────────────
 function MonteCarlo() {
-  const { selectedCompanyId } = useCompany()
+  const { selectedCompanyId, getSelectedCompany } = useCompany()
+  const baseCcy = getSelectedCompany()?.base_currency || 'EUR'
 
   // Exposures list for the selector
   const [exposures, setExposures]     = useState([])
@@ -160,6 +279,14 @@ function MonteCarlo() {
   // historical_rates may be [] for pairs not yet seeded — hide gracefully
   const hasHistory     = sim && Array.isArray(sim.historical_rates) && sim.historical_rates.length > 0
   const histDaysActual = hasHistory ? Math.abs(sim.historical_rates[0].day) : 0
+
+  // ── Finn analytics — derived from sim + the selected exposure's direction ──
+  const selectedExposure = exposures.find(e => e.id === selectedId)
+  const exposureType     = selectedExposure?.exposure_type || 'payable'
+  const breach       = sim ? probabilityOfBudgetBreach(sim, exposureType) : null
+  const costRisk      = sim ? costAtRiskBase(sim, selectedExposure) : null
+  const daysToBreach  = sim ? daysToFirstBreach(sim, exposureType) : null
+  const hedgeRatio    = sim ? optimalHedgeRatio(sim, exposureType) : null
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (expLoading) {
@@ -297,6 +424,101 @@ function MonteCarlo() {
               </div>
               <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
                 CVaR · vol {sim.vol_calibrated ? 'calibrated' : 'estimated'}
+              </div>
+            </Card>
+
+          </div>
+
+          {/* Finn · Treasury analytics — frontend-derived, second KPI row */}
+          <div style={{ marginBottom: 8 }}>
+            <EyebrowLabel style={{ color: 'var(--fg-3)' }}>Analytics</EyebrowLabel>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 16 }}>
+
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>
+                Probability of budget breach
+                <InfoTip>
+                  <strong>Probability of budget breach</strong><br />
+                  Estimated chance the {sim.horizon_days || 90}-day rate ends up on the adverse
+                  side of your budget rate ({exposureType === 'receivable' ? 'below' : 'above'} {Number(sim.budget_rate).toFixed(4)}
+                  {' '}for a {exposureType} exposure). Interpolated from the simulation's P10–P90
+                  bands — an approximation, not the full path distribution.
+                </InfoTip>
+              </EyebrowLabel>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
+                color: 'var(--snh-navy)', fontVariantNumeric: 'tabular-nums',
+              }}>
+                {breach == null ? '—' : `${breach.clamped === 'low' ? '<' : breach.clamped === 'high' ? '>' : ''}${Math.round(breach.pct)}%`}
+              </div>
+              <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
+                {exposureType === 'receivable' ? 'Rate below budget' : 'Rate above budget'} at horizon
+              </div>
+            </Card>
+
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>
+                Cost at risk
+                <InfoTip>
+                  <strong>Cost at risk</strong><br />
+                  Expected Shortfall (the average adverse rate move in the worst 5% of scenarios)
+                  applied to the open, unhedged amount and converted to {baseCcy} — the standard
+                  CVaR-in-money-terms framing used in board and bank risk reporting. The hedged
+                  portion of this exposure carries a locked rate and isn't included, since it
+                  isn't exposed to this risk.
+                </InfoTip>
+              </EyebrowLabel>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
+                color: 'var(--snh-danger)', fontVariantNumeric: 'tabular-nums',
+              }}>
+                {costRisk == null ? '—' : `${baseCcy} ${Math.round(costRisk).toLocaleString('en-GB')}`}
+              </div>
+              <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
+                ES 95% on open amount
+              </div>
+            </Card>
+
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>
+                Days to first breach
+                <InfoTip>
+                  <strong>Days to first breach</strong><br />
+                  First day the median (P50) projected path crosses to the adverse side of
+                  budget. Based on the single median path, not the median across all simulated
+                  paths — the API does not return per-path data to the client.
+                </InfoTip>
+              </EyebrowLabel>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
+                color: 'var(--snh-navy)', fontVariantNumeric: 'tabular-nums',
+              }}>
+                {daysToBreach == null ? `No breach · ${sim.horizon_days || 90}d` : `${daysToBreach}d`}
+              </div>
+              <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
+                On the median (P50) path
+              </div>
+            </Card>
+
+            <Card>
+              <EyebrowLabel style={{ marginBottom: 8 }}>
+                Optimal hedge ratio
+                <InfoTip>
+                  <strong>Optimal hedge ratio</strong><br />
+                  1 − P50/budget for receivables, P50/budget − 1 for payables, bounded 0–100%.
+                  Higher when the median projected outcome is expected to land on the adverse
+                  side of budget. A starting point for discussion, not a policy recommendation.
+                </InfoTip>
+              </EyebrowLabel>
+              <div style={{
+                fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 28,
+                color: 'var(--snh-gold)', fontVariantNumeric: 'tabular-nums',
+              }}>
+                {hedgeRatio == null ? '—' : `${Math.round(hedgeRatio)}%`}
+              </div>
+              <div className="caption" style={{ marginTop: 4, color: 'var(--fg-2)' }}>
+                Suggested cover, median scenario
               </div>
             </Card>
 
@@ -451,37 +673,4 @@ const MODULE_CONTENT = {
 // hooks (useCompany, useState, useEffect).
 
 export default function RiskEngine() {
-  const [active, setActive] = useState('monte-carlo')
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 24 }}>
-        <div>
-          <EyebrowLabel>Treasury console</EyebrowLabel>
-          <h2 style={{ marginTop: 8 }}>Risk engine</h2>
-          <p className="caption" style={{ marginTop: 8, color: 'var(--fg-2)' }}>
-            Monte Carlo · VaR · Expected shortfall · Stress testing · Hedge effectiveness
-          </p>
-        </div>
-        <Button variant="ghost">
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="download" size={16} /> Export report
-          </span>
-        </Button>
-      </div>
-
-      {/* Module tabs */}
-      <div style={{ marginBottom: 24 }}>
-        <Tabs
-          variant="underline"
-          active={active}
-          onChange={setActive}
-          items={MODULES.map(m => ({ id: m.id, label: m.label }))}
-        />
-      </div>
-
-      {/* Active module */}
-      {active === 'monte-carlo' ? <MonteCarlo /> : MODULE_CONTENT[active]}
-    </>
-  )
-}
+  const [active, setAct

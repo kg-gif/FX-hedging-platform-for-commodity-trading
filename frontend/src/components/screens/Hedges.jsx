@@ -1,4 +1,4 @@
-﻿// Hedges.jsx — Phase 3 real-data port
+// Hedges.jsx — Phase 3 real-data port
 //
 // Data source: GET /api/exposures/enriched?company_id={id}&include_archived=true
 // Tabs driven by the `tab` field returned on each exposure item.
@@ -121,7 +121,7 @@ function useEnrichedExposures() {
     setLoading(true); setError(null)
     fetch(
       `${API_BASE}/api/exposures/enriched?company_id=${selectedCompanyId}&include_archived=true`,
-      { credentials: 'include', headers: { 'Content-Type': 'application/json' } }
+      { headers: authHeaders() }
     )
       .then(res => {
         if (!res.ok) throw new Error(`API error ${res.status}`)
@@ -198,6 +198,20 @@ const TAB_DEFS = [
   { id:'settled',              label:'Settled',              backendTab:'settled'               },
 ]
 
+// ── BF-010 fix ────────────────────────────────────────────────────────────────
+// Root cause (Axel, 13 Jun 2026): backend `tab` field occasionally carries the
+// `confidence` value (COMMITTED / PROBABLE / FORECAST) instead of a real tab id,
+// which meant the exposure matched no tab and silently vanished from the screen.
+// Fix: route only on a fixed allowlist. Anything outside it falls back to
+// requires_action (logged) rather than disappearing. Missing tab (null/undefined)
+// is left unsurfaced — e.g. archived exposures are not expected to carry a tab.
+function normalizeTab(exposure, validTabs) {
+  if (!exposure.tab) return null
+  if (validTabs.includes(exposure.tab)) return exposure.tab
+  console.warn(`[Hedges] Unknown tab value: ${exposure.tab} for exposure ${exposure.id} — defaulting to requires_action`)
+  return 'requires_action'
+}
+
 // ── Loading skeleton ──────────────────────────────────────────────────────────
 
 function LoadingState() {
@@ -224,26 +238,20 @@ export default function Hedges() {
     ? lastRefresh.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }) + ' CET'
     : '—'
 
-  // Build tab items with live counts — fixed allowlist only.
-  // BF-010 guard: log a warning if any exposure has a tab value outside the allowlist.
-  // The `confidence` field (COMMITTED/PROBABLE/FORECAST) must never reach tab routing.
+  // Build tab items with live counts — fixed allowlist only (BF-010).
   const VALID_TABS = TAB_DEFS.map(d => d.backendTab)
-  exposures.forEach(e => {
-    if (e.tab && !VALID_TABS.includes(e.tab)) {
-      console.warn(`[Hedges] Unexpected tab value "${e.tab}" on exposure ${e.id} — check confidence vs tab field. Falling back to requires_action.`)
-    }
-  })
+  const normalizedExposures = exposures.map(e => ({ ...e, _tab: normalizeTab(e, VALID_TABS) }))
 
   const tabItems = TAB_DEFS.map(def => ({
     id:    def.id,
     label: def.label,
-    count: exposures.filter(e => e.tab === def.backendTab).length,
+    count: normalizedExposures.filter(e => e._tab === def.backendTab).length,
   }))
 
   // Filtered rows for the active tab
   const activeDef = TAB_DEFS.find(d => d.id === activeTab)
   const rows = activeDef
-    ? exposures.filter(e => e.tab === activeDef.backendTab)
+    ? normalizedExposures.filter(e => e._tab === activeDef.backendTab)
     : []
 
   const updateIntent = (key, val) =>
