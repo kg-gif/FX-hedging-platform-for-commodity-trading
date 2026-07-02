@@ -1,334 +1,106 @@
-// App.jsx — top-level routing and auth gate
+// App.jsx — top-level routing for the SNH rebuild frontend
 //
 // DEPLOYMENT NOTE: Render must have a wildcard rewrite rule:
 //   Source: /*   Destination: /index.html   Action: Rewrite
 // Without this, direct URL access and page refresh breaks on all routes.
+//
+// This App serves only the rebuild routes. The legacy authenticated routes
+// (Dashboard, Hedging, etc.) live in the old frontend build at root src/.
+//
+// Login Phase 3 (02 Jul 2026) — /rebuild is now gated. Auth pattern mirrors
+// the already-live, already-approved legacy App.jsx (GET /api/auth/me on
+// load, HttpOnly cookie via credentials:'include', POST /api/auth/logout).
+// See CIPHER_REVIEW_LOGIN.md. NOT copied to MAIN automatically — this file
+// needs Axel's explicit confirmation at deploy time (standing rule).
+//
+// Deliberately does NOT include the legacy app's inactivity auto-logout —
+// out of scope for this build (scope-expansion rule); flagged as a follow-up.
 
 import { useState, useEffect } from 'react'
-import { useCompany } from './contexts/CompanyContext'
 import {
-  BrowserRouter, Routes, Route, Navigate, Link, useLocation
+  BrowserRouter, Routes, Route, Navigate,
 } from 'react-router-dom'
 import { CompanyProvider } from './contexts/CompanyContext'
-import CompanySelector from './components/CompanySelector'
-import RateTicker from './components/RateTicker'
-import Dashboard from './components/Dashboard.jsx'
-import HedgingPage from './components/HedgingPage'
-import RiskEngine from './components/RiskEngine'
-import Reports from './components/Reports'
-import Settings from './components/Settings'
-import Glossary from './components/Glossary'
-import Login from './components/Login'
-import ResetPassword from './components/ResetPassword'
-import RebuildShell from './components/screens/RebuildShell'
 import DesignDemo from './components/screens/DesignDemo'
+import RebuildShell from './components/screens/RebuildShell'
 import Legal from './components/screens/Legal'
-
-const NAVY = '#1A2744'
-const GOLD = '#C9A86C'
-const API_URL = import.meta.env.VITE_API_URL || 'https://api.sumnohow.com'
-
-function getStoredAuth() {
-  try {
-    const user = JSON.parse(localStorage.getItem('auth_user') || 'null')
-    if (user) return { user }
-  } catch (_) {}
-  return null
-}
+import Login from './components/screens/Login'
+import { API_BASE } from './utils/api'
 
 function clearAuth() {
-  localStorage.removeItem('auth_token')   // BF-002: legacy cleanup
   localStorage.removeItem('auth_user')
 }
 
-// ── Shell: sticky header + tab nav ──────────────────────────────────────────
+// ── Root App ──────────────────────────────────────────────────────────────────
 
-function AppShell({ authUser, onLogout, wsToken, children }) {
-  const location = useLocation()
-  const { selectedCompanyId } = useCompany()
-  const isAdmin = ['superadmin', 'company_admin', 'admin'].includes(authUser?.role)
+function App() {
+  const [authData, setAuthData]   = useState(null)
+  const [checking, setChecking]   = useState(true)
+  const [notice, setNotice]       = useState('')
 
-  const navItems = [
-    { path: '/dashboard',   name: 'Dashboard'   },
-    { path: '/hedging',     name: 'Hedging'     },
-    { path: '/reports',     name: 'Reports'     },
-    { path: '/settings',    name: 'Settings'    },
-    { path: '/risk-engine', name: 'Risk Engine' },
-    ...(isAdmin ? [{ path: '/settings/admin', name: '⚙ Admin' }] : []),
-  ]
+  useEffect(() => {
+    fetch(`${API_BASE}/api/auth/me`, { credentials: 'include' })
+      .then(async r => {
+        if (r.ok) {
+          const me = await r.json()
+          setAuthData({ user: { user_id: me.user_id, email: me.email, company_id: me.company_id, role: me.role } })
+        } else {
+          // Fail closed — unlike the legacy app, there's no prior verified
+          // session to fall back to here. 401 or network error both mean
+          // "show Login" (Cipher condition 3, CIPHER_REVIEW_LOGIN.md).
+          clearAuth()
+          setAuthData(null)
+        }
+      })
+      .catch(() => { clearAuth(); setAuthData(null) })
+      .finally(() => setChecking(false))
+  }, [])
 
-  // A tab is active when the URL starts with its path.
-  // /settings/admin is a sub-path of /settings so both would match —
-  // but admin is listed separately and we want settings to remain active for all /settings/* routes.
-  function isActive(path) {
-    if (path === '/settings') return location.pathname.startsWith('/settings')
-    return location.pathname === path || location.pathname.startsWith(path + '/')
+  function handleLoginSuccess(data) {
+    setNotice('')
+    setAuthData({
+      user: { user_id: data.user_id, email: data.email, company_id: data.company_id, role: data.role },
+    })
   }
 
-  return (
-    <div className="min-h-screen" style={{ background: '#F0F2F7' }}>
-      {/* ── Sticky header ──────────────────────────────────────────────── */}
-      <div style={{ background: NAVY }} className="shadow-xl sticky top-0 z-50">
-        {/* Live rate ticker — wsToken from React state, not localStorage (BF-002) */}
-        <RateTicker companyId={selectedCompanyId} wsToken={wsToken} />
-        {/* Logo + user row */}
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            {/* Logo */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded flex items-center justify-center"
-                style={{ border: `1px solid ${GOLD}`, background: 'rgba(201,168,108,0.08)' }}>
-                <span className="text-xs font-bold leading-tight text-center"
-                  style={{ color: GOLD, letterSpacing: '0.05em' }}>
-                  sum +<br />no &nbsp;−<br />how =
-                </span>
-              </div>
-              <div>
-                <span className="text-2xl font-bold tracking-widest uppercase block"
-                  style={{ color: GOLD, letterSpacing: '0.15em' }}>sumnohow</span>
-                <p className="text-xs mt-0.5 italic" style={{ color: '#8DA4C4' }}>
-                  Protecting margins.
-                </p>
-              </div>
-            </div>
+  async function handleLogout() {
+    try {
+      await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' })
+    } catch (_) {
+      // ignore — clear local state regardless
+    }
+    clearAuth()
+    setAuthData(null)
+    setNotice('')
+  }
 
-            {/* User controls */}
-            <div className="flex items-center gap-4">
-              <CompanySelector authUser={authUser} />
-              <div className="flex items-center gap-3 pl-4"
-                style={{ borderLeft: '1px solid rgba(255,255,255,0.1)' }}>
-                <div className="text-right hidden sm:block">
-                  <p className="text-xs font-medium text-white">{authUser.email}</p>
-                  <p className="text-xs capitalize" style={{ color: '#8DA4C4' }}>{authUser.role}</p>
-                </div>
-                <button
-                  onClick={onLogout}
-                  className="text-xs px-3 py-1.5 rounded-lg transition-all"
-                  style={{ color: '#8DA4C4', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent' }}
-                  onMouseEnter={e => { e.target.style.color = 'white'; e.target.style.borderColor = 'rgba(255,255,255,0.4)' }}
-                  onMouseLeave={e => { e.target.style.color = '#8DA4C4'; e.target.style.borderColor = 'rgba(255,255,255,0.15)' }}
-                >
-                  Sign out
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tab nav */}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <div className="container mx-auto px-6">
-            <nav className="flex space-x-1">
-              {navItems.map(item => {
-                const active = isActive(item.path)
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className="flex items-center px-4 py-4 text-sm font-medium transition-all"
-                    style={{
-                      color:           active ? GOLD : '#8DA4C4',
-                      borderBottom:    active ? `2px solid ${GOLD}` : '2px solid transparent',
-                      textDecoration:  'none',
-                    }}
-                  >
-                    {item.name}
-                  </Link>
-                )
-              })}
-            </nav>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Page content ───────────────────────────────────────────────── */}
-      <div className="container mx-auto px-6 py-8">
-        {children}
-      </div>
-    </div>
-  )
-}
-
-// ── Authenticated route tree ─────────────────────────────────────────────────
-
-function AuthenticatedApp({ authUser, onLogout, wsToken }) {
-  const { companyLoading, selectedCompanyId } = useCompany()
-
-  // Block rendering until CompanyContext has resolved from the API.
-  // The sync localStorage init means selectedCompanyId is usually set immediately,
-  // but companyLoading guards the edge case where localStorage had no saved ID.
-  if (companyLoading && !selectedCompanyId) {
+  if (checking) {
     return (
-      <div className="flex items-center justify-center h-screen" style={{ background: '#F3F4F6' }}>
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin mx-auto mb-3"
-            style={{ borderColor: '#1A2744', borderTopColor: 'transparent' }} />
-          <p className="text-sm text-gray-500">Loading your portfolio…</p>
-        </div>
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'var(--snh-navy, #1A2744)',
+      }}>
+        <p style={{ fontSize: 14, color: '#8DA4C4' }}>Loading…</p>
       </div>
     )
   }
 
   return (
-    <AppShell authUser={authUser} onLogout={onLogout} wsToken={wsToken}>
-      <Routes>
-        {/* Default — redirect / to /dashboard */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-
-        <Route path="/dashboard" element={<Dashboard />} />
-
-        {/* Hedging — wildcard keeps same component instance for sub-paths */}
-        <Route path="/hedging/*" element={<HedgingPage />} />
-
-        {/* Reports — wildcard so sub-path changes don't remount */}
-        <Route path="/reports/*" element={<Reports />} />
-
-        {/* Settings — wildcard; section driven by URL inside the component */}
-        <Route path="/settings/*" element={
-          <Settings authUser={authUser} />
-        } />
-
-        <Route path="/risk-engine" element={<RiskEngine />} />
-
-        <Route path="/glossary" element={<Glossary />} />
-
-        {/* Legacy redirects */}
-        <Route path="/admin"       element={<Navigate to="/settings/admin" replace />} />
-        <Route path="/monte-carlo" element={<Navigate to="/risk-engine"    replace />} />
-        <Route path="/data-import" element={<Navigate to="/settings/import" replace />} />
-        <Route path="/policy"      element={<Navigate to="/settings/policy" replace />} />
-
-        {/* Catch-all — unknown paths go to dashboard */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </AppShell>
-  )
-}
-
-// ── Root App ─────────────────────────────────────────────────────────────────
-
-const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 60 minutes
-
-function App() {
-  const [authData, setAuthData] = useState(null)
-  const [checking, setChecking] = useState(true)
-  const [inactivityMessage, setInactivityMessage] = useState('')
-  // WS auth — BF-002 / Cipher approval 17/06/2026.
-  // Token lives in React state only; captured from /api/auth/me or login response.
-  // Never written to localStorage. Passed down to RateTicker → useRateTicker.
-  const [wsToken, setWsToken] = useState('')
-
-  useEffect(() => {
-    const stored = getStoredAuth()
-    if (stored) {
-      fetch(`${API_URL}/api/auth/me`, {
-        credentials: 'include',             // BF-002: cookie replaces Bearer
-      })
-        .then(async r => {
-          if (r.ok) {
-            const me = await r.json()
-            setWsToken(me.ws_token || '')   // capture token for WS connection
-            setAuthData(stored)
-          } else {
-            clearAuth()
-          }
-        })
-        .catch(() => setAuthData(stored))   // network error — still show app; WS will poll
-        .finally(() => setChecking(false))
-    } else {
-      setChecking(false)
-    }
-  }, [])
-
-  // ── Inactivity timeout — auto-logout after 60 minutes of no interaction ──
-  useEffect(() => {
-    if (!authData) return // only active when logged in
-
-    let timer
-
-    const resetTimer = () => {
-      clearTimeout(timer)
-      timer = setTimeout(async () => {
-        try {
-          await fetch(`${API_URL}/api/auth/logout`, {
-            method: 'POST',
-            credentials: 'include',
-          })
-        } catch (_) {}
-        clearAuth()
-        setWsToken('')
-        setAuthData(null)
-        setInactivityMessage("You've been logged out due to inactivity.")
-      }, INACTIVITY_TIMEOUT_MS)
-    }
-
-    const events = ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll']
-    events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }))
-    resetTimer() // start the clock
-
-    return () => {
-      clearTimeout(timer)
-      events.forEach(e => window.removeEventListener(e, resetTimer))
-    }
-  }, [authData])
-
-  const handleLoginSuccess = (data) => {
-    setInactivityMessage('')
-    // Login response still includes access_token in body (transition window — see auth_routes.py).
-    // Use it as wsToken so the ticker connects immediately without a second /api/auth/me round-trip.
-    setWsToken(data.access_token || '')
-    setAuthData({
-      // token removed from localStorage — BF-002: auth is now cookie-based
-      user: { user_id: data.user_id, email: data.email, company_id: data.company_id, role: data.role }
-    })
-  }
-
-  const handleLogout = async () => {
-    try {
-      await fetch(`${API_URL}/api/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',             // BF-002: server clears the HttpOnly cookie
-      })
-    } catch (_) {
-      // ignore — clear local state regardless
-    }
-    clearAuth()
-    setWsToken('')      // clear WS token on logout — ticker will stop
-    setAuthData(null)
-    setInactivityMessage('')
-  }
-
-  if (checking) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: NAVY }}>
-      <p className="text-sm" style={{ color: '#8DA4C4' }}>Loading…</p>
-    </div>
-  )
-
-  return (
     <BrowserRouter>
       <Routes>
-        {/* Password reset — public, no auth required */}
-        <Route path="/reset-password" element={
-          <ResetPassword onDone={() => window.location.href = '/'} />
+        {/* Public routes — no auth gate */}
+        <Route path="/rebuild-demo" element={<DesignDemo />} />
+        <Route path="/legal"        element={<Legal />} />
+
+        {/* /rebuild — gated */}
+        <Route path="/rebuild" element={
+          authData
+            ? <CompanyProvider><RebuildShell authUser={authData.user} onLogout={handleLogout} /></CompanyProvider>
+            : <Login onLoginSuccess={handleLoginSuccess} notice={notice} />
         } />
 
-        {/* Rebuild — unlisted; renders its own shell outside legacy nav */}
-        <Route path="/rebuild" element={<CompanyProvider><RebuildShell /></CompanyProvider>} />
-        <Route path="/rebuild-demo" element={<DesignDemo />} />
-        <Route path="/legal" element={<Legal />} />
-
-        {/* All other routes — gated by auth */}
-        {!authData ? (
-          <Route path="*" element={
-            <Login onLoginSuccess={handleLoginSuccess} notice={inactivityMessage} />
-          } />
-        ) : (
-          <Route path="*" element={
-            <CompanyProvider>
-              <AuthenticatedApp authUser={authData.user} onLogout={handleLogout} wsToken={wsToken} />
-            </CompanyProvider>
-          } />
-        )}
+        {/* All other paths — redirect to rebuild */}
+        <Route path="*" element={<Navigate to="/rebuild" replace />} />
       </Routes>
     </BrowserRouter>
   )

@@ -5,10 +5,21 @@
 //   - Search input is unornamented — hairline border, no shadow
 //   - Date right-aligned, tabular mono
 //   - User avatar is a 32px circle with two-letter initials in navy
+//
+// authUser/onLogout added Login Phase 3 (02 Jul 2026) — real identity from the
+// App.jsx auth gate replaces the old hardcoded 'EH' placeholder.
 
 import Icon from '../ui/Icon'
 
-export default function TopBar({ breadcrumb, date, userInitials = 'EH' }) {
+function initialsFrom(email) {
+  if (!email) return '—'
+  const name = email.split('@')[0]
+  const parts = name.split(/[._-]/).filter(Boolean)
+  const chars = parts.length >= 2 ? [parts[0][0], parts[1][0]] : [name[0], name[1] || '']
+  return chars.join('').toUpperCase()
+}
+
+export default function TopBar({ breadcrumb, date, authUser, onLogout }) {
   return (
     <div style={{
       height: 64,
@@ -52,16 +63,41 @@ export default function TopBar({ breadcrumb, date, userInitials = 'EH' }) {
 
         <span className="mono" style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--snh-slate)', fontVariantNumeric: 'tabular-nums' }}>{date}</span>
 
-        <div style={{
-          width: 36, height: 36, borderRadius: '50%',
-          background: 'var(--snh-navy)',
-          color: '#FFFFFF',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 'var(--fs-body-sm)', fontWeight: 'var(--fw-bold)',
-          letterSpacing: '0.05em',
-        }}>
-          {userInitials}
-        </div>
+        {authUser && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingLeft: 12, borderLeft: '1px solid var(--border-1)' }}>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 'var(--fs-body-sm)', color: 'var(--snh-navy)', fontWeight: 'var(--fw-bold)' }}>
+                {authUser.email}
+              </div>
+              <div style={{ fontSize: 'var(--fs-eyebrow)', color: 'var(--fg-3)', textTransform: 'capitalize' }}>
+                {authUser.role}
+              </div>
+            </div>
+            <div style={{
+              width: 36, height: 36, borderRadius: '50%',
+              background: 'var(--snh-navy)',
+              color: 'var(--fg-on-navy)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 'var(--fs-body-sm)', fontWeight: 'var(--fw-bold)',
+              letterSpacing: '0.05em', flexShrink: 0,
+            }}>
+              {initialsFrom(authUser.email)}
+            </div>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                style={{
+                  fontSize: 'var(--fs-eyebrow)', color: 'var(--fg-3)',
+                  background: 'none', border: '1px solid var(--border-1)',
+                  borderRadius: 'var(--radius-2)', padding: '6px 10px',
+                  cursor: 'pointer', fontFamily: 'var(--font-body)',
+                }}
+              >
+                Sign out
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -78,7 +78,7 @@ function Placeholder({ section, note }) {
 
 const TODAY_LABEL = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 
-export default function RebuildShell() {
+export default function RebuildShell({ authUser, onLogout }) {
   const [active, setActive] = useState('exposure')
   const section = SECTIONS[active] || SECTIONS.exposure
 
@@ -92,6 +92,8 @@ export default function RebuildShell() {
         breadcrumb={section.breadcrumb}
         date={TODAY_LABEL}
         rightColumn={section.right ? section.right() : null}
+        authUser={authUser}
+        onLogout={onLogout}
       >
         {section.render()}
       </ConsoleLayout>

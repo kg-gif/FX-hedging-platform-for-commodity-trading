@@ -17,12 +17,14 @@ export default function ConsoleLayout({
   date,
   children,
   rightColumn,
+  authUser,
+  onLogout,
 }) {
   return (
     <div className="snh-rebuild" style={{ display: 'flex', minHeight: '100vh' }}>
       <Sidebar active={active} onChange={onChangeSection} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <TopBar breadcrumb={breadcrumb} date={date} />
+        <TopBar breadcrumb={breadcrumb} date={date} authUser={authUser} onLogout={onLogout} />
         <div style={{ display: 'grid', gridTemplateColumns: rightColumn ? '1fr 320px' : '1fr', gap: 24, padding: '24px 32px', flex: 1 }}>
           <main style={{ minWidth: 0 }}>
             {children}
@@ -34,7 +36,7 @@ export default function ConsoleLayout({
           )}
         </div>
 
-        {/* Platform disclaimer footer — counsel-confirmed 27 May 2026.
+        {/* Platform disclaimer footer — counsel-confirmed 27 May 2026
             Short version per DRAFT_PLATFORM_DISCLAIMER.md. Required on every page.
             Full version at /legal. Do not remove or shorten without Lex approval. */}
         <footer style={{
