@@ -673,4 +673,37 @@ const MODULE_CONTENT = {
 // hooks (useCompany, useState, useEffect).
 
 export default function RiskEngine() {
-  const [active, setAct
+  const [active, setActive] = useState('monte-carlo')
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 24 }}>
+        <div>
+          <EyebrowLabel>Treasury console</EyebrowLabel>
+          <h2 style={{ marginTop: 8 }}>Risk engine</h2>
+          <p className="caption" style={{ marginTop: 8, color: 'var(--fg-2)' }}>
+            Monte Carlo · VaR · Expected shortfall · Stress testing · Hedge effectiveness
+          </p>
+        </div>
+        <Button variant="ghost">
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="download" size={16} /> Export report
+          </span>
+        </Button>
+      </div>
+
+      {/* Module tabs */}
+      <div style={{ marginBottom: 24 }}>
+        <Tabs
+          variant="underline"
+          active={active}
+          onChange={setActive}
+          items={MODULES.map(m => ({ id: m.id, label: m.label }))}
+        />
+      </div>
+
+      {/* Active module */}
+      {active === 'monte-carlo' ? <MonteCarlo /> : MODULE_CONTENT[active]}
+    </>
+  )
+}
